@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>文旅智能辅助 · 演示界面</title>
+<style>
+  /* ========== 设计变量：山水·青绿主题 ========== */
+  :root {
+    --primary: #0f766e;      /* 主色：青绿（山水） */
+    --primary-dark: #0b5e57;
+    --accent: #d97706;       /* 点缀：暖金 */
+    --bg: #f6f7f5;
+    --card: #ffffff;
+    --text: #1f2937;
+    --text-sub: #6b7280;
+    --border: #e5e7eb;
+    --radius: 14px;
+    --shadow: 0 1px 3px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.04);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 24px 20px 64px; }
+
+  /* 头部 */
+  header { text-align: center; margin-bottom: 24px; }
+  header h1 { font-size: 26px; margin: 0 0 6px; color: var(--primary-dark); }
+  header p { margin: 0; color: var(--text-sub); font-size: 14px; }
+  .badge {
+    display: inline-block; margin-top: 10px; padding: 4px 12px;
+    font-size: 12px; color: var(--primary-dark);
+    background: #e6f4f1; border-radius: 999px;
+  }
+
+  /* Tab */
+  .tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+  .tab {
+    flex: 1; padding: 12px; text-align: center; cursor: pointer;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); font-weight: 600; color: var(--text-sub);
+    transition: all .15s;
+  }
+  .tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+  /* 面板 */
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 20px; margin-bottom: 20px;
+  }
+  .card h2 { margin: 0 0 4px; font-size: 18px; color: var(--primary-dark); }
+  .card .hint { margin: 0 0 16px; font-size: 13px; color: var(--text-sub); }
+
+  /* 表单 */
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .field label .req { color: #dc2626; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    padding: 6px 14px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--border); background: #fff; font-size: 13px;
+    color: var(--text); transition: all .12s;
+  }
+  .chip:hover { border-color: var(--primary); }
+  .chip.on { background: var(--primary); color: #fff; border-color: var(--primary); }
+  select, input[type="number"] {
+    width: 100%; padding: 9px 12px; font-size: 14px;
+    border: 1px solid var(--border); border-radius: 8px; background: #fff;
+  }
+  .btn {
+    padding: 10px 22px; border: none; border-radius: 8px; cursor: pointer;
+    font-size: 15px; font-weight: 600; color: #fff; background: var(--primary);
+    transition: background .15s;
+  }
+  .btn:hover { background: var(--primary-dark); }
+  .btn.ghost {
+    background: #fff; color: var(--primary); border: 1px solid var(--primary);
+  }
+  .btn.ghost:hover { background: #e6f4f1; }
+  .actions { display: flex; gap: 10px; margin-top: 6px; }
+
+  /* 输出 */
+  .output {
+    background: #fbfcfa; border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px; min-height: 120px;
+    white-space: pre-wrap; font-size: 14px; color: var(--text);
+  }
+  .output:empty::before { content: "生成结果将显示在这里…"; color: #9ca3af; }
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--primary-dark); color: #fff; padding: 10px 20px;
+    border-radius: 8px; font-size: 14px; opacity: 0; pointer-events: none;
+    transition: opacity .3s;
+  }
+  .toast.show { opacity: 1; }
+  footer { text-align: center; color: #9ca3af; font-size: 12px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🏔️ 文旅智能辅助 · 演示界面</h1>
+    <p>聚焦「个性化方案规划」与「文旅营销素材生成」两大核心功能</p>
+    <span class="badge">🔒 纯本地运行 · 数据不出本地 · 零安装</span>
+  </header>
+
+  <!-- Tab 切换 -->
+  <div class="tabs">
+    <div class="tab active" data-tab="plan">🗺️ 方案规划</div>
+    <div class="tab" data-tab="marketing">✍️ 营销素材生成</div>
+  </div>
+
+  <!-- ========== 面板一：方案规划 ========== -->
+  <div class="panel active" id="panel-plan">
+    <div class="card">
+      <h2>个性化游玩 · 旅居 · 餐饮方案</h2>
+      <p class="hint">填写需求，一键生成一体化的行程方案（示例目的地：杭州）</p>
+
+      <div class="field">
+        <label><span class="req">*</span> 目的地</label>
+        <select id="plan-city">
+          <option value="杭州">杭州</option>
+          <option value="苏州">苏州（示例）</option>
+          <option value="成都">成都（示例）</option>
+        </select>
+      </div>
+      <div class="field">
+        <label><span class="req">*</span> 游玩天数</label>
+        <input type="number" id="plan-days" value="2" min="1" max="7">
+      </div>
+      <div class="field">
+        <label>预算档位</label>
+        <div class="row" data-name="budget">
+          <span class="chip">经济</span><span class="chip on">舒适</span><span class="chip">高端</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>同行人群</label>
+        <div class="row" data-name="crowd">
+          <span class="chip">单人</span><span class="chip">情侣</span><span class="chip on">朋友</span>
+          <span class="chip">亲子</span><span class="chip">带老人</span><span class="chip">团建</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>兴趣偏好（可多选）</label>
+        <div class="row" data-name="interests" data-multi="1">
+          <span class="chip on">自然风光</span><span class="chip on">人文历史</span><span class="chip">美食</span>
+          <span class="chip">亲子</span><span class="chip">文艺打卡</span><span class="chip">购物</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>饮食禁忌</label>
+        <div class="row" data-name="diet">
+          <span class="chip on">无</span><span class="chip">素食</span><span class="chip">忌辣</span><span class="chip">清真</span>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn" onclick="generatePlan()">生成方案</button>
+        <button class="btn ghost" onclick="exportResult('.output#plan-output','文旅方案')">导出 Markdown</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>生成结果</h2>
+      <div class="output" id="plan-output"></div>
+    </div>
+  </div>
+
+  <!-- ========== 面板二：营销素材生成 ========== -->
+  <div class="panel" id="panel-marketing">
+    <div class="card">
+      <h2>文旅营销文案生成</h2>
+      <p class="hint">选择产品与平台，一键生成可发布的多版本文案</p>
+
+      <div class="field">
+        <label><span class="req">*</span> 产品 / 主体</label>
+        <div class="row" data-name="product">
+          <span class="chip on">景区</span><span class="chip">酒店</span><span class="chip">餐饮</span>
+          <span class="chip">文创</span><span class="chip">活动</span>
+        </div>
+      </div>
+      <div class="field">
+        <label><span class="req">*</span> 目标平台</label>
+        <div class="row" data-name="platform">
+          <span class="chip">朋友圈</span><span class="chip on">小红书</span><span class="chip">抖音</span>
+          <span class="chip">OTA</span><span class="chip">公众号</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>目标客群</label>
+        <div class="row" data-name="audience">
+          <span class="chip">亲子家庭</span><span class="chip on">年轻情侣</span><span class="chip">银发族</span>
+          <span class="chip">商务</span><span class="chip">学生</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>文案风格</label>
+        <div class="row" data-name="style">
+          <span class="chip on">种草</span><span class="chip">亲切</span><span class="chip">文艺</span>
+          <span class="chip">促销</span><span class="chip">权威</span>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn" onclick="generateMarketing()">生成文案</button>
+        <button class="btn ghost" onclick="exportResult('.output#marketing-output','营销文案')">导出 Markdown</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>生成结果</h2>
+      <div class="output" id="marketing-output"></div>
+    </div>
+  </div>
+
+  <footer>文旅智能辅助 Skill · 演示原型（示例数据，供本地体验）</footer>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================
+ * 内置样本库（与 .agents/skills/wenlv-assistant/references/ 同步）
+ * 说明：均为示例数据，可替换为自有目的地/酒店/餐饮数据。
+ * ========================================================= */
+
+/* 景区 / 目的地：audience 为适配人群关键词，tags 为兴趣标签 */
+const DESTINATIONS = [
+  {name:"西湖（环湖）", ticket:"免费", hours:"3-4小时", time:"清晨/傍晚", audience:["全人群","情侣","老人"], tags:["自然","免费","经典"]},
+  {name:"西溪湿地", ticket:"80元", hours:"3小时", time:"春秋", audience:["亲子","情侣","老人"], tags:["自然","慢游"]},
+  {name:"九溪烟树", ticket:"免费", hours:"2小时", time:"夏季", audience:["情侣","徒步"], tags:["自然","徒步","免费"]},
+  {name:"千岛湖", ticket:"150元起", hours:"1-2天", time:"春夏秋", audience:["亲子","团建","家庭"], tags:["自然","度假"]},
+  {name:"灵隐寺（飞来峰）", ticket:"75元", hours:"2-3小时", time:"上午", audience:["全人群","老人","祈福"], tags:["人文","祈福"]},
+  {name:"宋城", ticket:"300元起", hours:"3-4小时", time:"下午至夜", audience:["亲子","家庭"], tags:["人文","演艺"]},
+  {name:"河坊街/清河坊", ticket:"免费", hours:"2小时", time:"傍晚至夜", audience:["全人群"], tags:["人文","美食","夜游"]},
+  {name:"良渚博物院", ticket:"免费(预约)", hours:"2小时", time:"任意", audience:["亲子","人文"], tags:["人文","博物馆","免费"]},
+  {name:"龙井村（茶文化）", ticket:"免费", hours:"2-3小时", time:"春季", audience:["情侣","老人","文艺"], tags:["文艺","体验","免费"]},
+  {name:"中国美院象山校区", ticket:"免费", hours:"1-2小时", time:"白天", audience:["文艺","年轻"], tags:["文艺","打卡","免费"]},
+  {name:"青芝坞", ticket:"免费", hours:"1-2小时", time:"傍晚", audience:["年轻","文艺"], tags:["文艺","美食","夜生活"]},
+];
+
+/* 酒店 / 民宿：tier 为价位档，audience 为适配人群 */
+const HOTELS = [
+  {name:"湖畔酒店（湖景房）", tier:"高端", price:"约1200元/晚", location:"西湖边", feature:"湖景房、步行至断桥、下午茶", audience:["情侣","商务","纪念日"]},
+  {name:"龙井山房", tier:"高端", price:"约1500元/晚", location:"龙井村", feature:"茶园景观、私汤、管家服务", audience:["情侣","高端度假"]},
+  {name:"青芝坞·山居民宿", tier:"舒适", price:"约480元/晚", location:"青芝坞", feature:"文艺、近浙大、咖啡馆扎堆", audience:["情侣","学生","年轻"]},
+  {name:"西溪·亲子度假酒店", tier:"舒适", price:"约680元/晚", location:"西溪湿地旁", feature:"亲子房、儿童乐园、接送", audience:["亲子","家庭"]},
+  {name:"市中心商务酒店", tier:"舒适", price:"约450元/晚", location:"武林商圈", feature:"地铁口、交通便利", audience:["商务","大众"]},
+  {name:"河坊街青年旅舍", tier:"经济", price:"约120元/床", location:"河坊街", feature:"性价比、位置好、可结伴", audience:["学生","背包客"]},
+  {name:"连锁快捷酒店", tier:"经济", price:"约220元/晚", location:"地铁沿线", feature:"干净、标准化", audience:["大众","预算有限"]},
+];
+
+/* 餐饮：diet 为禁忌友好度，audience 为适配人群 */
+const RESTAURANTS = [
+  {name:"楼外楼", type:"老字号杭帮菜", price:"人均约150元", location:"西湖孤山", feature:"西湖醋鱼、东坡肉、龙井虾仁", audience:["家庭","游客"], diet:["忌辣"]},
+  {name:"外婆家", type:"大众杭帮菜", price:"人均约70元", location:"多家分店", feature:"外婆红烧肉、茶香鸡", audience:["大众","学生"], diet:["忌辣"]},
+  {name:"绿茶餐厅", type:"融合杭帮菜", price:"人均约80元", location:"湖滨", feature:"绿茶烤鸡、面包诱惑", audience:["年轻","情侣"], diet:["忌辣"]},
+  {name:"知味观", type:"老字号小吃", price:"人均约40元", location:"湖滨", feature:"小笼包、猫耳朵、定胜糕", audience:["全人群"], diet:["忌辣"]},
+  {name:"河坊街小吃街", type:"小吃集市", price:"人均约50元", location:"河坊街", feature:"葱包烩、定胜糕、龙须糖", audience:["全人群"], diet:["素食","忌辣"]},
+  {name:"龙井茶室", type:"茶饮/茶点", price:"人均约80元", location:"龙井村", feature:"龙井茶、茶点", audience:["情侣","老人"], diet:["素食","忌辣"]},
+  {name:"青芝坞小馆", type:"私房菜/轻食", price:"人均约90元", location:"青芝坞", feature:"时令菜、咖啡甜品", audience:["年轻","文艺"], diet:["素食","忌辣"]},
+];
+
+/* =========================================================
+ * 匹配引擎：按人群/兴趣/预算/禁忌打分排序
+ * ========================================================= */
+
+/* 人群 → 关键词映射 */
+const CROWD_KEYWORDS = {
+  "单人": ["全人群","情侣","文艺","年轻"],
+  "情侣": ["情侣","全人群","文艺","年轻","自然"],
+  "朋友": ["全人群","年轻","徒步","文艺"],
+  "亲子": ["亲子","家庭","全人群"],
+  "带老人": ["老人","全人群","祈福"],
+  "团建": ["团建","家庭","全人群"],
+};
+
+/* 兴趣 → 标签映射 */
+const INTEREST_TAGS = {
+  "自然风光": "自然", "人文历史": "人文", "美食": "美食",
+  "亲子": "演艺", "文艺打卡": "文艺", "购物": "打卡",
+};
+
+/* 预算 → 价位档映射 */
+const BUDGET_TIERS = { "经济": ["经济"], "舒适": ["经济","舒适"], "高端": ["舒适","高端"] };
+
+/* 通用打分函数：命中关键词/标签 +1 分 */
+function scoreByKeys(item, keys) {
+  let s = 0;
+  (item.audience || []).forEach(a => { if (keys.includes(a)) s += 2; });
+  (item.tags || []).forEach(t => { if (keys.includes(t)) s += 2; });
+  return s;
+}
+
+/* 取匹配项的通用逻辑（保底返回原数组，避免空结果） */
+function pickMatched(list, scorer, minCount) {
+  const scored = list.map(x => ({ x, s: scorer(x) }));
+  scored.sort((a, b) => b.s - a.s);
+  const matched = scored.filter(o => o.s > 0).map(o => o.x);
+  const result = matched.length >= minCount ? matched : list;
+  return result;
+}
+
+/* 生成方案：组合景点/餐饮/住宿，按天编排 */
+function generatePlan() {
+  const city = document.getElementById("plan-city").value;
+  const days = parseInt(document.getElementById("plan-days").value, 10) || 2;
+  const budget = getChipVal("budget");
+  const crowd = getChipVal("crowd");
+  const interests = getChipVals("interests");
+  const diet = getChipVal("diet");
+
+  const crowdKeys = CROWD_KEYWORDS[crowd] || [];
+  const tagKeys = interests.map(i => INTEREST_TAGS[i]).filter(Boolean);
+
+  const attrs = pickMatched(DESTINATIONS, x =>
+    scoreByKeys(x, crowdKeys) + scoreByKeys(x, tagKeys), 2 * days);
+
+  const hotels = pickMatched(HOTELS, x => {
+    let s = scoreByKeys(x, crowdKeys);
+    if ((BUDGET_TIERS[budget] || []).includes(x.tier)) s += 3;
+    return s;
+  }, days);
+
+  const rests = pickMatched(RESTAURANTS, x => {
+    let s = scoreByKeys(x, crowdKeys);
+    if (diet === "无" || (x.diet && x.diet.includes(diet))) s += 3; else s -= 5;
+    return s;
+  }, 2 * days);
+
+  /* 编排：每天 上午景点 + 午餐 + 下午景点 + 晚餐 + 住宿 */
+  let md = `# ${city} · ${days}天${days-1}晚 个性化方案\n`;
+  md += `> 面向：${crowd} ｜ 预算：${budget} ｜ 偏好：${interests.join("、") || "不限"} ｜ 饮食：${diet}\n\n`;
+  md += `## 行程总览\n| 天数 | 上午 | 午餐 | 下午 | 晚餐 | 住宿 |\n|---|---|---|---|---|---|\n`;
+
+  const dayLines = [];
+  for (let d = 0; d < days; d++) {
+    const am = attrs[d * 2], pm = attrs[d * 2 + 1] || attrs[0];
+    const lunch = rests[d * 2], dinner = rests[d * 2 + 1] || rests[0];
+    const hotel = hotels[d % hotels.length];
+    md += `| Day${d+1} | ${am.name} | ${lunch.name} | ${pm.name} | ${dinner.name} | ${hotel.name} |\n`;
+
+    let block = `## Day ${d+1}\n`;
+    block += `- 上午：${am.name}（门票 ${am.ticket}，约 ${am.hours}，建议 ${am.time}）\n`;
+    block += `- 午餐：${lunch.name}（${lunch.type}，${lunch.price}，特色：${lunch.feature}）\n`;
+    block += `- 下午：${pm.name}（门票 ${pm.ticket}，约 ${pm.hours}）\n`;
+    block += `- 晚餐：${dinner.name}（${dinner.type}，${dinner.price}）\n`;
+    block += `- 住宿：${hotel.name}（${hotel.price}，${hotel.location}，特色：${hotel.feature}）\n`;
+    block += `- 交通贴士：核心景点间建议地铁+步行，亲子/老人建议打车减少换乘\n`;
+    dayLines.push(block);
+  }
+  md += `\n${dayLines.join("\n")}\n`;
+
+  /* 费用预估 */
+  const tierAvg = { "经济": 300, "舒适": 600, "高端": 1200 };
+  const perDay = tierAvg[budget] || 600;
+  md += `## 费用预估（人均）\n- 住宿：约 ${hotels[0].price} × ${days-1} 晚\n`;
+  md += `- 餐饮+门票+交通：约 ${perDay} 元/天 × ${days} 天\n`;
+  md += `- 合计参考：约 ${perDay * days} 元/人\n\n`;
+
+  md += `## 替代方案 & 避坑提示\n`;
+  md += `- 雨天备选：${city === "杭州" ? "良渚博物院、中国美院（室内为主）" : "优先博物馆/室内场馆"}\n`;
+  md += `- 避坑：热门景点建议提前 1 天预约；${diet !== "无" ? "已按「" + diet + "」筛选餐厅，就餐时请再次与店家确认。" : "饮食无特殊限制。"}\n`;
+  md += `- 提示：本方案由内置示例数据生成，正式运营请替换为本地真实业态数据。\n`;
+
+  document.getElementById("plan-output").textContent = md;
+  toast("✅ 方案已生成");
+}
+
+/* 生成营销文案：按平台模板组合 */
+function generateMarketing() {
+  const product = getChipVal("product");
+  const platform = getChipVal("platform");
+  const audience = getChipVal("audience");
+  const style = getChipVal("style");
+
+  const selling = PRODUCT_SELLING[product] || PRODUCT_SELLING["景区"];
+  const title = `${cityLabel()}`;
+
+  let md = `# ${product} · ${platform} 营销文案（${style}）\n`;
+  md += `> 目标客群：${audience}\n\n`;
+
+  /* 版本 A：理性卖点 */
+  md += `## 版本 A · 理性卖点\n### 标题\n${rationalTitle(product, platform, selling)}\n### 正文\n`;
+  md += selling.map((s, i) => `${i+1}. ${s}`).join("\n");
+  md += `\n### 话题标签\n${tags(product, platform)}\n### 配图建议\n${imageTip(product)}\n### CTA\n${cta(platform)}\n\n`;
+
+  /* 版本 B：感性情绪 */
+  md += `## 版本 B · 感性情绪\n### 标题\n${emotionalTitle(product, platform, audience)}\n### 正文\n`;
+  md += `${emotionalBody(product, platform, audience)}\n### 话题标签\n${tags(product, platform)}\n### CTA\n${cta(platform)}\n`;
+
+  document.getElementById("marketing-output").textContent = md;
+  toast("✅ 文案已生成");
+}
+
+/* 各产品类型的默认卖点 */
+const PRODUCT_SELLING = {
+  "景区": ["自然风光优美，随手出片", "文化底蕴深厚，涨知识", "门票优惠/免费，性价比高", "交通便利，地铁可达"],
+  "酒店": ["位置优越，步行到核心景点", "景观房型，窗外即是风景", "设施齐全，亲子/管家服务", "周末不加价，含双早"],
+  "餐饮": ["地道老字号，30 年口碑", "现炒现做，锅气十足", "环境优雅，适合约会聚餐", "人均实惠，不踩雷"],
+  "文创": ["在地文化符号，有故事", "高颜值又实用", "送人有面子的伴手礼", "价格亲民，随手带走"],
+  "活动": ["主题新颖，别处玩不到", "互动性强，全家都能玩", "适合打卡，朋友圈素材", "限时优惠，错过等一年"],
+};
+
+/* 平台标签 */
+function tags(product, platform) {
+  const base = { "景区": "#旅游 #周末去哪儿", "酒店": "#酒店推荐 #度假", "餐饮": "#美食探店 #本地人推荐", "文创": "#文创 #伴手礼", "活动": "#遛娃 #打卡" }[product];
+  const p = { "小红书": "#小红书", "朋友圈": "", "抖音": "#抖音", "OTA": "", "公众号": "" }[platform];
+  return (base + " " + p).trim().replace(/\s+/g, " ");
+}
+
+/* 配图建议 */
+function imageTip(product) {
+  return {
+    "景区": "首图：地标全景（清晨/黄昏光线）；二图：游客体验特写；三图：门票/路线截图",
+    "酒店": "首图：房型全景；二图：窗外景观；三图：早餐/设施细节",
+    "餐饮": "首图：招牌菜特写（45°俯拍）；二图：用餐环境；三图：排队/人气",
+    "文创": "首图：产品平铺；二图：上手/佩戴实拍；三图：包装细节",
+    "活动": "首图：现场氛围；二图：互动瞬间；三图：海报/价目",
+  }[product];
+}
+
+/* CTA */
+function cta(platform) {
+  return {
+    "小红书": "💾 收藏起来，周末就去！",
+    "朋友圈": "评论区告诉我你想和谁一起去～",
+    "抖音": "❤️ 点赞收藏，下个视频教你路线！",
+    "OTA": "👉 点击预订 / 收藏，周末不加价",
+    "公众号": "关注我们，获取最新优惠与攻略",
+  }[platform];
+}
+
+/* 标题：理性版 */
+function rationalTitle(product, platform, selling) {
+  const top = selling[0];
+  const map = {
+    "景区": `【${cityLabel()}必去】${top}，2 天这样玩不踩雷`,
+    "酒店": `【${cityLabel()}住宿】${top}，周末不加价`,
+    "餐饮": `【${cityLabel()}味道】${top}，本地人都在排队`,
+    "文创": `【有故事的伴手礼】${top}，送人有面子`,
+    "活动": `【限时】${top}，全家都能玩`,
+  };
+  return map[product] || top;
+}
+
+/* 标题：感性版 */
+function emotionalTitle(product, platform, audience) {
+  const map = {
+    "景区": `${cityLabel()}的晚霞，值回这一趟`,
+    "酒店": `推窗见景，这才是度假该有的样子`,
+    "餐饮": `一口下去，吃到了记忆里的味道`,
+    "文创": `把这座城的记忆，打包带回家`,
+    "活动": `和喜欢的人，一起制造这个周末的回忆`,
+  };
+  return map[product] || `遇见${cityLabel()}`;
+}
+
+/* 正文：感性版 */
+function emotionalBody(product, platform, audience) {
+  const map = {
+    "景区": `不赶行程，不凑热闹。清晨的${cityLabel()}还没醒，湖面泛着光，走几步就是一段风景。\n有些地方，去过一次就会一直想再来。`,
+    "酒店": `白天在外奔波，晚上推开门，窗外就是整座城的灯火。\n住在这里，旅途才有了落脚的温度。`,
+    "餐饮": `排队的时候还有点犹豫，第一口下去就懂了——\n地道的老味道，从来不需要太多解释。`,
+    "文创": `在${cityLabel()}的街巷里，遇见一件有故事的小物。\n带回家的不只是物件，是这段旅程的心情。`,
+    "活动": `周末别宅在家，带上家人朋友，来一场说走就走的体验。\n最好的时光，就是和喜欢的人一起浪费。`,
+  };
+  return map[product];
+}
+
+function cityLabel() {
+  return document.getElementById("plan-city") ? document.getElementById("plan-city").value : "杭州";
+}
+
+/* =========================================================
+ * 交互辅助
+ * ========================================================= */
+
+/* chip 单选 / 多选（data-multi="1" 表示可多选） */
+document.querySelectorAll(".row[data-name]").forEach(row => {
+  const multi = row.dataset.multi === "1";
+  row.querySelectorAll(".chip").forEach(chip => {
+    chip.addEventListener("click", () => {
+      if (multi) {
+        chip.classList.toggle("on");
+      } else {
+        row.querySelectorAll(".chip").forEach(c => c.classList.remove("on"));
+        chip.classList.add("on");
+      }
+    });
+  });
+});
+
+/* Tab 切换 */
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+    tab.classList.add("active");
+    document.getElementById("panel-" + tab.dataset.tab).classList.add("active");
+  });
+});
+
+/* 获取单选 chip 值 */
+function getChipVal(name) {
+  const row = document.querySelector(`.row[data-name="${name}"]`);
+  const on = row.querySelector(".chip.on");
+  return on ? on.textContent.trim() : row.querySelector(".chip").textContent.trim();
+}
+/* 获取多选 chip 值（数组） */
+function getChipVals(name) {
+  const row = document.querySelector(`.row[data-name="${name}"]`);
+  return [...row.querySelectorAll(".chip.on")].map(c => c.textContent.trim());
+}
+
+/* 导出结果（本地 Blob 下载，数据不出本地） */
+function exportResult(selector, filename) {
+  const text = document.querySelector(selector).textContent;
+  if (!text.trim()) { toast("⚠️ 请先生成内容再导出"); return; }
+  const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${filename}_${new Date().toISOString().slice(0,10)}.md`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast("📥 已导出为 Markdown 文件");
+}
+
+/* 轻提示 */
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2000);
+}
+</script>
+</body>
+</html>
