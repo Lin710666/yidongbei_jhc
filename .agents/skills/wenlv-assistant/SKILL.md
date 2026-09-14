@@ -157,5 +157,7 @@ description: 文旅智能辅助 Skill。当需要为游客生成个性化"游玩
 
 ## 六、演示界面
 
-`demo/index.html` 是本 Skill 的零门槛交互演示（双击即开、纯本地、无需安装），
-内置同一套样本库与生成逻辑，供运营者/学生直观体验两大功能，并支持一键导出结果。
+`demo/index.html` 是本 Skill 的交互演示界面，由 `server.js` 本地服务器驱动：
+`server.js` 会读取本 SKILL.md 与 `references/` 作为系统提示词，调用本地 Ollama
+大模型（默认 qwen2.5:7b）生成结果。启动方式：双击 `start.bat` 或运行 `node server.js`，
+然后访问 http://localhost:8000 。全程数据不出本机，支持一键导出 Markdown。
