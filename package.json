@@ -1,0 +1,36 @@
+{
+  "name": "wenlv-assistant",
+  "version": "3.0.0",
+  "private": true,
+  "description": "文旅智能辅助 v3.0：本机运行的文旅智能助手。Live2D / 3D 虚拟人物 + 可点击交互词云，方案规划与营销素材生成，推理与语音全部本地化（Ollama + Qwen TTS）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node test/audit.js && node test/smoke.js",
+    "test:audit": "node test/audit.js",
+    "test:smoke": "node test/smoke.js",
+    "test:browser": "node test/verify-browser.mjs && node test/verify-look.mjs && node test/verify-3d.mjs",
+    "previews:model": "node test/generate-model-previews.mjs",
+    "previews:3d": "node test/gen-3d-previews.mjs",
+    "validate:skill": "node .agents/skills/wenlv-assistant/scripts/validate-skill.js",
+    "package:skill": "node .agents/skills/wenlv-assistant/scripts/package-skill.js",
+    "check": "npm run validate:skill && npm test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "wenlv",
+    "airi",
+    "live2d",
+    "vrm",
+    "wordcloud",
+    "ollama",
+    "local-llm",
+    "qwen-tts",
+    "travel"
+  ],
+  "license": "MIT",
+  "dependencies": {}
+}

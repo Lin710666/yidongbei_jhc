@@ -1,0 +1,27 @@
+# 运行期数据：机体记忆、角色卡、语音缓存、上传的背景与 3D 模型。
+# 这些是使用者本机的东西，不该进仓库。
+data/
+
+# 依赖与构建产物
+node_modules/
+dist/
+
+# 验收截图（过程产物，十几 MB）
+test/shots/
+
+# 第三方角色模型与背景素材：版权不在本项目，改用 tools/获取示例模型.ps1 下载。
+# 保留各个 README.md，让克隆下来的人知道去哪拿。
+public/models/*
+!public/models/README.md
+public/models3d/*
+!public/models3d/README.md
+
+# 技能包打包产物
+*.skill
+
+# 编辑器与系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log

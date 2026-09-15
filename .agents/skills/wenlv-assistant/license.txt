@@ -1,0 +1,39 @@
+MIT License
+
+Copyright (c) 2026 文旅智能辅助 Skill 项目
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------
+数据来源与使用说明
+--------------------------------------------------------------------
+
+1. 本技能 references/ 目录下的目的地、酒店、餐饮数据均为【示例数据】（以杭州为例），
+   仅用于功能演示，不代表任何真实商家信息。正式使用时请替换为自有数据。
+
+2. 数据来源建议（替换为真实数据时请遵循相应许可）：
+   - 景区基础信息：可从各景区官方网站公开信息整理（附采集日期）
+   - 地理与分类信息：建议引用 OpenStreetMap 贡献者数据，遵循 ODbL 许可
+   - 事实性字段（开放时间、官网等）：建议引用 Wikidata，遵循 CC0 许可
+   - 政府部门公开的 A 级景区名录：属政府主动公开信息，可合规使用
+
+3. 本项目运行期间不访问任何外部网络（见 manifest.json 的 permissions.network.allow
+   为空数组），推理与数据全部留在本机。
+
+4. 请勿使用未经授权的方式批量抓取第三方平台（OTA / 点评类）的商业数据。

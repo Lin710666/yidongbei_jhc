@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#121212">
+<title>文旅智能辅助 · AIRI 网页版</title>
+<meta name="description" content="基于 Project AIRI 交互风格重构的文旅智能辅助系统：Live2D 虚拟人物 + 可点击交互词云 + 全本地 AI 服务（Ollama / Qwen TTS）">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='88'>🏔️</text></svg>">
+<link rel="stylesheet" href="/css/airi.css">
+
+<!-- importmap：3D 舞台（js/stage3d.js）用裸标识符 import 'three' 与 'three/addons/...'，
+     浏览器靠这张表把它们指到本地 vendor 目录。全部本地文件，不联网。 -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "/vendor/three/three.module.js",
+    "three/addons/": "/vendor/three/addons/"
+  }
+}
+</script>
+
+<!-- Live2D 运行时（全部本地化，离线可用）：
+     ① Cubism 核心（Live2D 官方运行时，必须先于 pixi-live2d-display 加载）
+     ② PixiJS 渲染引擎
+     ③ pixi-live2d-display 的 cubism4 构建 -->
+<script src="/vendor/live2dcubismcore.min.js"></script>
+<script src="/vendor/pixi.min.js"></script>
+<script src="/vendor/pixi-live2d-display-cubism4.min.js"></script>
+</head>
+<body>
+<div class="app">
+
+  <!-- ===================== 顶栏 ===================== -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-logo">🏔️</div>
+      <div class="brand-text">
+        <span class="brand-title">文旅智能辅助 <span class="ver">v3.0</span></span>
+        <span class="brand-sub">Live2D 虚拟向导，全程本机运行</span>
+      </div>
+    </div>
+    <div class="status-row">
+      <button class="status-pill" id="pill-model" title="本机 Ollama 对话模型状态"><i class="dot"></i><span class="lbl">检测中…</span></button>
+      <button class="status-pill" id="pill-memory" title="机体记忆（本地文件 + 混合检索）"><i class="dot"></i><span class="lbl">记忆</span></button>
+      <button class="status-pill" id="pill-voice" title="本地 Qwen TTS 语音合成"><i class="dot"></i><span class="lbl">语音</span></button>
+      <button class="status-pill" id="pill-vision" title="本机多模态视觉理解"><i class="dot"></i><span class="lbl">视觉</span></button>
+      <button class="icon-btn" id="btn-speak-toggle" title="切换自动朗读">🔊</button>
+      <button class="icon-btn" id="btn-refresh" title="刷新本地服务状态">⟳</button>
+    </div>
+  </header>
+
+  <!-- ===================== 舞台 ===================== -->
+  <main class="stage" id="stage">
+    <div class="stage-bg">
+      <img id="bg-image" alt="" aria-hidden="true">
+      <canvas id="bg-canvas" aria-hidden="true"></canvas>
+    </div>
+    <canvas id="live2d-canvas"></canvas>
+    <!-- 3D 舞台（VRM / GLB）。与 Live2D 画布互斥显示，用哪个由所选形象决定 -->
+    <canvas id="stage3d-canvas"></canvas>
+    <div id="wordcloud-layer"></div>
+
+    <!-- 顶部：角色铭牌 + 外观快捷操作（原来散在四处的浮层都收进这一条） -->
+    <div class="stage-top">
+      <div class="char-plate">
+        <div class="char-avatar" id="char-avatar">🏔️</div>
+        <div class="char-meta">
+          <div class="char-name" id="char-name">小文</div>
+          <div class="char-tag" id="char-tag">正在载入角色卡…</div>
+        </div>
+      </div>
+      <div class="stage-tools">
+        <button class="tool-btn" id="open-bg" title="更换背景"><span class="ico">🖼️</span><span class="txt">背景</span></button>
+        <button class="tool-btn" id="open-model" title="更换人物形象"><span class="ico">🧍</span><span class="txt">形象</span></button>
+        <span class="tool-sep"></span>
+        <button class="tool-btn" id="btn-wc-toggle" title="显示 / 隐藏词云"><span class="ico">☁️</span></button>
+        <button class="tool-btn" id="wc-shuffle" title="重新排布词云"><span class="ico">🔀</span></button>
+        <button class="tool-btn" id="wc-full" title="全屏放大词云"><span class="ico">⤢</span></button>
+      </div>
+    </div>
+
+    <!-- 底部：字幕条（替代原来的浮动气泡，不再和词云互相遮挡） -->
+    <div class="subtitle" id="subtitle" hidden>
+      <span class="subtitle-who" id="subtitle-who">小文</span>
+      <span class="subtitle-text" id="subtitle-text"></span>
+      <button class="subtitle-close" id="subtitle-close" title="收起字幕">✕</button>
+    </div>
+
+    <div class="stage-empty" id="stage-empty" hidden>
+      <div>
+        <div style="font-size:26px;margin-bottom:8px">🧍‍♀️</div>
+        <div id="stage-empty-msg">正在加载 Live2D 模型…</div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===================== 右侧面板 ===================== -->
+  <aside class="side">
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-pane="chat" title="和角色对话">💬<span>对话</span></button>
+      <button class="tab" data-pane="tools" title="方案规划与营销素材">🧭<span>文旅</span></button>
+      <button class="tab" data-pane="look" title="背景、形象与词云">🎨<span>外观</span></button>
+      <button class="tab" data-pane="memory" title="机体记忆">🧠<span>记忆</span></button>
+      <button class="tab" data-pane="cards" title="AI 角色卡">🎭<span>角色卡</span></button>
+      <button class="tab" data-pane="voice" title="本地语音合成">🔊<span>声音</span></button>
+    </nav>
+
+    <div class="panes">
+
+      <!-- ---------- 对话 ---------- -->
+      <section class="pane active" id="pane-chat">
+        <h3>和 <span id="chat-char-name">小文</span> 说说话</h3>
+        <p class="sub">对话由本机 Ollama 驱动。人格来自角色卡，回答前会先翻一遍机体记忆。</p>
+        <div class="badges" id="chat-badges"></div>
+        <div class="chat-log" id="chat-log"></div>
+      </section>
+
+      <!-- ---------- 文旅 ---------- -->
+      <section class="pane" id="pane-tools">
+        <h3>文旅两大核心功能</h3>
+        <p class="sub">由本地样本库加本机大模型生成。输出会过一遍质检，核对推荐的商家是不是真在样本库里。</p>
+
+        <div class="seg" style="margin-bottom:14px">
+          <button class="seg-item on" data-tool="plan">🗺️ 方案规划</button>
+          <button class="seg-item" data-tool="marketing">✍️ 营销素材</button>
+        </div>
+
+        <!-- 方案规划表单 -->
+        <div id="form-plan">
+          <div class="field">
+            <label>目的地 <span class="hint-inline">样本库已覆盖：<span id="city-list-inline">—</span></span></label>
+            <div class="row" id="city-chips"></div>
+            <input type="text" id="plan-city" value="杭州" placeholder="也可填写其它城市，会走降级路径" style="margin-top:7px">
+          </div>
+          <div class="field">
+            <label>游玩天数：<b id="days-label">2</b> 天</label>
+            <input type="range" id="plan-days" min="1" max="7" value="2">
+          </div>
+          <div class="field"><label>预算档位</label><div class="row" data-name="budget"></div></div>
+          <div class="field"><label>同行人群</label><div class="row" data-name="crowd"></div></div>
+          <div class="field"><label>兴趣偏好 <span class="hint-inline">可多选</span></label><div class="row" data-name="interests" data-multi="1"></div></div>
+          <div class="field"><label>饮食禁忌</label><div class="row" data-name="diet"></div></div>
+        </div>
+
+        <!-- 营销表单 -->
+        <div id="form-marketing" hidden>
+          <div class="field"><label>产品 / 主体</label><div class="row" data-name="product"></div></div>
+          <div class="field"><label>目标平台</label><div class="row" data-name="platform"></div></div>
+          <div class="field"><label>目标客群</label><div class="row" data-name="audience"></div></div>
+          <div class="field"><label>文案风格</label><div class="row" data-name="style"></div></div>
+        </div>
+
+        <div class="actions">
+          <button class="btn" id="btn-generate">生成</button>
+          <button class="btn ghost" id="btn-intake">🤔 让 AI 先问我</button>
+        </div>
+
+        <div class="section">
+          <div class="lbl">
+            生成结果
+            <span class="lbl-actions">
+              <button class="mini-btn" id="btn-speak-result" title="用本机语音朗读结果">🔊 朗读</button>
+              <button class="mini-btn" id="btn-export" title="导出为 Markdown">📥 导出</button>
+            </span>
+          </div>
+          <div id="tools-warn"></div>
+          <div class="output" id="tools-output"></div>
+        </div>
+      </section>
+
+      <!-- ---------- 外观 ---------- -->
+      <section class="pane" id="pane-look">
+        <h3>外观</h3>
+        <p class="sub">换背景、换形象、调词云。素材都在本机，不联网。</p>
+
+        <div class="section">
+          <div class="lbl">
+            背景
+            <span class="lbl-actions">
+              <button class="mini-btn" id="look-bg-pick">🖼️ 更换背景</button>
+            </span>
+          </div>
+          <div class="look-preview">
+            <canvas id="look-bg-thumb" width="300" height="140"></canvas>
+            <div class="look-preview-meta">
+              <div class="look-preview-name" id="look-bg-name">跟随主题</div>
+              <div class="look-preview-note" id="look-bg-note">—</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="lbl">
+            人物形象（Live2D）
+            <span class="lbl-actions">
+              <button class="mini-btn" id="look-model-pick">🧍 更换形象</button>
+            </span>
+          </div>
+          <div class="look-preview">
+            <div class="look-model-thumb"><img id="look-model-img" alt=""></div>
+            <div class="look-preview-meta">
+              <div class="look-preview-name" id="look-model-name">—</div>
+              <div class="look-preview-note" id="look-model-note">—</div>
+            </div>
+          </div>
+          <div class="field" style="margin-top:12px">
+            <label>大小 <b id="l2d-scale-label">100%</b></label>
+            <input type="range" id="l2d-scale" min="40" max="200" value="100">
+          </div>
+          <div class="field">
+            <label>水平位置 <b id="l2d-x-label">0</b></label>
+            <input type="range" id="l2d-x" min="-100" max="100" value="0">
+          </div>
+          <div class="field">
+            <label>垂直位置 <b id="l2d-y-label">0</b></label>
+            <input type="range" id="l2d-y" min="-100" max="100" value="0">
+          </div>
+          <div class="field">
+            <label>表情 <span class="hint-inline" id="expr-hint"></span></label>
+            <div class="row" id="l2d-expressions"></div>
+          </div>
+          <div class="actions">
+            <button class="btn ghost sm" id="l2d-save">保存到当前角色卡</button>
+            <button class="btn ghost sm" id="l2d-reset">复位</button>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="lbl">词云</div>
+          <label class="check"><input type="checkbox" id="wc-enabled" checked> 在舞台上显示交互词云</label>
+          <label class="check"><input type="checkbox" id="wc-glow" checked> 悬浮动画</label>
+          <div class="field" style="margin-top:8px">
+            <label>显示数量 <b id="wc-density-label">标准</b></label>
+            <input type="range" id="wc-density" min="1" max="3" value="2">
+          </div>
+        </div>
+
+        <details class="fold">
+          <summary>本地服务状态</summary>
+          <div id="settings-services" style="margin-top:10px"></div>
+        </details>
+
+        <details class="fold">
+          <summary>关于</summary>
+          <div class="info-box" style="margin-top:10px">
+            <b>交互风格</b>取自 <a href="https://github.com/moeru-ai/airi" target="_blank" rel="noreferrer" style="color:var(--primary)">Project AIRI</a>（MIT）。<br>
+            <b>内置的 Live2D 形象</b>是桃瀬ひより，Live2D Inc. 的官方示例模型，随 AIRI 一起分发。<br>
+            <b>内置背景</b>有 3 张来自 AIRI，另外 9 个程序化背景是照 AIRI 的 Backgrounds 组件重写的。<br>
+            <b>业务能力</b>来自原「文旅智能辅助 Skill」，赛题编号 JBGS-2026-06。<br>
+            <b>推理</b>用本机 Ollama，<b>语音</b>用本机 Qwen TTS。<br>
+            <b>渲染</b>用 PixiJS + pixi-live2d-display + Live2D Cubism Core，3D 用 three.js + three-vrm。
+          </div>
+        </details>
+      </section>
+
+      <!-- ---------- 机体记忆 ---------- -->
+      <section class="pane" id="pane-memory">
+        <h3>机体记忆</h3>
+        <p class="sub">AIRI 的机体记忆原本依赖 Postgres + pgvector；这里替换为本地文件存储 + 混合检索（语义向量 + 中文词法）。</p>
+        <div class="badges" id="memory-badges"></div>
+
+        <div class="section">
+          <div class="lbl">检索记忆</div>
+          <div class="inline">
+            <input type="text" id="mem-query" placeholder="例如：上次说的杭州餐厅">
+            <button class="btn sm" id="mem-search">搜索</button>
+          </div>
+          <div id="mem-search-result" style="margin-top:11px"></div>
+        </div>
+
+        <div class="section">
+          <div class="lbl">手动记一条</div>
+          <textarea id="mem-add-text" placeholder="例如：用户是杭州本地人，带 6 岁小孩，忌辣，预算偏经济。"></textarea>
+          <div class="actions" style="margin-top:8px">
+            <button class="btn sm" id="mem-add">💾 存入记忆</button>
+            <button class="btn ghost sm" id="mem-reload">刷新</button>
+            <button class="btn ghost sm" id="mem-clear">清空全部</button>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="lbl">记忆库</div>
+          <div id="mem-list"></div>
+        </div>
+      </section>
+
+      <!-- ---------- 角色卡 ---------- -->
+      <section class="pane" id="pane-cards">
+        <h3>AI 角色卡</h3>
+        <p class="sub">自定义虚拟人格：人设、说话风格、开场白、音色、模型参数、人物形象。角色卡都存在本机。</p>
+        <div class="actions" style="margin-bottom:13px">
+          <button class="btn sm" id="card-new">＋ 新建</button>
+          <button class="btn ghost sm" id="card-import">📂 导入</button>
+          <button class="btn ghost sm" id="card-export-all">📤 全部导出</button>
+        </div>
+        <div class="card-grid" id="card-list"></div>
+      </section>
+
+      <!-- ---------- 声音 ---------- -->
+      <section class="pane" id="pane-voice">
+        <h3>声音（本地 Qwen TTS）</h3>
+        <p class="sub">语音合成本地化：直接调用本机 Qwen TTS WebUI。<br>启动方式：在 Qwen TTS WebUI 目录执行 <code>python launch.py --nowebui</code>。</p>
+        <div class="badges" id="voice-badges"></div>
+
+        <div class="section">
+          <div class="lbl">音色库</div>
+          <div id="voice-list"></div>
+        </div>
+
+        <div class="section">
+          <div class="lbl">试听</div>
+          <textarea id="voice-test-text">你好，我是你的文旅向导。断桥残雪这会儿人不多，咱们可以先去走一圈。</textarea>
+          <div class="actions" style="margin-top:8px">
+            <button class="btn sm" id="voice-test">▶ 试听当前音色</button>
+            <button class="btn ghost sm" id="voice-refresh">⟳ 刷新</button>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="lbl">语气指令 <span class="hint-inline">instruct，决定音色</span></div>
+          <textarea id="voice-instruct" placeholder="用自然语言描述想要的音色与语气…"></textarea>
+          <div class="actions" style="margin-top:8px">
+            <button class="btn sm" id="voice-save">保存到当前角色卡</button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- ---------- 输入区 ---------- -->
+    <div class="composer">
+      <div id="attach-slot"></div>
+      <div class="composer-top">
+        <textarea id="chat-input" placeholder="和向导说点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
+      </div>
+      <div class="composer-bar">
+        <button class="icon-btn" id="btn-image" title="上传图片，用本机视觉模型看懂它">🖼️</button>
+        <input type="file" id="file-input" accept="image/*" hidden>
+        <button class="icon-btn" id="btn-camera" title="调用摄像头拍照识景">📷</button>
+        <div class="spacer"></div>
+        <span class="hintline" id="composer-hint"></span>
+        <button class="btn ghost sm" id="btn-stop" hidden>■ 停止</button>
+        <button class="btn sm" id="btn-send">发送</button>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div class="toast-wrap" id="toasts"></div>
+<div id="modal-root"></div>
+<audio id="tts-audio" hidden></audio>
+
+<script src="/js/util.js"></script>
+<script src="/js/backgrounds.js"></script>
+<script src="/js/live2d.js"></script>
+<script src="/js/wordcloud.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>

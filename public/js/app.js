@@ -1,0 +1,2092 @@
+/* ============================================================================
+ * app.js —— 文旅智能辅助 · AIRI 网页版 主程序
+ *
+ * 职责：把「Live2D 舞台 + 交互词云 + 右侧面板」和「本地服务」接起来。
+ * 所有数据来自本机：/api/status、/api/capabilities、/api/chat(SSE)、
+ * /api/wenlv/generate(SSE)、/api/memory*、/api/cards*、/api/tts、/api/vision。
+ * ==========================================================================*/
+(function () {
+  'use strict';
+
+  const { $, $$, el, toast, renderMarkdown, api, sse, download, fmtTime, escapeHtml, downscaleImage } = window.U;
+
+  const LS_SETTINGS = 'wenlv-airi/settings';
+  const LS_HISTORY = 'wenlv-airi/history';
+
+  // ===== 全局状态 =====
+  const S = {
+    caps: null,
+    status: null,
+    cards: [],
+    card: null,
+    voices: [],
+    l2dModels: [],
+    models3d: { bundled: [], custom: [], formats: {} },
+    backgrounds: { bundled: [], procedural: [], custom: [] },
+    history: [],
+    visionImage: null,           // 当前附带的图片（dataURL）
+    cameraStream: null,
+    busy: false,
+    currentStream: null,
+    lastResult: '',
+    // 当前展示的人物形象。kind 决定用哪套渲染器：
+    //   'live2d' -> Live2DStage（PixiJS + Cubism）
+    //   '3d'     -> ThreeDStage（three.js + three-vrm，按需懒加载）
+    display: { kind: 'live2d', id: 'nahida' },
+    settings: {
+      autospeak: false,
+      memory: true,
+      vision: true,
+      wcEnabled: true,
+      wcGlow: true,
+      wcDensity: 2,
+      l2dScale: 1,
+      l2dX: 0,
+      l2dY: 0,
+      expression: '',
+      backgroundId: 'proc-aurora',   // 默认跟随主题的极光渐变
+    },
+  };
+
+  // 舞台上的浮动元素高度会作为词云的安全边距，避免互相遮挡。
+  // 这里是兜底值，实际高度在 setCloudInsets() 里量出来覆盖。
+  S.settings.wcInsets = { top: 58, right: 14, bottom: 58, left: 14 };
+
+  let stage = null;        // Live2DStage 实例（用到才创建）
+  let stage3d = null;      // ThreeDStage 实例（选了 3D 形象才懒加载）
+  let cloud = null;
+  let bg = null;
+
+  // ===== 设置持久化 =====
+  function loadSettings() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(LS_SETTINGS) || '{}');
+      Object.assign(S.settings, raw || {});
+    } catch { /* 坏数据就用默认值 */ }
+  }
+  function saveSettings() {
+    try { localStorage.setItem(LS_SETTINGS, JSON.stringify(S.settings)); } catch { /* 配额满了就放弃 */ }
+  }
+  function loadHistory() {
+    try {
+      S.history = JSON.parse(localStorage.getItem(LS_HISTORY) || '[]');
+      if (!Array.isArray(S.history)) S.history = [];
+    } catch { S.history = []; }
+  }
+  function saveHistory() {
+    // 只留最近 60 条，避免 localStorage 无限膨胀
+    S.history = S.history.slice(-60);
+    try { localStorage.setItem(LS_HISTORY, JSON.stringify(S.history)); } catch { /* 忽略 */ }
+  }
+
+  /* ========================================================================
+   * 一、启动
+   * ======================================================================*/
+  async function boot() {
+    loadSettings();
+    loadHistory();
+    applySettingsToUI();
+    bindTabs();
+    bindTopbar();
+    bindComposer();
+    bindTools();
+    bindMemory();
+    bindCards();
+    bindVoice();
+    bindLook();
+    bindStage();
+
+    cloud = new window.WordCloud($('#wordcloud-layer'), { onAction: handleWordAction });
+    cloud.setAnimate(S.settings.wcGlow);
+    cloud.setDensity(S.settings.wcDensity);
+    cloud.setInsets(S.settings.wcInsets);
+    $('#wordcloud-layer').style.display = S.settings.wcEnabled ? '' : 'none';
+
+    // 背景管理器：图片与程序化背景都由它渲染。放在词云之后创建，
+    // 这样它就是最早的一层，后面所有东西都叠在背景之上。
+    bg = new window.BackgroundManager({ imageEl: $('#bg-image'), canvasEl: $('#bg-canvas') });
+    bg.resize();
+
+    await refreshStatus();
+    await loadCapabilities();
+
+    // 背景要在拿到能力清单之后再恢复：那张清单里才有 palette 等信息
+    applyBackground(S.settings.backgroundId, { silent: true });
+
+    initStage();
+    renderHistory();
+    if (!S.history.length) {
+      // 首次进入：让角色主动打个招呼，而不是空白一片
+      setTimeout(() => say(S.card ? S.card.greeting : '你好，我是你的文旅向导。', true), 900);
+    }
+  }
+
+  /* ========================================================================
+   * 二、服务状态
+   * ======================================================================*/
+  function setPill(sel, kind, text) {
+    const pill = $(sel);
+    if (!pill) return;
+    const dot = pill.querySelector('.dot');
+    dot.className = `dot ${kind}`;
+    pill.querySelector('.lbl').textContent = text;
+  }
+
+  async function refreshStatus() {
+    try {
+      const st = await api('/api/status');
+      S.status = st;
+      applyStatusToUI();
+      return st;
+    } catch (e) {
+      setPill('#pill-model', 'err', '服务未启动');
+      toast(`无法连接本地服务：${e.message}`, 'err', 5000);
+      return null;
+    }
+  }
+
+  function applyStatusToUI() {
+    const st = S.status;
+    if (!st) return;
+    const o = st.ollama || {};
+    if (!o.running) setPill('#pill-model', 'err', 'Ollama 未运行');
+    else if (!o.chatModel) setPill('#pill-model', 'warn', '无对话模型');
+    else setPill('#pill-model', 'ok', o.chatModel);
+
+    const mem = st.memory || {};
+    setPill('#pill-memory', mem.total ? 'ok' : 'warn', `记忆 ${mem.total || 0}`);
+
+    const t = st.tts || {};
+    setPill('#pill-voice', t.running ? 'ok' : 'warn', t.running ? '语音就绪' : '语音未连');
+
+    setPill('#pill-vision', o.visionModel ? 'ok' : 'warn', o.visionModel || '无视觉模型');
+
+    // 设置页的服务明细
+    const box = $('#settings-services');
+    if (box) {
+      box.innerHTML = '';
+      const rows = [
+        ['对话模型', o.chatModel || '未检测到', o.chatModel ? 'ok' : 'err'],
+        ['视觉模型', o.visionModel || '未安装（ollama pull qwen2.5vl:7b）', o.visionModel ? 'ok' : 'warn'],
+        ['向量模型', o.embedModel || '未安装（记忆将用纯词法检索）', o.embedModel ? 'ok' : 'warn'],
+        ['Ollama 地址', o.url || '—', o.running ? 'ok' : 'err'],
+        ['语音合成', t.running ? `${t.url}（${(t.models || []).length} 个模型）` : '未连接 Qwen TTS', t.running ? 'ok' : 'warn'],
+        ['记忆模式', mem.mode || '—', 'ok'],
+        ['记忆条数', `${mem.total || 0} 条（含向量 ${mem.withEmbedding || 0} 条）`, 'ok'],
+        ['样本库实体', `${(st.wenlv && st.wenlv.entityCount) || 0} 条`, 'ok'],
+        ['数据目录', st.dataDir || '—', 'ok'],
+      ];
+      for (const [k, v, k2] of rows) {
+        box.appendChild(el('div', { class: 'mem-item' }, [
+          el('div', { class: 'txt' }, [
+            el('div', { text: k, style: { fontWeight: '600' } }),
+            el('div', { class: 'meta', text: String(v) }),
+          ]),
+          el('i', { class: `dot ${k2}`, style: { marginTop: '6px' } }),
+        ]));
+      }
+    }
+
+    // 语音面板徽标
+    const vb = $('#voice-badges');
+    if (vb) {
+      vb.innerHTML = '';
+      vb.appendChild(el('span', { class: 'mini', html: `<i class="dot ${t.running ? 'ok' : 'err'}"></i> ${t.running ? 'Qwen TTS 已连接' : 'Qwen TTS 未连接'}` }));
+      if (t.running) vb.appendChild(el('span', { class: 'mini', text: `${(t.models || []).length} 个可用模型` }));
+      if (t.url) vb.appendChild(el('span', { class: 'mini', text: t.url }));
+    }
+
+    // 记忆面板徽标
+    const mb = $('#memory-badges');
+    if (mb) {
+      mb.innerHTML = '';
+      mb.appendChild(el('span', { class: 'mini', text: `共 ${mem.total || 0} 条` }));
+      mb.appendChild(el('span', { class: 'mini', text: `检索：${mem.mode || '—'}` }));
+    }
+
+    // 对话页徽标
+    const cb = $('#chat-badges');
+    if (cb) {
+      cb.innerHTML = '';
+      cb.appendChild(el('span', { class: 'mini', html: '<i class="dot ok"></i> 本地推理' }));
+      cb.appendChild(el('span', { class: 'mini', text: o.chatModel || '—' }));
+      if (o.visionModel) cb.appendChild(el('span', { class: 'mini', text: `视觉 ${o.visionModel}` }));
+      if (mem.enabled) cb.appendChild(el('span', { class: 'mini', text: `记忆 ${mem.total || 0}` }));
+    }
+  }
+
+  /* ========================================================================
+   * 三、能力 / 词云 / 表单选项
+   * ======================================================================*/
+  async function loadCapabilities() {
+    const caps = await api('/api/capabilities');
+    S.caps = caps;
+    S.voices = caps.voices || [];
+    S.l2dModels = caps.live2d || [];
+    S.models3d = caps.models3d || { bundled: [], custom: [], formats: {} };
+    S.cards = caps.cards || [];
+    S.backgrounds = caps.backgrounds || { bundled: [], procedural: [], custom: [] };
+    setActiveCard(caps.activeCardId || (S.cards[0] && S.cards[0].id), { silent: true });
+
+    cloud.setWords(caps.wordCloud || []);
+    fillOptions(caps.options);
+    $('#city-list-inline').textContent = (caps.cities || []).join('、') || '—';
+    renderCityChips(caps.cities || []);
+    renderLive2DModels();
+    renderVoices();
+    renderCards();
+    renderLookPreview();
+  }
+
+  /** 所有可选形象的统一清单：Live2D 与 3D 混在一起，用 kind 区分 */
+  function allDisplayModels() {
+    return [
+      ...(S.l2dModels || []).map(m => ({ ...m, kind: 'live2d' })),
+      ...((S.models3d && S.models3d.bundled) || []),
+      ...((S.models3d && S.models3d.custom) || []),
+    ];
+  }
+
+  function findDisplayModel(kind, id) {
+    return allDisplayModels().find(m => m.kind === kind && m.id === id) || null;
+  }
+
+  /** 用 OPTIONS 渲染 chip 组：词云和表单共用同一份常量，永远对得上 */
+  function fillOptions(options) {
+    const defaults = (S.caps && S.caps.defaults) || {};
+    $$('.row[data-name]').forEach((row) => {
+      const name = row.dataset.name;
+      const multi = row.dataset.multi === '1';
+      const list = (options && options[name]) || [];
+      const preset = [].concat(defaults[name] || []);
+      row.innerHTML = '';
+      list.forEach((v) => {
+        const on = multi ? preset.includes(v) : preset[0] === v;
+        const chip = el('button', { class: `chip${on ? ' on' : ''}`, text: v, type: 'button' });
+        chip.addEventListener('click', () => {
+          if (multi) chip.classList.toggle('on');
+          else {
+            $$('.chip', row).forEach(c => c.classList.remove('on'));
+            chip.classList.add('on');
+          }
+        });
+        row.appendChild(chip);
+      });
+    });
+  }
+
+  function renderCityChips(cities) {
+    const box = $('#city-chips');
+    if (!box) return;
+    box.innerHTML = '';
+    cities.forEach((c, i) => {
+      const chip = el('button', { class: `chip${i === 0 ? ' on' : ''}`, text: c, type: 'button' });
+      chip.addEventListener('click', () => {
+        $$('.chip', box).forEach(x => x.classList.remove('on'));
+        chip.classList.add('on');
+        $('#plan-city').value = c;
+      });
+      box.appendChild(chip);
+    });
+  }
+
+  const chipVal = (name) => {
+    const on = $(`.row[data-name="${name}"] .chip.on`);
+    return on ? on.textContent.trim() : '';
+  };
+  const chipVals = (name) => $$(`.row[data-name="${name}"] .chip.on`).map(c => c.textContent.trim());
+
+  function collectPlanParams(overrides) {
+    return Object.assign({
+      city: $('#plan-city').value.trim() || '杭州',
+      days: Number($('#plan-days').value) || 2,
+      budget: chipVal('budget') || '舒适',
+      crowd: chipVal('crowd') || '朋友',
+      interests: chipVals('interests').length ? chipVals('interests') : ['自然风光'],
+      diet: chipVal('diet') || '无',
+    }, overrides || {});
+  }
+  function collectMarketingParams(overrides) {
+    return Object.assign({
+      product: chipVal('product') || '景区',
+      platform: chipVal('platform') || '小红书',
+      audience: chipVal('audience') || '年轻情侣',
+      style: chipVal('style') || '种草',
+    }, overrides || {});
+  }
+
+  /** 把词云点到的参数回填进表单，让用户看到"点了什么、现在是什么状态" */
+  function applyParamsToForm(tab, params) {
+    if (!params) return;
+    if (params.city !== undefined) {
+      $('#plan-city').value = params.city;
+      $$('#city-chips .chip').forEach(c => c.classList.toggle('on', c.textContent.trim() === params.city));
+    }
+    if (params.days !== undefined) { $('#plan-days').value = params.days; $('#days-label').textContent = params.days; }
+    const setChip = (name, value) => {
+      if (value === undefined) return;
+      $$(`.row[data-name="${name}"] .chip`).forEach(c => c.classList.toggle('on', c.textContent.trim() === value));
+    };
+    setChip('budget', params.budget);
+    setChip('crowd', params.crowd);
+    setChip('diet', params.diet);
+    if (params.interests) {
+      $$('.row[data-name="interests"] .chip').forEach(c => c.classList.toggle('on', params.interests.includes(c.textContent.trim())));
+    }
+    setChip('product', params.product);
+    setChip('platform', params.platform);
+    setChip('audience', params.audience);
+    setChip('style', params.style);
+    if (tab) switchTab(tab);
+  }
+
+  /* ========================================================================
+   * 四、词云动作分发 —— 点一下真的触发对应效果
+   * ======================================================================*/
+  async function handleWordAction(w) {
+    const a = w.action;
+    const p = w.payload || {};
+    switch (a) {
+      case 'panel':
+        switchTab(p.tab || 'tools');
+        break;
+
+      case 'plan': {
+        applyParamsToForm('tools', p);
+        $('#form-plan').hidden = false;
+        $('#form-marketing').hidden = true;
+        $$('#pane-tools [data-tool]').forEach(c => c.classList.toggle('on', c.dataset.tool === 'plan'));
+        say(pickLine('plan', p), true);
+        await generate('plan', collectPlanParams(p));
+        break;
+      }
+
+      case 'marketing': {
+        applyParamsToForm('tools', p);
+        $('#form-plan').hidden = true;
+        $('#form-marketing').hidden = false;
+        $$('#pane-tools [data-tool]').forEach(c => c.classList.toggle('on', c.dataset.tool === 'marketing'));
+        say(pickLine('marketing', p), true);
+        await generate('marketing', collectMarketingParams(p));
+        break;
+      }
+
+      case 'intake':
+        switchTab('tools');
+        say('你还没告诉我需求，我先问几个问题吧。', true);
+        await generate('intake', {});
+        break;
+
+      case 'audit':
+        switchTab('tools');
+        toast('输出质检会在每次生成后自动运行，结果以黄色告警条显示', 'ok', 4200);
+        say('每次生成完我都会拿本地样本库核对一遍，编造出来的商家名字跑不掉。', true);
+        break;
+
+      case 'export':
+        if (!S.lastResult) { toast('还没有可导出的内容，先生成一次吧', 'err'); break; }
+        download(`文旅方案_${new Date().toISOString().slice(0, 10)}.md`, S.lastResult);
+        toast('已导出为 Markdown（数据不出本机）', 'ok');
+        break;
+
+      case 'focus': {
+        switchTab('tools');
+        const target = $('#' + p.field);
+        if (target) { target.focus(); target.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+        break;
+      }
+
+      case 'remember': {
+        const text = await askText('记一条长期记忆', '把要记住的内容写下来，之后对话会自动召回。');
+        if (text) {
+          try {
+            await api('/api/memory', { method: 'POST', body: { text, kind: 'fact' } });
+            toast('已存入机体记忆', 'ok');
+            await refreshStatus();
+            renderMemoryList();
+          } catch (e) { toast(`存入失败：${e.message}`, 'err'); }
+        }
+        break;
+      }
+
+      case 'vision':
+        switchTab('chat');
+        $('#file-input').click();
+        break;
+
+      case 'speak': {
+        switchTab('chat');
+        const last = [...S.history].reverse().find(m => m.role === 'assistant');
+        if (!last) { toast('还没有可朗读的内容', 'err'); break; }
+        speakText(last.content);
+        break;
+      }
+
+      case 'expression-cycle': {
+        if (!stage || !stage.expressions.length) { toast('当前模型没有表情文件', 'err'); break; }
+        const idx = stage.expressions.indexOf(S.settings.expression);
+        const next = stage.expressions[(idx + 1) % stage.expressions.length];
+        S.settings.expression = next;
+        saveSettings();
+        await stage.setExpression(next);
+        renderExpressions();
+        toast(`表情：${next}`, 'ok');
+        break;
+      }
+
+      case 'greet':
+        say(S.card ? S.card.greeting : '你好呀！', true);
+        if (stage) stage.playMotion();
+        break;
+
+      default:
+        toast(`词条「${w.word}」暂未绑定动作`, 'err');
+    }
+  }
+
+  /** 点词云时角色随口说一句，让"点击"有即时反馈 */
+  function pickLine(kind, p) {
+    if (kind === 'plan') {
+      const city = (p && p.city) || $('#plan-city').value.trim() || '杭州';
+      return `${city}的安排交给我，正在翻本地样本库…`;
+    }
+    if (kind === 'marketing') {
+      const plat = (p && p.platform) || chipVal('platform') || '小红书';
+      return `${plat}的文案我来写，马上给你两个版本。`;
+    }
+    return '好，我来处理。';
+  }
+
+  /* ========================================================================
+   * 五、字幕条与语音
+   *
+   * 原来角色说话是一个浮在左下角的对话气泡，问题有两个：
+   *   ① 它压住词云，点击时经常点不到；
+   *   ② 位置不固定，视线要来回找。
+   * 现在改成舞台底部的**字幕条**：位置固定、单行、超长省略，
+   * 并且它的高度会作为安全边距传给词云，两者永远不重叠。
+   * ======================================================================*/
+  let subtitleTimer = null;
+
+  /**
+   * 字幕的显示/隐藏会改变"底部安全边距"，所以只在**可见性发生变化**时重排词云，
+   * 而不是每来一个流式片段就重排一次（那会把布局计算变成每帧都在跑）。
+   */
+  function setSubtitleVisible(visible) {
+    const node = $('#subtitle');
+    if (!node) return;
+    const was = !node.hidden && node.classList.contains('show');
+    if (visible === was) return;
+    node.hidden = !visible;
+    if (visible) requestAnimationFrame(() => node.classList.add('show'));
+    else node.classList.remove('show');
+    setTimeout(syncCloudInsets, 380);      // 等过渡结束再量高度，否则量到的是动画中间值
+  }
+
+  function say(text, autoHide) {
+    if (!text) return;
+    $('#subtitle-who').textContent = S.card ? S.card.name : 'AIRI';
+    $('#subtitle-text').classList.remove('typing');
+    $('#subtitle-text').textContent = String(text).replace(/\s+/g, ' ').slice(0, 400);
+    setSubtitleVisible(true);
+    clearTimeout(subtitleTimer);
+    if (autoHide) subtitleTimer = setTimeout(hideSubtitle, 7000);
+  }
+
+  /** 流式说话：字幕随内容增长，末尾带打字光标 */
+  function sayStreaming(text) {
+    $('#subtitle-who').textContent = S.card ? S.card.name : 'AIRI';
+    // 只显示最后一段：字幕条是单行，前面的内容显示不下也没意义
+    $('#subtitle-text').textContent = String(text).replace(/\s+/g, ' ').slice(-200);
+    $('#subtitle-text').classList.add('typing');
+    setSubtitleVisible(true);
+    clearTimeout(subtitleTimer);
+  }
+
+  function hideSubtitle() {
+    setSubtitleVisible(false);
+  }
+
+  /** 把工具栏与字幕条的实际高度量出来给词云当安全边距 */
+  function syncCloudInsets() {
+    if (!cloud) return;
+    const st = $('.stage');
+    const top = $('.stage-top');
+    const sub = $('#subtitle');
+    if (!st) return;
+    const topH = top ? top.offsetHeight : 44;
+    const subH = (sub && !sub.hidden) ? sub.offsetHeight : 0;
+    const insets = {
+      top: Math.round(topH + 34),                 // 工具条高度 + 顶部留白
+      bottom: Math.round(subH + 30),              // 字幕条高度 + 底部留白
+      left: 16,
+      right: 16,
+    };
+    cloud.setInsets(insets);
+    // 把实际用到的边距同步到 DOM 上：验收脚本据此按**同一套几何**判断遮挡，
+    // 否则脚本自己猜一套边距，很容易把"实现对了"判成"错了"。
+    const layer = $('#wordcloud-layer');
+    if (layer) layer.dataset.insets = JSON.stringify(insets);
+  }
+
+  /** 调本地 Qwen TTS 出声，并驱动 Live2D 嘴型 */
+  async function speakText(text) {
+    if (!text || !String(text).trim()) return;
+    const audio = $('#tts-audio');
+    try {
+      $('#composer-hint').textContent = '正在本地合成语音…';
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: String(text).slice(0, 600), cardId: S.card && S.card.id }),
+      });
+      if (!res.ok) {
+        let d = {};
+        try { d = await res.json(); } catch { /* 非 JSON */ }
+        throw new Error(d.error || `语音合成失败（HTTP ${res.status}）`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const cached = res.headers.get('X-TTS-Cached') === '1';
+      $('#composer-hint').textContent = cached ? '播放缓存语音' : '播放本地合成语音';
+      const st = activeStage();
+      if (st && st.speak) await st.speak(url, audio);
+      else { audio.src = url; await audio.play().catch(() => {}); }
+      setTimeout(() => URL.revokeObjectURL(url), 8000);
+      $('#composer-hint').textContent = '';
+    } catch (e) {
+      $('#composer-hint').textContent = '';
+      toast(e.message, 'err', 6000);
+    }
+  }
+
+  /* ========================================================================
+   * 六、对话
+   * ======================================================================*/
+  function renderHistory() {
+    const log = $('#chat-log');
+    log.innerHTML = '';
+    for (const m of S.history) appendMsg(m.role, m.content, { raw: true, image: m.image });
+    scrollChat();
+  }
+
+  function appendMsg(role, content, { typing = false, raw = false, image = null, kind = '' } = {}) {
+    const log = $('#chat-log');
+    const isMe = role === 'user';
+    const who = isMe ? '我' : (S.card ? S.card.name : 'AIRI');
+    const av = isMe ? '🧑' : (S.card ? S.card.avatar : '🤖');
+    const bd = el('div', { class: `bd${typing ? ' typing' : ''}` });
+    if (raw || isMe || kind === 'sys' || kind === 'err') bd.textContent = content || '';
+    else bd.innerHTML = renderMarkdown(content || '');
+    const node = el('div', { class: `msg ${isMe ? 'me' : ''} ${kind}` }, [
+      el('div', { class: 'av', text: av, title: who }),
+      bd,
+    ]);
+    if (image) {
+      node.appendChild(el('img', { src: image, style: { maxWidth: '90px', borderRadius: '8px', marginLeft: '8px', alignSelf: 'center' } }));
+    }
+    log.appendChild(node);
+    scrollChat();
+    return bd;
+  }
+
+  const scrollChat = () => { const l = $('#chat-log'); l.scrollTop = l.scrollHeight; };
+
+  async function sendMessage() {
+    if (S.busy) { toast('正在生成，请稍等或点停止', 'err'); return; }
+    const input = $('#chat-input');
+    const text = input.value.trim();
+    const image = S.visionImage;
+    if (!text && !image) return;
+
+    input.value = '';
+    clearAttach();
+    hideSubtitle();
+    appendMsg('user', text || '（看图）', { image });
+    S.history.push({ role: 'user', content: text || '（看图）', image: image || undefined });
+    saveHistory();
+
+    const bd = appendMsg('assistant', '', { typing: true });
+    S.busy = true;
+    setBusy(true);
+    let acc = '';
+
+    const stream = sse('/api/chat', {
+      message: text,
+      image,
+      cardId: S.card && S.card.id,
+      history: S.history.slice(-13, -1).filter(m => !m.image).map(m => ({ role: m.role, content: m.content })),
+    }, (ev) => {
+      if (ev.type === 'start') {
+        setPill('#pill-model', 'busy', ev.model || '生成中');
+      } else if (ev.type === 'stage') {
+        $('#composer-hint').textContent = ev.text || '';
+      } else if (ev.type === 'vision') {
+        appendMsg('system', `👁 视觉理解（${ev.model}）：${ev.text}`, { kind: 'sys', raw: true });
+      } else if (ev.type === 'notice') {
+        appendMsg('system', ev.text, { kind: 'sys', raw: true });
+      } else if (ev.type === 'memory') {
+        if (ev.hits && ev.hits.length) {
+          appendMsg('system', `🧠 召回了 ${ev.hits.length} 条相关记忆（最高相关度 ${ev.hits[0].score}）`, { kind: 'sys', raw: true });
+        }
+      } else if (ev.type === 'delta') {
+        acc += ev.text;
+        bd.classList.remove('typing');
+        bd.innerHTML = renderMarkdown(acc);
+        scrollChat();
+        // 字幕跟着流式长出来：这样不用等整段生成完就能看到角色在"说话"
+        sayStreaming(acc);
+      } else if (ev.type === 'done') {
+        acc = ev.content || acc;
+        bd.classList.remove('typing');
+        bd.innerHTML = renderMarkdown(acc);
+        scrollChat();
+        S.history.push({ role: 'assistant', content: acc });
+        saveHistory();
+        say(acc, false);
+        if (S.settings.autospeak) speakText(acc);
+        setPill('#pill-model', 'ok', (S.status && S.status.ollama && S.status.ollama.chatModel) || '就绪');
+        refreshStatus();
+      } else if (ev.type === 'error') {
+        bd.classList.remove('typing');
+        bd.parentElement.classList.add('err');
+        bd.textContent = `⚠️ ${ev.error}`;
+        setPill('#pill-model', 'err', '生成失败');
+        toast(ev.error.split('\n')[0], 'err', 7000);
+      }
+    });
+
+    S.currentStream = stream;
+    try { await stream.promise; } catch (e) {
+      if (e.name !== 'AbortError') {
+        bd.classList.remove('typing');
+        bd.parentElement.classList.add('err');
+        bd.textContent = `⚠️ ${e.message}`;
+      }
+    } finally {
+      S.busy = false;
+      S.currentStream = null;
+      setBusy(false);
+      $('#composer-hint').textContent = '';
+      bd.classList.remove('typing');
+    }
+  }
+
+  function setBusy(b) {
+    $('#btn-send').disabled = b;
+    $('#btn-stop').hidden = !b;
+  }
+
+  /* ========================================================================
+   * 七、文旅功能生成
+   * ======================================================================*/
+  async function generate(type, params) {
+    if (S.busy) { toast('正在生成中…', 'err'); return; }
+    if (type === 'plan' || type === 'marketing') switchTab('tools');
+
+    const out = $('#tools-output');
+    const warn = $('#tools-warn');
+    out.textContent = '⏳ 正在调用本机大模型生成…';
+    warn.innerHTML = '';
+    S.busy = true;
+    setBusy(true);
+
+    const t0 = Date.now();
+    const tick = setInterval(() => {
+      out.textContent = `⏳ 正在调用本机大模型生成…已等待 ${Math.round((Date.now() - t0) / 1000)} 秒（首次调用需要把模型加载进显存）`;
+    }, 1000);
+
+    let acc = '';
+    const stream = sse('/api/wenlv/generate', { type, params }, (ev) => {
+      if (ev.type === 'delta') {
+        acc += ev.text;
+        clearInterval(tick);
+        out.innerHTML = renderMarkdown(acc);
+        out.scrollTop = out.scrollHeight;
+      } else if (ev.type === 'done') {
+        clearInterval(tick);
+        acc = ev.content || acc;
+        S.lastResult = acc;
+        out.innerHTML = renderMarkdown(acc);
+        renderWarnings(warn, ev.warnings || []);
+        const secs = Math.round((Date.now() - t0) / 1000);
+        toast((ev.warnings && ev.warnings.length)
+          ? `✅ 已生成（${secs}s），有 ${ev.warnings.length} 处质检提示`
+          : `✅ 已由本地大模型生成（${secs}s）`, 'ok');
+        say(ev.type === 'marketing' ? '文案写好了，两版都在右边，可以直接拿去用。' : '方案出好了，右边可以看细节，也能导出。', true);
+        refreshStatus();
+        renderMemoryList();
+      } else if (ev.type === 'error') {
+        clearInterval(tick);
+        out.textContent = `⚠️ 生成失败\n\n${ev.error}`;
+        toast(ev.error.split('\n')[0], 'err', 7000);
+      }
+    });
+
+    S.currentStream = stream;
+    try { await stream.promise; } catch (e) {
+      if (e.name !== 'AbortError') out.textContent = `⚠️ 生成失败\n\n${e.message}`;
+    } finally {
+      clearInterval(tick);
+      S.busy = false;
+      S.currentStream = null;
+      setBusy(false);
+    }
+  }
+
+  /** 输出质检告警：用 DOM 构建，杜绝 XSS */
+  function renderWarnings(box, list) {
+    box.innerHTML = '';
+    if (!list || !list.length) return;
+    const w = el('div', { class: 'warn-box' }, [
+      el('h4', { text: `⚠️ 输出质检发现 ${list.length} 处需要注意（已与本地样本库核对）` }),
+      el('ul', {}, list.map(t => el('li', { text: t }))),
+    ]);
+    box.appendChild(w);
+  }
+
+  /* ========================================================================
+   * 八、机体记忆
+   * ======================================================================*/
+  async function renderMemoryList() {
+    const box = $('#mem-list');
+    if (!box) return;
+    try {
+      const d = await api('/api/memory?limit=60');
+      box.innerHTML = '';
+      if (!d.items.length) {
+        box.appendChild(el('div', { class: 'info-box', text: '记忆库还是空的。聊几句，或点词云里的「记住这个」试试。' }));
+        return;
+      }
+      for (const it of d.items) {
+        const node = el('div', { class: 'mem-item' }, [
+          el('div', { class: 'txt' }, [
+            el('div', { text: it.text.slice(0, 260) }),
+            el('div', { class: 'meta', text: `${fmtTime(it.ts)} · ${it.kind} · ${it.role}${it.tags && it.tags.length ? ` · ${it.tags.join('/')}` : ''}${Array.isArray(it.embedding) ? ' · 已向量化' : ''}` }),
+          ]),
+          el('span', { class: 'del', text: '✕', title: '删除这条记忆', onclick: async () => {
+            await api(`/api/memory/${encodeURIComponent(it.id)}`, { method: 'DELETE' }).catch(() => {});
+            renderMemoryList(); refreshStatus();
+          } }),
+        ]);
+        box.appendChild(node);
+      }
+    } catch (e) {
+      box.innerHTML = '';
+      box.appendChild(el('div', { class: 'warn-box', text: `读取记忆失败：${e.message}` }));
+    }
+  }
+
+  /* ========================================================================
+   * 九、角色卡
+   * ======================================================================*/
+  function setActiveCard(id, { silent } = {}) {
+    const card = S.cards.find(c => c.id === id) || S.cards[0] || null;
+    S.card = card;
+    if (!card) return;
+    // 角色卡里存了形象与开关，切卡就跟着切
+    S.settings.memory = !(card.memory && card.memory.enabled === false);
+    S.settings.vision = !(card.vision && card.vision.enabled === false);
+    if (card.live2d) {
+      S.settings.l2dScale = card.live2d.scale || 1;
+      S.settings.l2dX = card.live2d.x || 0;
+      S.settings.l2dY = card.live2d.y || 0;
+      S.settings.expression = card.live2d.expression || '';
+    }
+    const instruct = (card.voice && card.voice.instruct) || '';
+    const vi = $('#voice-instruct');
+    if (vi) vi.value = instruct;
+
+    $('#char-name').textContent = card.name;
+    $('#char-tag').textContent = card.tagline || '';
+    $('#char-avatar').textContent = card.avatar || '🙂';
+    $('#chat-char-name').textContent = card.name;
+    document.documentElement.style.setProperty('--primary', `color-mix(in srgb, oklch(78% 0.14 ${hexToHue(card.accent)}) 100%, transparent)`);
+
+    applySettingsToUI();
+    // 角色卡主色会同时影响两处：CSS 变量（整站主色）与背景调色板（极光背景跟着变色）。
+    // 所以换角色卡时"整站一起变"，这是刻意的联动。
+    if (bg) {
+      const item = findBackground(S.settings.backgroundId);
+      bg.setPalette(tintPalette(item));
+    }
+    renderLookPreview();
+    if (!silent) {
+      // 角色卡里同时记着"用哪个形象、哪套渲染器"，换卡就整套一起换
+      if (card.live2d && card.live2d.model) {
+        switchDisplay(card.live2d.kind || 'live2d', card.live2d.model, { silent: true });
+      }
+      renderCards();
+      if (card.greeting) say(card.greeting, true);
+    }
+  }
+
+  /** 把 #rrggbb 粗算成 oklch 的色相角，让角色卡主色能和 airi 的色相机制接上 */
+  function hexToHue(hex) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+    if (!m) return 220.44;
+    const n = parseInt(m[1], 16);
+    const r = ((n >> 16) & 255) / 255;
+    const g = ((n >> 8) & 255) / 255;
+    const b = (n & 255) / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const d = max - min;
+    if (!d) return 220.44;
+    let h;
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+    return h.toFixed(2);
+  }
+
+  function renderCards() {
+    const box = $('#card-list');
+    if (!box) return;
+    box.innerHTML = '';
+    for (const c of S.cards) {
+      const active = S.card && c.id === S.card.id;
+      const node = el('div', { class: `char-card${active ? ' active' : ''}` }, [
+        el('div', { class: 'av', text: c.avatar || '🙂' }),
+        el('div', { style: { flex: '1', minWidth: '0' } }, [
+          el('div', { class: 'nm' }, [
+            document.createTextNode(c.name),
+            c.builtin ? el('span', { class: 'badge builtin', text: '内置' }) : null,
+            active ? el('span', { class: 'badge', text: '当前' }) : null,
+          ]),
+          el('div', { class: 'tg', text: `${c.tagline || ''} · ${(c.tags || []).join('/') || '无标签'}` }),
+        ]),
+        el('div', { style: { display: 'flex', gap: '5px' } }, [
+          el('button', { class: 'icon-btn', style: { width: '28px', height: '28px', fontSize: '12px' }, text: '✎', title: '编辑', onclick: (e) => { e.stopPropagation(); openCardEditor(c); } }),
+          el('button', { class: 'icon-btn', style: { width: '28px', height: '28px', fontSize: '12px' }, text: '⧉', title: '复制一份', onclick: async (e) => {
+            e.stopPropagation();
+            await api(`/api/cards/${c.id}/duplicate`, { method: 'POST' });
+            await reloadCards(); toast('已复制角色卡', 'ok');
+          } }),
+          c.builtin ? null : el('button', { class: 'icon-btn', style: { width: '28px', height: '28px', fontSize: '12px' }, text: '🗑', title: '删除', onclick: async (e) => {
+            e.stopPropagation();
+            const r = await api(`/api/cards/${c.id}`, { method: 'DELETE' }).catch(err => ({ ok: false, error: err.message }));
+            if (!r.ok) return toast(r.error, 'err');
+            await reloadCards(); toast('已删除', 'ok');
+          } }),
+        ]),
+      ]);
+      node.addEventListener('click', async () => {
+        await api(`/api/cards/${c.id}/activate`, { method: 'POST' });
+        S.cards = (await api('/api/cards')).cards;
+        setActiveCard(c.id);
+        toast(`已切换到「${c.name}」`, 'ok');
+      });
+      box.appendChild(node);
+    }
+  }
+
+  async function reloadCards() {
+    const d = await api('/api/cards');
+    S.cards = d.cards;
+    renderCards();
+  }
+
+  /** 角色卡编辑器：一个弹层解决"虚拟人格自定义"的全部字段 */
+  function openCardEditor(card) {
+    const isNew = !card;
+    const c = card || {
+      name: '新角色', avatar: '🙂', accent: '#a78bfa', tagline: '', persona: '', speakingStyle: '',
+      greeting: '', voice: { presetId: 'wenlv-guide-female', mode: 'custom-voice', instruct: '', language: 'Chinese' },
+      model: { temperature: 0.7, numCtx: 8192, numPredict: 1024 },
+      live2d: { model: (S.l2dModels[0] && S.l2dModels[0].id) || 'nahida', scale: 1, x: 0, y: 0, expression: '' },
+      memory: { enabled: true, topK: 5 }, vision: { enabled: true }, tags: [],
+    };
+    const f = {};
+    const field = (label, key, type, extra) => {
+      const input = type === 'textarea'
+        ? el('textarea', { placeholder: extra || '' })
+        : el('input', { type: type || 'text', placeholder: extra || '' });
+      input.value = (key.split('.').reduce((o, k) => (o ? o[k] : ''), c)) ?? '';
+      f[key] = input;
+      return el('div', { class: 'field' }, [el('label', { text: label }), input]);
+    };
+
+    const body = el('div', { class: 'body' }, [
+      el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' } }, [
+        field('名字', 'name', 'text'),
+        field('头像 emoji', 'avatar', 'text'),
+        field('主题色 #rrggbb', 'accent', 'text'),
+      ]),
+      field('一句话定位', 'tagline', 'text', '例如：浙江文旅向导，陪你玩得明白'),
+      field('人设（system prompt 的主体）', 'persona', 'textarea', '你是谁、擅长什么、怎么做事…'),
+      field('说话风格', 'speakingStyle', 'textarea', '语气、口头禅、句式偏好…'),
+      field('开场白', 'greeting', 'textarea'),
+      field('音色语气指令 instruct（决定 TTS 音色）', 'voice.instruct', 'textarea'),
+      el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' } }, [
+        field('温度 temperature', 'model.temperature', 'number'),
+        field('上下文 numCtx', 'model.numCtx', 'number'),
+        field('最大输出 numPredict', 'model.numPredict', 'number'),
+      ]),
+      el('div', { class: 'field' }, [
+        el('label', { text: 'Live2D 形象' }),
+        (() => {
+          const sel = el('select');
+          for (const m of S.l2dModels) sel.appendChild(el('option', { value: m.id, text: `${m.label}（${m.id}）`, selected: (c.live2d && c.live2d.model) === m.id }));
+          f['live2d.model'] = sel;
+          return sel;
+        })(),
+      ]),
+      field('标签（逗号分隔）', 'tags', 'text'),
+      el('div', { class: 'field' }, [
+        el('label', { text: '开关' }),
+        (() => {
+          const mk = (key, label, val) => {
+            const cb = el('input', { type: 'checkbox' });
+            cb.checked = val;
+            f[key] = cb;
+            return el('label', { class: 'check' }, [cb, document.createTextNode(label)]);
+          };
+          return el('div', {}, [
+            mk('memory.enabled', '启用机体记忆', !(c.memory && c.memory.enabled === false)),
+            mk('vision.enabled', '允许视觉理解', !(c.vision && c.vision.enabled === false)),
+          ]);
+        })(),
+      ]),
+    ]);
+
+    const readBack = () => {
+      const out = { id: c.id, tags: String(f['tags'].value || '').split(/[,，\s]+/).filter(Boolean) };
+      for (const [key, input] of Object.entries(f)) {
+        if (key === 'tags') continue;
+        const val = input.type === 'checkbox' ? input.checked : input.value;
+        const parts = key.split('.');
+        let o = out;
+        for (let i = 0; i < parts.length - 1; i++) { o[parts[i]] = o[parts[i]] || {}; o = o[parts[i]]; }
+        o[parts[parts.length - 1]] = val;
+      }
+      out.model.temperature = Number(out.model.temperature) || 0.7;
+      out.model.numCtx = Number(out.model.numCtx) || 8192;
+      out.model.numPredict = Number(out.model.numPredict) || 1024;
+      out.memory.topK = 5;
+      return out;
+    };
+
+    const modal = el('div', { class: 'modal' }, [
+      el('header', {}, [el('h3', { text: isNew ? '新建角色卡' : `编辑角色卡 · ${c.name}` })]),
+      body,
+      el('footer', {}, [
+        !isNew ? el('button', { class: 'btn ghost sm', text: '📤 导出这张卡', onclick: () => { location.href = `/api/cards/${c.id}/export`; } }) : null,
+        el('button', { class: 'btn ghost sm', text: '取消', onclick: close }),
+        el('button', { class: 'btn sm', text: '保存', onclick: async () => {
+          try {
+            const payload = readBack();
+            if (isNew) await api('/api/cards', { method: 'POST', body: payload });
+            else await api(`/api/cards/${c.id}`, { method: 'PUT', body: payload });
+            await reloadCards();
+            toast('角色卡已保存（仅存在本机）', 'ok');
+            close();
+          } catch (e) { toast(e.message, 'err'); }
+        } }),
+      ]),
+    ]);
+
+    const mask = el('div', { class: 'modal-mask', onclick: (e) => { if (e.target === mask) close(); } }, [modal]);
+    function close() { mask.remove(); }
+    $('#modal-root').appendChild(mask);
+  }
+
+  /* ========================================================================
+   * 十、人物形象（Live2D 与 3D 两套渲染器，按所选形象切换）
+   *
+   * 为什么不把所有东西合到一个类里：Live2D 用 PixiJS + Cubism、3D 用 three.js +
+   * three-vrm，两套依赖完全不同。硬合会变成一个谁都不像的抽象层，还让
+   * "只用 Live2D 的用户"被迫下载 2.2MB 的 three.js。
+   * 所以：两个类，各自实现同一组方法（init/load/setScale/setPosition/
+   * setExpression/playMotion/speak/resize/destroy），调用方通过 activeStage() 取。
+   * ======================================================================*/
+
+  /** 当前生效的渲染器实例 */
+  function activeStage() {
+    return S.display.kind === '3d' ? stage3d : stage;
+  }
+
+  /**
+   * 两个画布互斥显示：谁来渲染就显示谁，另一个藏起来省 GPU。
+   *
+   * 注意这里必须写**显式的 'block' / 'none'**，不能写空串。
+   * CSS 里给 #stage3d-canvas 定了 `display: none` 作为默认值（避免首屏闪一下），
+   * 如果这里设成空串，等于把内联样式删掉，CSS 的 none 又赢回来 —— 3D 画布永远不显示。
+   * 这个坑实测踩过：画布其实已经渲染好了（能采样到像素），但用户看不到。
+   */
+  function showCanvas(kind) {
+    const l2d = $('#live2d-canvas');
+    const c3d = $('#stage3d-canvas');
+    if (l2d) l2d.style.display = kind === '3d' ? 'none' : 'block';
+    if (c3d) c3d.style.display = kind === '3d' ? 'block' : 'none';
+  }
+
+  function stageProblem(msg) {
+    $('#stage-empty-msg').textContent = msg;
+    $('#stage-empty').classList.remove('hidden');
+  }
+  function stageOk() {
+    $('#stage-empty').classList.add('hidden');
+  }
+
+  /** 创建 Live2D 渲染器（只在真的要用时才建） */
+  async function ensureLive2D() {
+    if (stage) return stage;
+    const problem = window.Live2DStage.runtimeAvailable();
+    if (problem) throw new Error(`${problem}\n请确认 public/vendor/ 下的三个运行时文件都存在。`);
+    stage = new window.Live2DStage($('#live2d-canvas'));
+    stage.onTapCb = onCharacterTap;
+    await stage.init();
+    return stage;
+  }
+
+  /**
+   * 创建 3D 渲染器。three.js + three-vrm 共 2.2MB，**按需动态 import**，
+   * 这样默认用 Live2D 的用户根本不会下这两个包。
+   */
+  async function ensure3D() {
+    if (stage3d) return stage3d;
+    stageProblem('正在加载 3D 渲染器（three.js + three-vrm，约 2.2MB，只需加载一次）…');
+    let mod;
+    try {
+      mod = await import('/js/stage3d.js');
+    } catch (e) {
+      throw new Error(
+        `3D 渲染器加载失败：${e && e.message ? e.message : e}\n`
+        + '请确认 public/vendor/three/ 下有 three.module.js、three-vrm.module.js 与 addons/ 目录，'
+        + '并且 index.html 里的 importmap 没有被改动。',
+      );
+    }
+    stage3d = new mod.ThreeDStage($('#stage3d-canvas'));
+    stage3d.onTapCb = onCharacterTap;
+    await stage3d.init();
+    return stage3d;
+  }
+
+  /** 点人物：两套渲染器共用的反馈 */
+  function onCharacterTap() {
+    hideSubtitle();
+    const st = activeStage();
+    if (st) st.playMotion();
+    say(pickRandom([
+      '嗯？点我做什么～',
+      '想好去哪儿玩了吗？',
+      '点词云试试，那边什么都能点。',
+      '我在这儿呢。',
+    ]), true);
+  }
+
+  /**
+   * 切换当前展示的形象。
+   * @param {'live2d'|'3d'} kind
+   * @param {string} id
+   */
+  async function switchDisplay(kind, id, { silent } = {}) {
+    const item = findDisplayModel(kind, id)
+      || (kind === '3d' ? allDisplayModels().find(m => m.kind === '3d') : S.l2dModels[0]);
+    if (!item) {
+      stageProblem(kind === '3d'
+        ? '还没有可用的 3D 形象。\n\n两种办法：\n1. 双击仓库根目录的「获取示例模型.bat」下载内置的 VRM 示例模型\n2. 点外观页的「更换形象」→「上传 VRM / GLB」，用你自己的模型'
+        : '还没有可用的 Live2D 模型。\n\n模型是第三方素材，没有随仓库分发。\n双击仓库根目录的「获取示例模型.bat」即可下载并安装。\n也可以把自己的模型文件夹（需含 .model3.json）放进 public/models/ 下。');
+      return;
+    }
+    S.display = { kind: item.kind, id: item.id };
+    showCanvas(item.kind);
+
+    if (item.kind === '3d') {
+      stageProblem(`正在加载 3D 形象 ${item.label}…`);
+      try {
+        const st = await ensure3D();
+        await st.load(item.url);
+        st.setScale(S.settings.l2dScale);
+        st.setPosition(S.settings.l2dX, S.settings.l2dY);
+        stageOk();
+        // 没有预览图的模型，等它站稳之后自动截一帧存下来（只截一次）
+        if (!item.preview) captureModelPreview(item);
+      } catch (e) {
+        stageProblem(e.message);
+        toast(String(e.message).split('\n')[0], 'err', 9000);
+      }
+    } else {
+      stageProblem(`正在加载 ${item.label}…`);
+      try {
+        const st = await ensureLive2D();
+        await st.load(item.entry, { label: item.label });
+        st.setScale(S.settings.l2dScale);
+        st.setPosition(S.settings.l2dX, S.settings.l2dY);
+        if (S.settings.expression && (st.expressions || []).includes(S.settings.expression)) {
+          await st.setExpression(S.settings.expression);
+        }
+        stageOk();
+      } catch (e) {
+        stageProblem(e.message);
+        toast(String(e.message).split('\n')[0], 'err', 9000);
+      }
+    }
+
+    renderExpressions();
+    renderLookPreview();
+    cloud.layout();
+    void silent;
+  }
+
+  /** 启动时按角色卡决定用哪套渲染器 */
+  async function initStage() {
+    const kind = (S.card && S.card.live2d && S.card.live2d.kind) || S.display.kind;
+    const id = (S.card && S.card.live2d && S.card.live2d.model) || S.display.id;
+    await switchDisplay(kind, id, { silent: true });
+  }
+
+  /**
+   * 给 3D 模型自动生成一张预览图。
+   *
+   * 为什么不离线生成：用户上传的模型只在用户机器上，服务端没有渲染器。
+   * 但前端此刻**已经把它渲染出来了** —— 直接截当前这一帧回传落盘，
+   * 比再跑一遍离屏渲染省事得多，而且截到的就是用户真实看到的样子。
+   * 只在模型还没有预览图时截一次，不重复做。
+   */
+  async function captureModelPreview(item) {
+    try {
+      await new Promise(r => setTimeout(r, 1600));       // 等首帧、物理与相机稳定
+      if (S.display.kind !== '3d' || S.display.id !== item.id) return;   // 用户已经切走了
+      const src = $('#stage3d-canvas');
+      if (!src || !src.width) return;
+
+      // 缩到 480 宽再存：预览图只是缩略图，没必要存整屏
+      const W = 480;
+      const H = Math.max(1, Math.round(src.height * (W / src.width)));
+      const c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, W, H);
+      ctx.drawImage(src, 0, 0, W, H);
+      const dataUrl = c.toDataURL('image/png');
+      if (dataUrl.length < 2000) return;                 // 基本是空图，别存
+
+      await api('/api/models3d/preview', { method: 'POST', body: { url: item.url, image: dataUrl } });
+      // 刷新列表，让预览图立刻在选择器/外观页里生效
+      const d = await api('/api/models3d');
+      S.models3d = { ...S.models3d, bundled: d.bundled, custom: d.custom, formats: d.formats };
+      renderLookPreview();
+    } catch {
+      // 截图失败不影响使用，静默跳过（下次切到这个模型还会再试）
+    }
+  }
+
+  /** 手动点人物时用（保留旧名字，别的地方还有调用） */
+  async function loadModel(id) {
+    await switchDisplay('live2d', id);
+  }
+
+  function renderLive2DModels() {
+    renderLookPreview();
+  }
+
+  /** 列出当前渲染器支持的表情（两套渲染器的取法不同，这里抹平） */
+  function currentExpressions() {
+    if (S.display.kind === '3d') {
+      return stage3d && stage3d.expressionNames ? stage3d.expressionNames() : [];
+    }
+    return (stage && stage.expressions) || [];
+  }
+
+  function renderExpressions() {
+    const box = $('#l2d-expressions');
+    const hint = $('#expr-hint');
+    if (!box) return;
+    box.innerHTML = '';
+    const names = currentExpressions();
+
+    if (hint) {
+      hint.textContent = S.display.kind === '3d'
+        ? '3D 形象的表情由 VRM 定义，不同模型差别很大'
+        : '来自模型的 .exp3.json';
+    }
+
+    if (!names.length) {
+      box.appendChild(el('span', {
+        class: 'mini',
+        text: S.display.kind === '3d'
+          ? (stage3d ? '该 3D 模型没有可切换的表情（或不是 VRM）' : '3D 渲染器还没加载')
+          : '该模型没有表情文件（.exp3.json）',
+      }));
+      return;
+    }
+
+    const none = el('button', { class: `chip${!S.settings.expression ? ' on' : ''}`, text: '默认', type: 'button' });
+    none.addEventListener('click', async () => {
+      S.settings.expression = '';
+      saveSettings();
+      if (S.display.kind !== '3d' && stage) {
+        try { stage.model.internalModel.motionManager.expressionManager?.resetExpression(); } catch { /* 忽略 */ }
+      }
+      renderExpressions();
+    });
+    box.appendChild(none);
+
+    for (const name of names) {
+      const chip = el('button', { class: `chip${S.settings.expression === name ? ' on' : ''}`, text: name, type: 'button' });
+      chip.addEventListener('click', async () => {
+        S.settings.expression = name;
+        saveSettings();
+        const st = activeStage();
+        if (st) await st.setExpression(name);
+        renderExpressions();
+      });
+      box.appendChild(chip);
+    }
+  }
+
+  const pickRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+  /* ========================================================================
+   * 十一、界面绑定
+   * ======================================================================*/
+  function switchTab(name) {
+    $$('#tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.pane === name));
+    $$('.pane').forEach(p => p.classList.toggle('active', p.id === `pane-${name}`));
+    if (name === 'memory') renderMemoryList();
+    if (name === 'cards') renderCards();
+    if (name === 'look') { renderLookPreview(); renderExpressions(); refreshStatus(); }
+    if (name === 'voice') renderVoices();
+  }
+
+  function bindTabs() {
+    $$('#tabs .tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.pane)));
+  }
+
+  function bindTopbar() {
+    $('#btn-refresh').addEventListener('click', async () => {
+      await refreshStatus();
+      await loadCapabilities();
+      if (stage && S.card && S.card.live2d) await loadModel(S.card.live2d.model);
+      toast('已刷新本地服务状态', 'ok');
+    });
+    $('#btn-speak-toggle').addEventListener('click', (e) => {
+      S.settings.autospeak = !S.settings.autospeak;
+      saveSettings();
+      e.currentTarget.classList.toggle('on', S.settings.autospeak);
+      toast(S.settings.autospeak ? '已开启自动朗读' : '已关闭自动朗读', 'ok');
+    });
+    $('#btn-wc-toggle').addEventListener('click', (e) => {
+      S.settings.wcEnabled = !S.settings.wcEnabled;
+      saveSettings();
+      $('#wordcloud-layer').style.display = S.settings.wcEnabled ? '' : 'none';
+      e.currentTarget.classList.toggle('on', S.settings.wcEnabled);
+      $('#wc-enabled').checked = S.settings.wcEnabled;
+      if (S.settings.wcEnabled) cloud.layout();
+    });
+    $('#pill-model').addEventListener('click', () => switchTab('look'));
+    $('#pill-memory').addEventListener('click', () => switchTab('memory'));
+    $('#pill-voice').addEventListener('click', () => switchTab('voice'));
+    $('#pill-vision').addEventListener('click', () => { switchTab('chat'); $('#file-input').click(); });
+
+    // 舞台工具条
+    $('#open-bg').addEventListener('click', openBackgroundPicker);
+    $('#open-model').addEventListener('click', openModelPicker);
+    $('#wc-full').addEventListener('click', () => {
+      document.body.classList.toggle('wc-full');
+      setTimeout(() => { syncCloudInsets(); cloud.layout(); }, 80);
+    });
+    $('#wc-shuffle').addEventListener('click', () => cloud.shuffle());
+
+    // 状态灯：按初始设置点亮
+    $('#btn-speak-toggle').classList.toggle('on', S.settings.autospeak);
+    $('#btn-wc-toggle').classList.toggle('on', S.settings.wcEnabled);
+    $('#subtitle-close').addEventListener('click', hideSubtitle);
+  }
+
+  function bindStage() {
+    // 点空白处收起字幕
+    $('#stage').addEventListener('click', (e) => {
+      if (e.target.id === 'stage' || e.target.id === 'live2d-canvas' || e.target.id === 'bg-canvas') hideSubtitle();
+    });
+    // 窗口尺寸变化时安全边距可能变（比如窄屏工具栏换行），重新量一次
+    let rzTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(rzTimer);
+      rzTimer = setTimeout(syncCloudInsets, 220);
+    });
+    // 初始量一次：等首屏布局稳定
+    setTimeout(syncCloudInsets, 300);
+  }
+
+  function bindComposer() {
+    const input = $('#chat-input');
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    });
+    input.addEventListener('input', () => {
+      input.style.height = 'auto';
+      input.style.height = `${Math.min(input.scrollHeight, 132)}px`;
+    });
+    $('#btn-send').addEventListener('click', sendMessage);
+    $('#btn-stop').addEventListener('click', () => {
+      if (S.currentStream) S.currentStream.abort();
+      toast('已请求停止', 'ok');
+    });
+    $('#btn-image').addEventListener('click', () => $('#file-input').click());
+    $('#file-input').addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      if (!/^image\//.test(file.type)) return toast('请选择图片文件', 'err');
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const small = await downscaleImage(String(reader.result));
+        S.visionImage = small;
+        renderAttach();
+        switchTab('chat');
+        say('图我看到了，让我先用视觉模型看仔细点。', true);
+      };
+      reader.readAsDataURL(file);
+      e.target.value = '';
+    });
+    $('#btn-camera').addEventListener('click', toggleCamera);
+  }
+
+  function renderAttach() {
+    const slot = $('#attach-slot');
+    slot.innerHTML = '';
+    if (!S.visionImage) return;
+    slot.appendChild(el('div', { class: 'attach' }, [
+      el('img', { src: S.visionImage, alt: '待识别图片' }),
+      el('span', { text: '图片已附加，发送后会先用本机视觉模型识别' }),
+      el('span', { style: { flex: '1' } }),
+      el('button', { class: 'btn ghost sm', text: '移除', onclick: () => { clearAttach(); } }),
+    ]));
+  }
+  function clearAttach() { S.visionImage = null; renderAttach(); }
+
+  async function toggleCamera() {
+    const slot = $('#attach-slot');
+    if (S.cameraStream) {
+      S.cameraStream.getTracks().forEach(t => t.stop());
+      S.cameraStream = null;
+      renderAttach();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      S.cameraStream = stream;
+      const video = el('video', { autoplay: true, playsinline: true, style: { width: '100%', borderRadius: '10px', maxHeight: '180px', objectFit: 'cover' } });
+      video.srcObject = stream;
+      slot.innerHTML = '';
+      slot.appendChild(el('div', { class: 'attach', style: { flexDirection: 'column', alignItems: 'stretch' } }, [
+        video,
+        el('div', { class: 'actions' }, [
+          el('button', { class: 'btn sm', text: '📸 拍下并识别', onclick: () => captureFromVideo(video) }),
+          el('button', { class: 'btn ghost sm', text: '取消', onclick: toggleCamera }),
+        ]),
+      ]));
+    } catch (e) {
+      toast(`无法打开摄像头：${e.message}（可改用「上传图片」）`, 'err', 6000);
+    }
+  }
+
+  function captureFromVideo(video) {
+    const c = document.createElement('canvas');
+    c.width = video.videoWidth || 640;
+    c.height = video.videoHeight || 480;
+    c.getContext('2d').drawImage(video, 0, 0);
+    S.visionImage = c.toDataURL('image/jpeg', 0.85);
+    if (S.cameraStream) { S.cameraStream.getTracks().forEach(t => t.stop()); S.cameraStream = null; }
+    renderAttach();
+    toast('已拍照，发送后交给本机视觉模型', 'ok');
+  }
+
+  function bindTools() {
+    $$('#pane-tools [data-tool]').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        const tool = chip.dataset.tool;
+        $$('#pane-tools [data-tool]').forEach(c => c.classList.toggle('on', c === chip));
+        $('#form-plan').hidden = tool !== 'plan';
+        $('#form-marketing').hidden = tool !== 'marketing';
+      });
+    });
+    $('#plan-days').addEventListener('input', (e) => { $('#days-label').textContent = e.target.value; });
+    $('#btn-generate').addEventListener('click', () => {
+      const isPlan = !$('#form-plan').hidden;
+      generate(isPlan ? 'plan' : 'marketing', isPlan ? collectPlanParams() : collectMarketingParams());
+    });
+    $('#btn-intake').addEventListener('click', () => generate('intake', {}));
+    $('#btn-export').addEventListener('click', () => {
+      if (!S.lastResult) return toast('还没有可导出的内容', 'err');
+      download(`文旅结果_${new Date().toISOString().slice(0, 10)}.md`, S.lastResult);
+      toast('已导出为 Markdown', 'ok');
+    });
+    $('#btn-speak-result').addEventListener('click', () => {
+      if (!S.lastResult) return toast('还没有可朗读的内容', 'err');
+      speakText(S.lastResult);
+    });
+  }
+
+  function bindMemory() {
+    $('#mem-reload').addEventListener('click', renderMemoryList);
+    $('#mem-add').addEventListener('click', async () => {
+      const text = $('#mem-add-text').value.trim();
+      if (!text) return toast('先写点内容', 'err');
+      try {
+        await api('/api/memory', { method: 'POST', body: { text, kind: 'fact' } });
+        $('#mem-add-text').value = '';
+        toast('已存入机体记忆', 'ok');
+        renderMemoryList(); refreshStatus();
+      } catch (e) { toast(e.message, 'err'); }
+    });
+    $('#mem-clear').addEventListener('click', async () => {
+      if (!confirm('确定清空全部机体记忆？此操作不可恢复（记忆文件在本机 data/ 下）。')) return;
+      await api('/api/memory/clear', { method: 'POST' });
+      renderMemoryList(); refreshStatus();
+      toast('记忆已清空', 'ok');
+    });
+    $('#mem-search').addEventListener('click', doMemSearch);
+    $('#mem-query').addEventListener('keydown', (e) => { if (e.key === 'Enter') doMemSearch(); });
+  }
+
+  async function doMemSearch() {
+    const q = $('#mem-query').value.trim();
+    if (!q) return;
+    const box = $('#mem-search-result');
+    box.innerHTML = '<div class="info-box">检索中…</div>';
+    try {
+      const d = await api('/api/memory/search', { method: 'POST', body: { query: q, limit: 8 } });
+      box.innerHTML = '';
+      if (!d.hits.length) {
+        box.appendChild(el('div', { class: 'info-box', text: '没有召回相关记忆。多聊几句或手动记几条再试。' }));
+        return;
+      }
+      for (const h of d.hits) {
+        box.appendChild(el('div', { class: 'mem-item' }, [
+          el('div', { class: 'txt' }, [
+            el('div', { text: h.text.slice(0, 240) }),
+            el('div', { class: 'meta', text: `${fmtTime(h.ts)} · ${h.kind}` }),
+          ]),
+          el('span', { class: 'mem-score', text: h.score.toFixed(3) }),
+        ]));
+      }
+    } catch (e) {
+      box.innerHTML = '';
+      box.appendChild(el('div', { class: 'warn-box', text: `检索失败：${e.message}` }));
+    }
+  }
+
+  function bindCards() {
+    $('#card-new').addEventListener('click', () => openCardEditor(null));
+    $('#card-export-all').addEventListener('click', () => { location.href = '/api/cards/export-all'; });
+    $('#card-import').addEventListener('click', () => {
+      const input = el('input', { type: 'file', accept: '.json,application/json' });
+      input.addEventListener('change', async () => {
+        const file = input.files && input.files[0];
+        if (!file) return;
+        const text = await file.text();
+        try {
+          const r = await api('/api/cards/import', { method: 'POST', body: { card: text } });
+          await reloadCards();
+          toast(`已导入角色卡「${r.card.name}」`, 'ok');
+        } catch (e) { toast(`导入失败：${e.message}`, 'err', 6000); }
+      });
+      input.click();
+    });
+  }
+
+  function renderVoices() {
+    const box = $('#voice-list');
+    if (!box) return;
+    box.innerHTML = '';
+    const cur = S.card && S.card.voice ? S.card.voice.presetId : null;
+    for (const v of S.voices) {
+      const node = el('div', { class: `voice-item${v.id === cur ? ' active' : ''}` }, [
+        el('div', { style: { flex: '1', minWidth: '0' } }, [
+          el('div', { class: 'nm', text: v.name }),
+          el('div', { class: 'ds', text: `${v.desc}（${v.mode}，语速${v.speedHint || '中等'}）` }),
+        ]),
+        el('span', { class: 'badge', text: v.mode }),
+      ]);
+      node.addEventListener('click', async () => {
+        if (!S.card) return;
+        await api(`/api/cards/${S.card.id}`, {
+          method: 'PUT',
+          body: { voice: { presetId: v.id, mode: v.mode, instruct: v.instruct, language: v.language || 'Chinese' } },
+        });
+        await reloadCards();
+        S.card = S.cards.find(c => c.id === S.card.id);
+        $('#voice-instruct').value = v.instruct;
+        renderVoices();
+        toast(`音色已切换为「${v.name}」`, 'ok');
+        speakText('你好，我是你的文旅向导，现在用的是' + v.name + '。');
+      });
+      box.appendChild(node);
+    }
+    if (!S.voices.length) box.appendChild(el('div', { class: 'info-box', text: '没有取到音色库，请点右上角刷新。' }));
+  }
+
+  function bindVoice() {
+    $('#voice-test').addEventListener('click', () => speakText($('#voice-test-text').value));
+    $('#voice-refresh').addEventListener('click', async () => {
+      await refreshStatus();
+      toast('已刷新语音服务状态', 'ok');
+    });
+    $('#voice-save').addEventListener('click', async () => {
+      if (!S.card) return;
+      try {
+        await api(`/api/cards/${S.card.id}`, { method: 'PUT', body: { voice: { instruct: $('#voice-instruct').value } } });
+        S.card = (await api('/api/cards')).cards.find(c => c.id === S.card.id);
+        toast('语气指令已保存到角色卡', 'ok');
+      } catch (e) { toast(e.message, 'err'); }
+    });
+  }
+
+  /* ========================================================================
+   * 十二、外观：背景与形象
+   * ======================================================================*/
+
+  /** 把"当前背景"的完整对象找出来（内置 / 程序化 / 自定义三类里查） */
+  function findBackground(id) {
+    if (!id) return null;
+    const all = [
+      ...(S.backgrounds.procedural || []),
+      ...(S.backgrounds.bundled || []),
+      ...(S.backgrounds.custom || []),
+    ];
+    return all.find(b => b.id === id) || null;
+  }
+
+  /**
+   * 应用背景。
+   * 程序化背景会把角色卡主色当成调色板，所以换角色卡时整站（含背景）一起变色。
+   */
+  function applyBackground(id, { silent } = {}) {
+    if (!bg) return;
+    let item = findBackground(id);
+    // 找不到（比如自定义背景被删了）就退回默认的极光
+    if (!item) {
+      item = findBackground('proc-aurora') || { id: 'proc-plain', kind: 'procedural', renderer: 'plain', palette: [], label: '纯色' };
+    }
+    S.settings.backgroundId = item.id;
+    bg.setPalette(tintPalette(item));
+    bg.set(item);
+    saveSettings();
+    renderLookPreview();
+    if (!silent && item.id !== 'proc-plain') toast(`背景已切换为「${item.label}」`, 'ok');
+  }
+
+  /**
+   * 让 Aurora 这类背景跟随角色卡主色。
+   * 只改 aurora（它本来就是"跟随主色的色相流动"），其余背景保留自己的配色 —— 
+   * 樱花被染成绿色、山水被染成粉色都不好看。
+   */
+  function tintPalette(item) {
+    if (!item || item.kind !== 'procedural') return null;
+    if (item.renderer !== 'aurora') return item.palette;
+    const accent = S.card && S.card.accent;
+    if (!accent) return item.palette;
+    // 以角色卡主色为起点，沿色相转两圈取三个点，得到同色系的渐层
+    const hue = Number(hexToHue(accent));
+    const mk = (dh, s, l) => hslToHex((hue + dh + 360) % 360, s, l);
+    return [mk(0, 62, 68), mk(52, 58, 70), mk(-48, 60, 72)];
+  }
+
+  function hslToHex(h, s, l) {
+    const a = (s / 100) * Math.min(l / 100, 1 - l / 100);
+    const f = (n) => {
+      const k = (n + h / 30) % 12;
+      const c = l / 100 - a * Math.max(-1, Math.min(k - 3, Math.min(9 - k, 1)));
+      return Math.round(255 * c).toString(16).padStart(2, '0');
+    };
+    return `#${f(0)}${f(8)}${f(4)}`;
+  }
+
+  /** 外观页里的两张预览：背景缩略图 + 形象立绘 */
+  function renderLookPreview() {
+    const item = findBackground(S.settings.backgroundId);
+    const nameEl = $('#look-bg-name');
+    const noteEl = $('#look-bg-note');
+    const thumb = $('#look-bg-thumb');
+    if (nameEl) nameEl.textContent = item ? item.label : '跟随主题';
+    if (noteEl) noteEl.textContent = item ? (item.note || '') : '—';
+    if (thumb && item) {
+      const w = thumb.parentElement ? thumb.parentElement.clientWidth - 34 : 132;
+      if (item.kind === 'image') {
+        // 图片背景：直接把图铺到 canvas 上（等比裁切），省一个 <img> 节点
+        const img = new Image();
+        img.onload = () => {
+          const c = thumb.getContext('2d');
+          const cw = thumb.width; const ch = thumb.height;
+          c.clearRect(0, 0, cw, ch);
+          const scale = Math.max(cw / img.width, ch / img.height);
+          const dw = img.width * scale; const dh = img.height * scale;
+          c.drawImage(img, (cw - dw) / 2, (ch - dh) / 2, dw, dh);
+        };
+        img.src = item.url;
+      } else {
+        window.BackgroundManager.renderStatic(thumb, tintPalette(item) ? { ...item, palette: tintPalette(item) } : item, 132, 92);
+      }
+      void w;
+    }
+
+    const m = findDisplayModel(S.display.kind, S.display.id);
+    const mName = $('#look-model-name');
+    const mNote = $('#look-model-note');
+    const mImg = $('#look-model-img');
+    if (mName) mName.textContent = m ? m.label : '—';
+    if (mNote) {
+      if (!m) {
+        mNote.textContent = '—';
+      } else if (m.kind === '3d') {
+        const size = m.bytes ? `${(m.bytes / 1024 / 1024).toFixed(1)} MB` : '';
+        mNote.textContent = `3D · ${(m.format || 'glb').toUpperCase()}${size ? ` · ${size}` : ''} · three.js + three-vrm 渲染`;
+      } else {
+        mNote.textContent = `${m.motionGroups.length} 组动作 / ${m.motionCount} 个 · ${m.expressions.length} 个表情 · 口型同步${m.hasLipSync ? '支持' : '不支持'}`;
+      }
+    }
+    if (mImg) {
+      if (m && m.preview) { mImg.src = m.preview; mImg.style.display = ''; }
+      else if (m && m.kind === '3d') {
+        // 3D 模型暂时没有预览图时，用一枚图标占位（预览图生成脚本会补上）
+        mImg.removeAttribute('src');
+        mImg.style.display = 'none';
+        const holder = mImg.parentElement;
+        if (holder && !holder.querySelector('.look-3d-badge')) {
+          holder.appendChild(el('div', { class: 'look-3d-badge', text: '3D' }));
+        }
+      } else {
+        mImg.removeAttribute('src');
+        mImg.style.display = 'none';
+      }
+    }
+  }
+
+  function bindLook() {
+    $('#look-bg-pick').addEventListener('click', openBackgroundPicker);
+    $('#look-model-pick').addEventListener('click', openModelPicker);
+    $('#open-bg').addEventListener('click', openBackgroundPicker);
+    $('#open-model').addEventListener('click', openModelPicker);
+
+    $('#l2d-scale').addEventListener('input', (e) => {
+      const v = Number(e.target.value) / 100;
+      S.settings.l2dScale = v;
+      $('#l2d-scale-label').textContent = `${e.target.value}%`;
+      const st = activeStage();
+      if (st) st.setScale(v);
+    });
+    $('#l2d-x').addEventListener('input', (e) => {
+      S.settings.l2dX = Number(e.target.value);
+      $('#l2d-x-label').textContent = e.target.value;
+      const st = activeStage();
+      if (st) st.setPosition(S.settings.l2dX, S.settings.l2dY);
+    });
+    $('#l2d-y').addEventListener('input', (e) => {
+      S.settings.l2dY = Number(e.target.value);
+      $('#l2d-y-label').textContent = e.target.value;
+      const st = activeStage();
+      if (st) st.setPosition(S.settings.l2dX, S.settings.l2dY);
+    });
+    $('#l2d-reset').addEventListener('click', () => {
+      S.settings.l2dScale = 1; S.settings.l2dX = 0; S.settings.l2dY = 0;
+      applySettingsToUI(); saveSettings();
+      const st = activeStage();
+      if (st) { st.setScale(1); st.setPosition(0, 0); }
+      syncCloudInsets(); cloud.layout();
+    });
+    $('#l2d-save').addEventListener('click', async () => {
+      if (!S.card) return;
+      await api(`/api/cards/${S.card.id}`, {
+        method: 'PUT',
+        body: {
+          live2d: {
+            ...(S.card.live2d || {}),
+            // kind 一定要一起存：不然下次进来不知道该用 Live2D 还是 3D 渲染器
+            kind: S.display.kind,
+            model: S.display.id,
+            scale: S.settings.l2dScale,
+            x: S.settings.l2dX,
+            y: S.settings.l2dY,
+            expression: S.settings.expression,
+          },
+        },
+      });
+      await reloadCards();
+      toast('形象设置已保存到角色卡', 'ok');
+    });
+
+    $('#wc-enabled').addEventListener('change', (e) => {
+      S.settings.wcEnabled = e.target.checked; saveSettings();
+      $('#wordcloud-layer').style.display = e.target.checked ? '' : 'none';
+      $('#btn-wc-toggle').classList.toggle('on', e.target.checked);
+      if (e.target.checked) cloud.layout();
+    });
+    $('#wc-glow').addEventListener('change', (e) => { S.settings.wcGlow = e.target.checked; saveSettings(); cloud.setAnimate(e.target.checked); });
+    $('#wc-density').addEventListener('input', (e) => {
+      S.settings.wcDensity = Number(e.target.value);
+      $('#wc-density-label').textContent = ['精简', '标准', '全部'][S.settings.wcDensity - 1] || '标准';
+      saveSettings(); cloud.setDensity(S.settings.wcDensity);
+    });
+  }
+
+  /** 背景选择器：内置图片 + 程序化 + 自定义，三组一起给 */
+  function openBackgroundPicker() {
+    // 注意：这里必须是**普通容器**而不是 .pick-grid。
+    // 分组标题和每组子网格都往它里面塞；如果它本身也是网格，
+    // 标题就会变成网格的格子，整个布局会塌成两列 —— 这是实测踩过的坑。
+    const grid = el('div', { class: 'pick-sections' });
+
+    const makeCard = (item) => {
+      const active = S.settings.backgroundId === item.id;
+      const card = el('button', {
+        class: `pick-card${active ? ' active' : ''}`,
+        type: 'button',
+        title: item.note || item.label,
+      }, [
+        document.createElement('canvas'),
+        el('div', { class: 'pick-name', text: item.label }),
+        el('div', { class: 'pick-note', text: item.kind === 'image' ? (item.bundled ? '内置图片' : '我的图片') : '程序化生成' }),
+      ]);
+      const canvas = card.querySelector('canvas');
+      // 缩略图：图片用 drawImage，程序化用 renderStatic（只画一帧，不起动画）
+      if (item.kind === 'image') {
+        const img = new Image();
+        img.onload = () => {
+          const c = canvas.getContext('2d');
+          canvas.width = 300; canvas.height = 192;
+          const scale = Math.max(canvas.width / img.width, canvas.height / img.height);
+          c.drawImage(img, (canvas.width - img.width * scale) / 2, (canvas.height - img.height * scale) / 2, img.width * scale, img.height * scale);
+        };
+        img.onerror = () => { canvas.getContext('2d').fillText('图片加载失败', 8, 20); };
+        img.src = item.url;
+      } else {
+        window.BackgroundManager.renderStatic(canvas, tintPalette(item) ? { ...item, palette: tintPalette(item) } : item, 150, 96);
+      }
+
+      if (!item.bundled && item.kind === 'image') {
+        card.appendChild(el('button', {
+          class: 'pick-del', text: '✕', title: '删除这张背景', type: 'button',
+          onclick: async (e) => {
+            e.stopPropagation();
+            if (!confirm(`删除背景「${item.label}」？文件会从本机 data/backgrounds/ 移除。`)) return;
+            try {
+              await api(`/api/backgrounds/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+              S.backgrounds.custom = (S.backgrounds.custom || []).filter(x => x.id !== item.id);
+              if (S.settings.backgroundId === item.id) applyBackground('proc-aurora', { silent: true });
+              renderPickerGrid(grid);
+              toast('已删除', 'ok');
+            } catch (err) { toast(err.message, 'err'); }
+          },
+        }));
+      }
+
+      card.addEventListener('click', () => {
+        applyBackground(item.id);
+        grid.querySelectorAll('.pick-card').forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+      });
+      return card;
+    };
+
+    const renderPickerGrid = (host) => {
+      host.innerHTML = '';
+      const sec = (title, items) => {
+        if (!items || !items.length) return;
+        host.appendChild(el('div', { class: 'lbl', style: { marginTop: '4px' }, text: title }));
+        const g = el('div', { class: 'pick-grid' });
+        items.forEach(it => g.appendChild(makeCard(it)));
+        host.appendChild(g);
+      };
+      sec('程序化背景（零素材体积，任意分辨率都清晰）', S.backgrounds.procedural);
+      sec('内置图片（来自 Project AIRI）', S.backgrounds.bundled);
+      sec('我上传的', S.backgrounds.custom);
+      if (!(S.backgrounds.custom || []).length) {
+        host.appendChild(el('div', { class: 'pick-hint', text: '还没有上传过背景。点上面的「上传图片」，选一张你自己的图即可——文件存在本机 data/backgrounds/，不会上传到任何地方。' }));
+      }
+    };
+
+    const fileInput = el('input', { type: 'file', accept: 'image/*', hidden: true });
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) return;
+      if (!/^image\//.test(file.type)) return toast('请选择图片文件', 'err');
+      try {
+        toast('正在保存到本机…', 'ok');
+        const dataUrl = await downscaleImage(await readAsDataURL(file), 1920, 0.9);
+        const r = await api('/api/backgrounds', { method: 'POST', body: { image: dataUrl, name: file.name } });
+        S.backgrounds.custom = (await api('/api/backgrounds')).custom;
+        renderPickerGrid(grid);
+        if (r.item) applyBackground(r.item.id);
+        toast('背景已保存并应用', 'ok');
+      } catch (err) { toast(`上传失败：${err.message}`, 'err', 5000); }
+      fileInput.value = '';
+    });
+
+    const body = el('div', { class: 'body' }, [
+      el('div', { class: 'pick-toolbar' }, [
+        el('button', { class: 'btn sm', text: '📤 上传图片', onclick: () => fileInput.click() }),
+        el('button', {
+          class: 'btn ghost sm', text: '⟳ 重新读取',
+          onclick: async () => {
+            try {
+              const d = await api('/api/backgrounds');
+              S.backgrounds = { bundled: d.bundled, procedural: d.procedural, custom: d.custom };
+              renderPickerGrid(grid);
+              toast('已重新读取背景列表', 'ok');
+            } catch (e) { toast(e.message, 'err'); }
+          },
+        }),
+        fileInput,
+      ]),
+      el('div', { class: 'pick-hint', text: '内置图片与程序化背景都不需要联网；上传的图片保存在本机 data/backgrounds/。程序化背景是实时用 Canvas 画的，换成任意分辨率都不会糊。' }),
+      grid,
+    ]);
+
+    renderPickerGrid(grid);
+
+    const modal = el('div', { class: 'modal modal-wide' }, [
+      el('header', {}, [
+        el('h3', { text: '更换背景' }),
+        el('button', { class: 'icon-btn', style: { marginLeft: 'auto', width: '28px', height: '28px' }, text: '✕', onclick: () => close() }),
+      ]),
+      body,
+    ]);
+    const mask = el('div', { class: 'modal-mask', onclick: (e) => { if (e.target === mask) close(); } }, [modal]);
+    function close() { mask.remove(); }
+    $('#modal-root').appendChild(mask);
+  }
+
+  /**
+   * 形象选择器：Live2D（2D）与 3D（VRM / GLB）混在一个弹层里，
+   * 用分组隔开。点一下立刻换上，并写进当前角色卡。
+   */
+  function openModelPicker() {
+    // 普通容器，不是 .pick-grid —— 分组标题和每组子网格都往里塞，
+    // 否则标题会变成网格的格子（这个坑在背景选择器那里踩过一次）
+    const host = el('div', { class: 'pick-sections' });
+
+    const makeCard = (m) => {
+      const active = S.display.kind === m.kind && S.display.id === m.id;
+      const is3d = m.kind === '3d';
+      const note = is3d
+        ? `3D · ${(m.format || 'glb').toUpperCase()}${m.bytes ? ` · ${(m.bytes / 1024 / 1024).toFixed(1)} MB` : ''}${m.format === 'vrm' ? ' · 支持口型与眨眼' : ''}`
+        : `${m.motionGroups.length} 组动作 / ${m.motionCount} 个${m.expressions.length ? ` · ${m.expressions.length} 个表情` : ''}${m.hasLipSync ? ' · 支持口型同步' : ''}`;
+
+      const card = el('button', {
+        class: `pick-card${active ? ' active' : ''}`,
+        type: 'button',
+        title: m.note || m.label,
+      }, [
+        m.preview
+          ? el('img', { class: 'pick-img pick-model-img', src: m.preview, alt: m.label })
+          : el('div', { class: 'pick-img', style: { display: 'grid', placeItems: 'center', fontSize: '28px' }, text: is3d ? '🧊' : '🧍' }),
+        el('div', { class: 'pick-name', text: m.label }),
+        el('div', { class: 'pick-note', text: note }),
+        ((m.tags && m.tags.length) || is3d)
+          ? el('div', { class: 'pick-tags' }, [
+            ...(m.tags || []).map(t => el('span', { class: 'pick-tag', text: t })),
+            el('span', { class: 'pick-tag', text: is3d ? '3D' : '2D / Live2D' }),
+          ])
+          : null,
+      ]);
+
+      if (is3d && !m.bundled) {
+        card.appendChild(el('button', {
+          class: 'pick-del', text: '✕', title: '删除这个模型', type: 'button',
+          onclick: async (e) => {
+            e.stopPropagation();
+            if (!confirm(`删除模型「${m.label}」？文件会从本机 data/models3d/ 移除。`)) return;
+            try {
+              await api(`/api/models3d/${encodeURIComponent(m.id)}`, { method: 'DELETE' });
+              const d = await api('/api/models3d');
+              S.models3d = { ...S.models3d, bundled: d.bundled, custom: d.custom, formats: d.formats };
+              if (S.display.kind === '3d' && S.display.id === m.id) {
+                await switchDisplay('live2d', (S.l2dModels[0] && S.l2dModels[0].id) || '');
+              }
+              render(null);
+              toast('已删除', 'ok');
+            } catch (err) { toast(err.message, 'err'); }
+          },
+        }));
+      }
+
+      card.addEventListener('click', async () => {
+        host.querySelectorAll('.pick-card').forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+        await switchDisplay(m.kind, m.id, { silent: true });
+        // 写进角色卡：下次进来自动就是这个形象（kind 一起存，才知道用哪套渲染器）
+        if (S.card) {
+          await api(`/api/cards/${S.card.id}`, {
+            method: 'PUT',
+            body: { live2d: { ...(S.card.live2d || {}), kind: m.kind, model: m.id } },
+          }).catch(() => { /* 存不上不影响这次切换 */ });
+          await reloadCards();
+          S.card = S.cards.find(c => c.id === S.card.id) || S.card;
+        }
+        renderLookPreview();
+        renderExpressions();
+        toast(`形象已切换为「${m.label}」`, 'ok');
+      });
+      return card;
+    };
+
+    const render = () => {
+      host.innerHTML = '';
+      const sec = (title, items) => {
+        if (!items || !items.length) return;
+        host.appendChild(el('div', { class: 'lbl', text: title }));
+        const g = el('div', { class: 'pick-grid' });
+        items.forEach(m => g.appendChild(makeCard(m)));
+        host.appendChild(g);
+      };
+      sec('Live2D 形象（2D，PixiJS + Cubism）', S.l2dModels.map(m => ({ ...m, kind: 'live2d' })));
+      sec('3D 形象（VRM / GLB，three.js）', (S.models3d.bundled || []));
+      sec('我上传的 3D 模型', (S.models3d.custom || []));
+      if (!(S.models3d.custom || []).length) {
+        host.appendChild(el('div', {
+          class: 'pick-hint',
+          text: '还没有上传过 3D 模型。点上面的「📤 上传 VRM / GLB」，选一个你自己的 .vrm 或 .glb 文件即可——'
+            + '文件存在本机 data/models3d/，不会上传到任何地方。',
+        }));
+      }
+    };
+
+    const fileInput = el('input', { type: 'file', accept: '.vrm,.glb,.gltf,model/gltf-binary,model/gltf+json', hidden: true });
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files && fileInput.files[0];
+      fileInput.value = '';
+      if (!file) return;
+      const ext = (file.name.match(/\.[^.]+$/) || [''])[0].toLowerCase();
+      if (!['.vrm', '.glb', '.gltf'].includes(ext)) {
+        return toast('请选择 .vrm / .glb / .gltf 文件', 'err', 5000);
+      }
+      if (file.size > 100 * 1024 * 1024) {
+        return toast(`文件 ${(file.size / 1024 / 1024).toFixed(1)}MB，超过 100MB 上限`, 'err', 6000);
+      }
+      try {
+        toast(`正在读取并保存到本机（${(file.size / 1024 / 1024).toFixed(1)}MB）…`, 'ok', 8000);
+        const dataUrl = await readAsDataURL(file);   // 已经是 base64，不需要再走图片降采样
+        const r = await api('/api/models3d', { method: 'POST', body: { model: dataUrl, name: file.name }, timeout: 600000 });
+        const d = await api('/api/models3d');
+        S.models3d = { ...S.models3d, bundled: d.bundled, custom: d.custom, formats: d.formats };
+        render();
+        if (r.item) {
+          await switchDisplay('3d', r.item.id, { silent: true });
+          if (S.card) {
+            await api(`/api/cards/${S.card.id}`, {
+              method: 'PUT',
+              body: { live2d: { ...(S.card.live2d || {}), kind: '3d', model: r.item.id } },
+            }).catch(() => { /* 忽略 */ });
+            await reloadCards();
+          }
+          renderLookPreview();
+          toast(`已保存并切换为「${r.item.label}」`, 'ok', 5000);
+        }
+      } catch (err) {
+        // 后端会把"这文件不是 glTF"这类原因说清楚，原样透出给用户
+        toast(String(err.message).split('\n')[0], 'err', 9000);
+      }
+    });
+
+    const body = el('div', { class: 'body' }, [
+      el('div', { class: 'pick-toolbar' }, [
+        el('button', { class: 'btn sm', text: '📤 上传 VRM / GLB', onclick: () => fileInput.click() }),
+        el('button', {
+          class: 'btn ghost sm', text: '⟳ 重新读取',
+          onclick: async () => {
+            try {
+              const d = await api('/api/models3d');
+              S.models3d = { ...S.models3d, bundled: d.bundled, custom: d.custom, formats: d.formats };
+              render();
+              toast('已重新读取模型列表', 'ok');
+            } catch (e) { toast(e.message, 'err'); }
+          },
+        }),
+        fileInput,
+      ]),
+      el('div', {
+        class: 'pick-hint',
+        html: '**Live2D** 从 <code>public/models/</code> 读取，一套模型一个文件夹（需含 <code>.model3.json</code>）。'
+          + '<br>**3D 形象**支持 <b>.vrm</b>（VRoid 虚拟形象，带骨骼与表情，能做眨眼与口型同步）与 <b>.glb</b>（glTF 二进制单文件）。'
+          + '仓库不附带模型（版权原因），首次使用先跑一次根目录的「获取示例模型.bat」，或者在下面直接上传你自己的模型，文件只存在本机 <code>data/models3d/</code>。'
+          + '<br>为什么不支持 .gltf：那个格式通常还要带一堆散装 .bin 与贴图，网页上"上传一个文件"没法把整包带上来，所以请导出成 .glb 或 .vrm。'
+          + '<br>预览图是用真实渲染器离线生成的一帧；选中的形象会写进当前角色卡。',
+      }),
+      host,
+    ]);
+
+    render();
+
+    const modal = el('div', { class: 'modal modal-wide' }, [
+      el('header', {}, [
+        el('h3', { text: '更换人物形象' }),
+        el('button', { class: 'icon-btn', style: { marginLeft: 'auto', width: '28px', height: '28px' }, text: '✕', onclick: () => close() }),
+      ]),
+      body,
+    ]);
+    const mask = el('div', { class: 'modal-mask', onclick: (e) => { if (e.target === mask) close(); } }, [modal]);
+    function close() { mask.remove(); }
+    $('#modal-root').appendChild(mask);
+  }
+
+  function readAsDataURL(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result));
+      r.onerror = () => reject(new Error('读取文件失败'));
+      r.readAsDataURL(file);
+    });
+  }
+
+  function applySettingsToUI() {
+    const s = S.settings;
+    // 注意：自动朗读、记忆、视觉三个开关现在分别挂在顶栏按钮与角色卡编辑器里，
+    // 不再有全局复选框，所以这里只需要同步"外观"页的控件。
+    const set = (sel, val) => { const n = $(sel); if (n) n.checked = val; };
+    set('#wc-enabled', s.wcEnabled);
+    set('#wc-glow', s.wcGlow);
+    const sc = $('#l2d-scale'); if (sc) { sc.value = Math.round((s.l2dScale || 1) * 100); $('#l2d-scale-label').textContent = `${sc.value}%`; }
+    const sx = $('#l2d-x'); if (sx) { sx.value = s.l2dX || 0; $('#l2d-x-label').textContent = String(s.l2dX || 0); }
+    const sy = $('#l2d-y'); if (sy) { sy.value = s.l2dY || 0; $('#l2d-y-label').textContent = String(s.l2dY || 0); }
+    const wd = $('#wc-density'); if (wd) { wd.value = s.wcDensity || 2; $('#wc-density-label').textContent = ['精简', '标准', '全部'][(s.wcDensity || 2) - 1]; }
+    const wt = $('#btn-wc-toggle'); if (wt) wt.classList.toggle('on', s.wcEnabled);
+    const st2 = $('#btn-speak-toggle'); if (st2) st2.classList.toggle('on', s.autospeak);
+  }
+
+  /** 简单的文本输入弹层（给"记住这个"用，避免 window.prompt 的样式割裂） */
+  function askText(title, placeholder) {
+    return new Promise((resolve) => {
+      const input = el('textarea', { placeholder: placeholder || '' });
+      const modal = el('div', { class: 'modal' }, [
+        el('header', {}, [el('h3', { text: title })]),
+        el('div', { class: 'body' }, [el('div', { class: 'field' }, [input])]),
+        el('footer', {}, [
+          el('button', { class: 'btn ghost sm', text: '取消', onclick: () => { mask.remove(); resolve(''); } }),
+          el('button', { class: 'btn sm', text: '保存', onclick: () => { const v = input.value.trim(); mask.remove(); resolve(v); } }),
+        ]),
+      ]);
+      const mask = el('div', { class: 'modal-mask' }, [modal]);
+      $('#modal-root').appendChild(mask);
+      input.focus();
+    });
+  }
+
+  window.addEventListener('beforeunload', () => {
+    saveHistory();
+    if (S.cameraStream) S.cameraStream.getTracks().forEach(t => t.stop());
+  });
+
+  document.addEventListener('DOMContentLoaded', boot);
+
+  /**
+   * 测试钩子。
+   *
+   * 为什么需要：验收脚本要"切到第 N 个 3D 模型"时，如果只能靠模拟点击选择器里的卡片，
+   * 就得去匹配卡片文案，一改文案脚本就碎。这里把几个稳定入口挂到 window 上，
+   * 脚本调用它们走的是**和用户点选完全相同的代码路径**（不是绕过逻辑的后门），
+   * 只是省掉了"找到那个按钮"的脆弱环节。
+   */
+  window.__wenlv = {
+    get state() { return S; },
+    switchDisplay,
+    applyBackground,
+    openBackgroundPicker,
+    openModelPicker,
+    activeStage,
+  };
+})();
