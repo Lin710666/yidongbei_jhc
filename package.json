@@ -1,6 +1,6 @@
 {
   "name": "wenlv-assistant",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "description": "文旅智能辅助 Skill —— 基于本地 Ollama 大模型的个性化方案规划与营销素材生成，含输出质检",
   "main": "server.js",

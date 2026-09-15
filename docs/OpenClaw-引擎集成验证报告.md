@@ -38,7 +38,7 @@
 ### 步骤 1：技能包安装
 
 ```bash
-$ openclaw skills install "C:\Users\11702\Desktop\移动杯项目\yidongbei-2.1\.agents\skills\wenlv-assistant"
+$ openclaw skills install "C:\Users\11702\Desktop\移动杯项目\yidongbei-2.2\.agents\skills\wenlv-assistant"
 Installing to C:\Users\11702\.openclaw\workspace\skills\wenlv-assistant…
 Installed wenlv-assistant from path -> C:\Users\11702\.openclaw\workspace\skills\wenlv-assistant
 ```
