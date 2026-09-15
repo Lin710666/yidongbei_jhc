@@ -1,29 +1,92 @@
 @echo off
-chcp 65001 >nul
-title æ–‡æ—…æ™ºèƒ½è¾…åŠ© Â· æœ¬åœ°éƒ¨ç½²å¯åŠ¨å™¨
+chcp 936 >nul
+cd /d "%~dp0"
+title ÎÄÂÃÖÇÄÜ¸¨Öú ¡¤ ±¾µØ²¿ÊğÆô¶¯Æ÷
 echo ================================================
-echo    æ–‡æ—…æ™ºèƒ½è¾…åŠ© Skill Â· æœ¬åœ°å¤§æ¨¡å‹å¯åŠ¨å™¨
+echo    ÎÄÂÃÖÇÄÜ¸¨Öú Skill ¡¤ ±¾µØ´óÄ£ĞÍÆô¶¯Æ÷
 echo ================================================
 echo.
 
-rem ---- 1. æ£€æŸ¥ Ollama æ˜¯å¦å®‰è£… ----
+rem ---- 1. ¼ì²é Ollama ----
 where ollama >nul 2>nul
-if %errorlevel% neq 0 (
-  echo [é”™è¯¯] æœªæ£€æµ‹åˆ° Ollamaã€‚è¯·å…ˆå®‰è£…ï¼š
-  echo        winget install Ollama.Ollama
-  echo.
-  pause
-  exit /b 1
-)
+if %errorlevel% neq 0 goto NO_OLLAMA
 
-rem ---- 2. æ£€æŸ¥æœ¬åœ°æ¨¡å‹ï¼Œç¼ºå¤±åˆ™è‡ªåŠ¨ä¸‹è½½ï¼ˆä»…é¦–æ¬¡ï¼Œçº¦ 4.7GBï¼‰----
-ollama list | findstr /C:"qwen2.5:7b" >nul
-if %errorlevel% neq 0 (
-  echo [æç¤º] æœªæ‰¾åˆ°æ¨¡å‹ qwen2.5:7bï¼Œå¼€å§‹ä¸‹è½½ï¼ˆä»…é¦–æ¬¡ï¼Œè¯·è€å¿ƒç­‰å¾…ï¼‰...
-  ollama pull qwen2.5:7b
-)
+rem ---- 2. ¼ì²é Node.js£¨ÒªÇó 18 »ò¸ü¸ß°æ±¾£©----
+where node >nul 2>nul
+if %errorlevel% neq 0 goto NO_NODE
 
-rem ---- 3. å¯åŠ¨æœ¬åœ°æœåŠ¡å™¨å¹¶æ‰“å¼€æµè§ˆå™¨ ----
-echo [å¯åŠ¨] æ­£åœ¨å¯åŠ¨æœ¬åœ°æœåŠ¡å™¨ http://localhost:8000 ...
-start "" http://localhost:8000
-node server.js
+set NODE_MAJOR=0
+for /f "tokens=1 delims=." %%a in ('node -v') do set NODE_MAJOR=%%a
+set NODE_MAJOR=%NODE_MAJOR:v=%
+if %NODE_MAJOR% LSS 18 goto NODE_OLD
+
+rem ---- 3. ¼ì²é±¾µØÄ£ĞÍ£¬È±Ê§Ôò×Ô¶¯ÏÂÔØ£¨½öÊ×´Î£¬Ô¼ 4.7GB£©----
+rem ÓÃĞĞÊ×ÕıÔòÆ¥Åä£¬±ÜÃâ qwen2.5:7b-instruct ÕâÀàÃû³Æ±»ÎóÅĞÎªÒÑ°²×°
+ollama list | findstr /R /C:"^qwen2.5:7b " >nul
+if %errorlevel%==0 goto HAVE_MODEL
+echo [ÌáÊ¾] Î´ÕÒµ½Ä£ĞÍ qwen2.5:7b£¬¿ªÊ¼ÏÂÔØ£¨½öÊ×´Î£¬ÇëÄÍĞÄµÈ´ı£©...
+ollama pull qwen2.5:7b
+:HAVE_MODEL
+
+rem ---- 4. ¶Ë¿ÚÒÑÔÚ¼àÌı£ºËµÃ÷·şÎñÒÑ¾­ÅÜ×Å£¬Ö±½Ó´ò¿ªÒ³Ãæ ----
+netstat -ano | findstr /C:"LISTENING" | findstr /C:":8000 " >nul
+if %errorlevel%==0 goto ALREADY
+
+rem ---- 5. Æô¶¯·şÎñ£¬²¢ÂÖÑ¯µÈ´ıËü¾ÍĞ÷£¨×î¶àÔ¼ 10 Ãë£©----
+rem ÕâÀï²»ÓÃ timeout ÃüÁî£ºstdin ±»ÖØ¶¨ÏòÊ± timeout »áÖ±½Ó±¨´íÍË³ö£¬µ¼ÖÂµÈ´ıÊ§Ğ§
+echo [Æô¶¯] ÕıÔÚÆô¶¯±¾µØ·şÎñÆ÷ ...
+start "wenlv-server" /min cmd /c "node server.js > server.log 2>&1"
+
+set WAIT=0
+:WAIT_LOOP
+ping -n 2 127.0.0.1 >nul
+netstat -ano | findstr /C:"LISTENING" | findstr /C:":8000 " >nul
+if %errorlevel%==0 goto STARTED
+set /a WAIT+=1
+if %WAIT% LSS 10 goto WAIT_LOOP
+goto START_FAIL
+
+:STARTED
+start "" "http://localhost:8000"
+echo.
+echo [Íê³É] ·şÎñÒÑÔÚºóÌ¨ÔËĞĞ£¬Ò³ÃæÒÑ´ò¿ª¡£
+echo        Í£Ö¹·şÎñ£ºË«»÷ stop.bat
+echo.
+pause
+exit /b 0
+
+:ALREADY
+echo [ÌáÊ¾] ·şÎñÒÑ¾­ÔÚÔËĞĞ£¬ÕıÔÚ´ò¿ªÒ³Ãæ ...
+start "" "http://localhost:8000"
+echo.
+echo   Ò³ÃæµØÖ·£ºhttp://localhost:8000
+echo   Èç¹ûä¯ÀÀÆ÷Ã»ÓĞ×Ô¶¯´ò¿ª£¬ÇëÊÖ¶¯¸´ÖÆÉÏÃæµÄµØÖ··ÃÎÊ¡£
+echo.
+pause
+exit /b 0
+
+:NO_OLLAMA
+echo [´íÎó] Î´¼ì²âµ½ Ollama¡£ÇëÏÈ°²×°£º
+echo        winget install Ollama.Ollama
+echo.
+pause
+exit /b 1
+
+:NO_NODE
+echo [´íÎó] Î´¼ì²âµ½ Node.js¡£ÇëÏÈ°²×° Node.js 18 »ò¸ü¸ß°æ±¾£º
+echo        https://nodejs.org
+echo.
+pause
+exit /b 1
+
+:NODE_OLD
+echo [´íÎó] Node.js °æ±¾¹ıµÍ£¬ÇëÉı¼¶µ½ 18 »ò¸ü¸ß°æ±¾¡£
+echo.
+pause
+exit /b 1
+
+:START_FAIL
+echo [´íÎó] ·şÎñÎ´ÄÜÔÚ 10 ÃëÄÚÆô¶¯£¬Çë²é¿´Í¬Ä¿Â¼ÏÂµÄ server.log ÁË½âÔ­Òò¡£
+echo.
+pause
+exit /b 1

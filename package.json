@@ -1,0 +1,27 @@
+{
+  "name": "wenlv-assistant",
+  "version": "2.1.0",
+  "private": true,
+  "description": "文旅智能辅助 Skill —— 基于本地 Ollama 大模型的个性化方案规划与营销素材生成，含输出质检",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/audit.js && node test/smoke.js",
+    "test:audit": "node test/audit.js",
+    "test:smoke": "node test/smoke.js",
+    "validate:skill": "node .agents/skills/wenlv-assistant/scripts/validate-skill.js",
+    "package:skill": "node .agents/skills/wenlv-assistant/scripts/package-skill.js",
+    "check": "npm run validate:skill && npm test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "wenlv",
+    "ollama",
+    "skill",
+    "local-llm",
+    "travel"
+  ],
+  "license": "MIT"
+}

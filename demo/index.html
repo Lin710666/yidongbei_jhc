@@ -71,7 +71,7 @@
   }
   .chip:hover { border-color: var(--primary); }
   .chip.on { background: var(--primary); color: #fff; border-color: var(--primary); }
-  select, input[type="number"] {
+  select, input[type="number"], input[type="text"] {
     width: 100%; padding: 9px 12px; font-size: 14px;
     border: 1px solid var(--border); border-radius: 8px; background: #fff;
   }
@@ -85,7 +85,18 @@
     background: #fff; color: var(--primary); border: 1px solid var(--primary);
   }
   .btn.ghost:hover { background: #e6f4f1; }
-  .actions { display: flex; gap: 10px; margin-top: 6px; }
+  .btn:disabled { opacity: .55; cursor: not-allowed; }
+  .actions { display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
+
+  /* 输出质检告警（样本库核对结果） */
+  .warn {
+    background: #fffbeb; border: 1px solid #fcd34d; color: #92400e;
+    border-radius: var(--radius); padding: 12px 16px; margin-bottom: 12px;
+    font-size: 13px; line-height: 1.55;
+  }
+  .warn h4 { margin: 0 0 6px; font-size: 13px; color: #92400e; }
+  .warn ul { margin: 0; padding-left: 18px; }
+  .warn li { margin-bottom: 4px; }
 
   /* 输出 */
   .output {
@@ -127,13 +138,20 @@
 
       <div class="field">
         <label><span class="req">*</span> 目的地</label>
-        <select id="plan-city">
-          <option value="杭州">杭州</option>
-          <option value="苏州">苏州</option>
-          <option value="成都">成都</option>
-          <option value="丽江">丽江</option>
-          <option value="西安">西安</option>
-        </select>
+        <input type="text" id="plan-city" list="city-list" value="杭州" placeholder="输入城市或景区名称">
+        <datalist id="city-list">
+          <option value="杭州"></option>
+          <option value="苏州"></option>
+          <option value="成都"></option>
+          <option value="丽江"></option>
+          <option value="西安"></option>
+        </datalist>
+        <p class="hint" style="margin:6px 0 0">
+          样本库当前覆盖 <b>5 座城市</b>：杭州、苏州、成都、丽江、西安
+          （共 52 个景区 / 27 家酒店民宿 / 38 家餐饮）。
+          输入其他城市（可自由填写）会退回通用文旅知识，并标注"建议补充本地数据"
+          —— 这正是异常处理里的降级路径，可现场演示。
+        </p>
       </div>
       <div class="field">
         <label><span class="req">*</span> 游玩天数</label>
@@ -167,11 +185,13 @@
       </div>
       <div class="actions">
         <button class="btn" onclick="generatePlan()">生成方案</button>
+        <button class="btn ghost" onclick="intakePlan()">🤔 让 AI 先问我</button>
         <button class="btn ghost" onclick="exportResult('#plan-output','文旅方案')">导出 Markdown</button>
       </div>
     </div>
     <div class="card">
       <h2>生成结果</h2>
+      <div class="warn" id="plan-warn" hidden></div>
       <div class="output" id="plan-output"></div>
     </div>
   </div>
@@ -217,6 +237,7 @@
     </div>
     <div class="card">
       <h2>生成结果</h2>
+      <div class="warn" id="marketing-warn" hidden></div>
       <div class="output" id="marketing-output"></div>
     </div>
   </div>
@@ -270,10 +291,38 @@ function getChipVals(name) {
   return [...row.querySelectorAll(".chip.on")].map(c => c.textContent.trim());
 }
 
-/* ---- 核心：调用本地大模型，展示结果或错误信息 ---- */
-async function generate(type, params, outputEl) {
-  outputEl.textContent = "⏳ 正在调用本地大模型生成，约需 10~30 秒…";
+/* ---- 输出质检告警：用 DOM 构建，杜绝 XSS ---- */
+function renderWarnings(el, list) {
+  el.textContent = "";
+  if (!list || !list.length) { el.hidden = true; return; }
+  el.hidden = false;
+  const h = document.createElement("h4");
+  h.textContent = `⚠️ 输出质检发现 ${list.length} 处需要注意（已与本地样本库核对）`;
+  el.appendChild(h);
+  const ul = document.createElement("ul");
+  list.forEach((w) => {
+    const li = document.createElement("li");
+    li.textContent = w;
+    ul.appendChild(li);
+  });
+  el.appendChild(ul);
+}
+
+/* ---- 核心：调用本地大模型，展示结果 / 质检告警 / 错误信息 ---- */
+async function generate(type, params, outputEl, warnEl) {
+  // 防连点：本机模型会排队，反复点击会把显存打满、越点越慢
+  const btns = document.querySelectorAll(".btn");
+  btns.forEach((b) => (b.disabled = true));
+
+  const t0 = Date.now();
+  outputEl.textContent = "⏳ 正在调用本地大模型生成…首次调用需把模型加载进显存，可能较慢";
+  renderWarnings(warnEl, []);
   setMode("loading");
+  // 真实倒计时：实测 7 天方案约需 40 秒，固定文案会让人以为卡死
+  const tick = setInterval(() => {
+    outputEl.textContent = `⏳ 正在调用本地大模型生成…已等待 ${Math.round((Date.now() - t0) / 1000)} 秒（首次调用较慢，请勿重复点击）`;
+  }, 1000);
+
   try {
     const res = await fetch("/api/generate", {
       method: "POST",
@@ -283,8 +332,12 @@ async function generate(type, params, outputEl) {
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.ok) {
       outputEl.textContent = data.content;
+      renderWarnings(warnEl, data.warnings);
       setMode("ok", data.model);
-      toast("✅ 已由本地大模型生成");
+      const secs = Math.round((Date.now() - t0) / 1000);
+      toast(data.warnings && data.warnings.length
+        ? `✅ 已生成（${secs}s），有 ${data.warnings.length} 处质检提示`
+        : `✅ 已由本地大模型生成（${secs}s）`);
       return;
     }
     // 出错：把错误信息直接显示在结果区，便于排查
@@ -297,22 +350,30 @@ async function generate(type, params, outputEl) {
     outputEl.textContent =
       "⚠️ 无法连接本地服务\n\n" + (e.message || e) +
       "\n\n请用以下任一方式启动：\n1. 双击 start.bat\n2. 命令行运行 `node server.js`，再访问 http://localhost:8000";
-    setMode("error");
+    setMode("no-server");
     toast("❌ 无法连接本地服务");
+  } finally {
+    clearInterval(tick);
+    btns.forEach((b) => (b.disabled = false));
   }
 }
 
 /* ---- 生成入口：个性化方案规划 ---- */
 async function generatePlan() {
   const params = {
-    city: document.getElementById("plan-city").value,
+    city: document.getElementById("plan-city").value.trim() || "杭州",
     days: parseInt(document.getElementById("plan-days").value, 10) || 2,
     budget: getChipVal("budget"),
     crowd: getChipVal("crowd"),
     interests: getChipVals("interests"),
     diet: getChipVal("diet"),
   };
-  await generate("plan", params, document.getElementById("plan-output"));
+  await generate("plan", params, document.getElementById("plan-output"), document.getElementById("plan-warn"));
+}
+
+/* ---- 异常处理演示：故意不提供任何需求，让模型按 SKILL.md 规范"一次性集中追问（带选项）" ---- */
+async function intakePlan() {
+  await generate("intake", {}, document.getElementById("plan-output"), document.getElementById("plan-warn"));
 }
 
 /* ---- 生成入口：营销文案 ---- */
@@ -323,40 +384,48 @@ async function generateMarketing() {
     audience: getChipVal("audience"),
     style: getChipVal("style"),
   };
-  await generate("marketing", params, document.getElementById("marketing-output"));
+  await generate("marketing", params, document.getElementById("marketing-output"), document.getElementById("marketing-warn"));
 }
 
-/* ---- 顶部"生成模式"徽标 ---- */
+/* ---- 顶部"生成模式"徽标：区分清楚"服务没起 / Ollama 没起 / 模型没下载"，不再一律报"出错" ---- */
 function setMode(mode, model) {
   const badge = document.getElementById("ai-badge");
   if (mode === "ok") {
-    badge.textContent = `🟢 本地大模型 ${model || ""}`;
+    badge.textContent = `🟢 本地大模型 ${model || ""} 已就绪`;
     badge.style.background = "#e6f4f1";
   } else if (mode === "loading") {
     badge.textContent = "⏳ 生成中…";
     badge.style.background = "#e6f4f1";
+  } else if (mode === "no-model") {
+    badge.textContent = `🟠 模型未下载（ollama pull ${model || ""}）`;
+    badge.style.background = "#fef3c7";
+  } else if (mode === "no-ollama") {
+    badge.textContent = "🔴 Ollama 未运行（请先启动 Ollama）";
+    badge.style.background = "#fee2e2";
+  } else if (mode === "no-server") {
+    badge.textContent = "⚫ 本地服务未启动（请双击 start.bat）";
+    badge.style.background = "#f3f4f6";
   } else if (mode === "error") {
-    badge.textContent = "🔴 出错（见结果区）";
+    badge.textContent = "🔴 生成失败（见结果区）";
     badge.style.background = "#fee2e2";
   } else {
-    badge.textContent = "🟡 未检测本地模型";
-    badge.style.background = "#fef3c7";
+    // 防御性兜底：将来新增状态而忘记加分支时，不至于显示成绿色"已就绪"
+    badge.textContent = "⚪ 未知状态";
+    badge.style.background = "#f3f4f6";
   }
 }
 
-/* ---- 页面加载时探测本地模型状态 ---- */
+/* ---- 页面加载时探测本地模型状态：必须确认"目标模型"真的在列表里，否则徽标会假绿 ---- */
 async function checkAIStatus() {
   try {
     const res = await fetch("/api/status");
-    if (res.ok) {
-      const d = await res.json();
-      if (d.running && d.models.length) setMode("ok", d.model);
-      else setMode("error");
-    } else {
-      setMode("error");
-    }
+    if (!res.ok) { setMode("no-ollama"); return; }
+    const d = await res.json();
+    if (!d.running) setMode("no-ollama");
+    else if (!d.hasModel) setMode("no-model", d.model);
+    else setMode("ok", d.model);
   } catch (e) {
-    setMode("error");
+    setMode("no-server");
   }
 }
 checkAIStatus();
