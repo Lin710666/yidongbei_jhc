@@ -259,7 +259,15 @@
      */
     get visibleWords() {
       let list = this.words.filter(w => !this.groupFilter || w.group === this.groupFilter);
-      list = list.slice().sort((a, b) => (b.weight || 0) - (a.weight || 0));
+      // 排序规则：**骨架词（label / core）永远排在成员词前面**，同类里再按权重降序。
+      //
+      // 为什么不能只按权重排：布局是"顺着顺序从内圈往外放"的，而骨架词和成员词的权重区间
+      // 是重叠的 —— 比如成员词「杭州」权重 88，比骨架词「同行人群」的 66 还高，
+      // 于是杭州抢到了内圈，骨架反而被顶到外圈去。默认视图只显示骨架，
+      // 结果就是那十几个词散得离中心老远（实测最远 497px，快贴到舞台边缘）。
+      // 分成两档之后骨架自然收紧到内圈，成员词（默认藏着）散布在外圈，互不影响。
+      const tier = (w) => ((w.role === 'label' || w.role === 'core') ? 1 : 0);
+      list = list.slice().sort((a, b) => (tier(b) - tier(a)) || ((b.weight || 0) - (a.weight || 0)));
       const limit = DENSITY_LIMIT[this.density] || 999;
       return list.slice(0, limit);
     }

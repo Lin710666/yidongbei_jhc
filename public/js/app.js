@@ -478,12 +478,10 @@
         break;
       }
 
-      // 「游玩天数」这个控件：调数值靠两侧的箭头，点词本身只是给个用法提示。
-      // 少了这个 case 的话，点词本身会掉进 default，弹一句"暂未绑定动作" —— 很出戏。
+      // 「游玩天数」这个控件：点词本身就加一天，两侧的 ▼ ▲ 用来精细加减。
+      // 少了这个 case 的话，点词本身会掉进 default 弹一句"暂未绑定动作" —— 很出戏。
       case 'days-stepper': {
-        const input = $('#plan-days');
-        const days = input ? Number(input.value) || 2 : 2;
-        say(`现在是 ${days} 天。点词两侧的 ▼ ▲ 就能加减。`, true);
+        handleDaysStep(w, 1);
         break;
       }
 
@@ -737,6 +735,50 @@
   }
 
   /**
+   * 结果卡里把 A/B 两版文案并排成两列。
+   *
+   * 为什么：营销文案的输出天然就是「版本 A / 版本 B」两块（各带一个 h2），
+   * 堆成一条要滚 4 屏；并排之后纵向高度直接砍半，而且"我们一次给你两版"这个卖点
+   * 一眼就能看见 —— 比埋在长条里强得多。
+   *
+   * 只在确实有两个以上 h2 时才分列：行程方案那种单块内容保持原样，
+   * 硬分列会让表格和长段落断得很难看。
+   */
+  function layoutResultColumns(node) {
+    if (!node) return;
+    node.classList.remove('is-columns');
+    // 先量一遍（上一次渲染可能已经改过结构，DOM 里存的是拆好的列）
+    const blocks = Array.from(node.children);
+    const firstIdx = blocks.findIndex((b) => b.tagName === 'H2');
+    if (firstIdx < 0) return;
+    const groups = [];
+    let cur = null;
+    for (const b of blocks.slice(firstIdx)) {
+      if (b.tagName === 'H2') { cur = [b]; groups.push(cur); }
+      else if (cur) cur.push(b);
+    }
+    if (groups.length < 2) return;
+
+    const pre = blocks.slice(0, firstIdx);
+    const frag = document.createDocumentFragment();
+    if (pre.length) {
+      const preBox = document.createElement('div');
+      preBox.className = 'result-pre';
+      pre.forEach((b) => preBox.appendChild(b));
+      frag.appendChild(preBox);
+    }
+    for (const g of groups) {
+      const col = document.createElement('div');
+      col.className = 'result-col';
+      g.forEach((b) => col.appendChild(b));
+      frag.appendChild(col);
+    }
+    node.innerHTML = '';
+    node.appendChild(frag);
+    node.classList.add('is-columns');
+  }
+
+  /**
    * 把工具栏与字幕条的尺寸算成词云的安全边距。
    *
    * 字幕条这里**按固定值预留**，而不是去量它当前的实际高度 ——
@@ -835,7 +877,12 @@
       });
       if (!res.ok) {
         let d = {};
-        try { d = await res.json(); } catch { /* 非 JSON */ }
+        try { d = await res.json(); } catch { /* 服务整个没起来时返回的可能是非 JSON */ }
+        // 502/503/504 基本都是"本机语音服务没在跑"。这时候要给一句能照着做的话，
+        // 而不是把裸的 HTTP 状态码丢出去（用户看到「语音合成失败（HTTP 502）」只会一脸问号）。
+        if (!d.error && (res.status === 502 || res.status === 503 || res.status === 504)) {
+          throw new Error('本机语音服务没在运行。双击项目根目录的「start.bat」（或 tools\\start-tts.bat）把它起起来，再点一次朗读。');
+        }
         throw new Error(d.error || `语音合成失败（HTTP ${res.status}）`);
       }
       const blob = await res.blob();
@@ -1032,6 +1079,8 @@
         acc = ev.content || acc;
         S.lastResult = acc;
         out.innerHTML = renderMarkdown(acc);
+        // 只有结果卡才分列：右侧面板本来就只有巴掌宽，再分两列会挤成一条
+        if (out.id === 'result-body') layoutResultColumns(out);
         renderWarnings(warn, ev.warnings || []);
         const secs = Math.round((Date.now() - t0) / 1000);
         toast((ev.warnings && ev.warnings.length)

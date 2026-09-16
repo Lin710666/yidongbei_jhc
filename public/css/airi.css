@@ -642,6 +642,22 @@ body::before {
 .result-card .result-body li { margin: 0 0 2px; }
 .result-card .result-body table { margin: 5px 0; font-size: 12px; }
 
+/* A/B 两版文案并排。分列之后纵向高度直接砍半（滚 4 屏 → 2 屏），
+   而且"一次给你两版"这个卖点一眼就看得见，不用往下翻。
+   .result-pre 是两版之前的引言（比如"两版都写好了"），横跨整个宽度。 */
+.result-card .result-body.is-columns {
+  display: flex; flex-wrap: wrap; align-items: flex-start;
+  gap: 0 20px;
+}
+.result-card .result-body.is-columns .result-pre { flex: 1 1 100%; }
+.result-card .result-body.is-columns .result-col { flex: 1 1 0; min-width: 0; }
+/* 只给"第二列及以后"加分隔线 —— 用 :first-of-type 不行，
+   因为前面的 .result-pre 也是 div，第一列不是 first-of-type。 */
+.result-card .result-body.is-columns .result-col + .result-col {
+  padding-left: 20px;
+  border-left: 1px solid var(--border);
+}
+
 /* 进入结果模式：词云整体收起。用 opacity 而不是 display ——
    过渡更自然，也不动布局（词的位置不会因为收起而重排）。 */
 body.wc-result #wordcloud-layer { opacity: 0; pointer-events: none; }
