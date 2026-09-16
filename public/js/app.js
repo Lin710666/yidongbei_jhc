@@ -330,8 +330,48 @@
     }, overrides || {});
   }
 
-  /** 把词云点到的参数回填进表单，让用户看到"点了什么、现在是什么状态" */
-  function applyParamsToForm(tab, params) {
+  /**
+   * 让词云上每一组的红框对齐成"实际生效的值"。
+   *
+   * 一个词条的 payload 可能顺带设了别的字段 —— 例如「避坑提示」带 city:'杭州'、crowd:'带老人'，
+   * 点它之后"同行人群"实际变成了带老人，"情侣"就失效了，但它的红框还亮着。
+   * 不修的话，屏幕上显示的条件和真正拿去生成的条件会是两回事。
+   */
+  function alignPicksFromPayload(p) {
+    if (!cloud || !p) return;
+    const MAP = [
+      ['city', '目的地'],
+      ['budget', '预算'],
+      ['crowd', '同行人群'],
+      ['diet', '饮食禁忌'],
+      ['product', '营销产品'],
+      ['platform', '营销平台'],
+      ['style', '文案风格'],
+    ];
+    for (const [field, group] of MAP) {
+      if (p[field] === undefined) continue;
+      // 该组里代表这个值的词；找不到就表示这组不该有红框（比如 crowd='朋友' 没有对应词）
+      cloud.alignGroup(group, p[field]);
+    }
+  }
+
+  /**
+   * 把词云上已经选中的条件拼成一句话，用于字幕反馈（"杭州 · 舒适 · 亲子"）。
+   * 直接从词云的选中集合取，而不是从表单反读 —— 表单里带着一堆默认值（舒适/朋友/自然风光），
+   * 反读出来会把用户根本没点过的词也报进去。
+   */
+  function describePicks() {
+    return cloud ? cloud.getSelected().join(' · ') : '';
+  }
+
+  /**
+   * 把词云点到的参数回填进表单，让用户看到"点了什么、现在是什么状态"。
+   *
+   * merge=true 时兴趣是**并集**而不是覆盖 —— 点词云是一个个加条件，
+   * 如果覆盖，先点「美食」再点「亲子」（它的 payload 顺带带了个 interests:['亲子']），
+   * 美食就没了。表单内部的兴趣 chip 本来就是多选，这里保持一致。
+   */
+  function applyParamsToForm(tab, params, { merge = false } = {}) {
     if (!params) return;
     if (params.city !== undefined) {
       $('#plan-city').value = params.city;
@@ -346,7 +386,8 @@
     setChip('crowd', params.crowd);
     setChip('diet', params.diet);
     if (params.interests) {
-      $$('.row[data-name="interests"] .chip').forEach(c => c.classList.toggle('on', params.interests.includes(c.textContent.trim())));
+      const next = merge ? [...new Set([...chipVals('interests'), ...params.interests])] : params.interests;
+      $$('.row[data-name="interests"] .chip').forEach(c => c.classList.toggle('on', next.includes(c.textContent.trim())));
     }
     setChip('product', params.product);
     setChip('platform', params.platform);
@@ -381,6 +422,47 @@
         switchTab(p.tab || 'tools');
         break;
 
+      // 条件词（目的地 / 预算 / 同行人群 / 兴趣 / 营销平台 …）：
+      // 只把值填进表单并给它打上红框，**不立刻生成**。
+      // 原来点一下就跑，根本没法把「杭州 + 舒适 + 亲子」这种组合凑出来。
+      // 想跑的时候点「个性化方案」/「营销文案」。
+      case 'pick': {
+        // 「兴趣」可以多选（和右侧表单里的兴趣 chip 一致），其余组单选互斥
+        const on = cloud.toggleSelect(w.word, { multi: w.group === '兴趣' });
+        if (on) {
+          applyParamsToForm('tools', p, { merge: true });   // 兴趣取并集，别把之前选的冲掉
+          alignPicksFromPayload(p);                          // 顺带被改掉的组，红框跟着改
+          const picks = describePicks();
+          say(picks ? `记下了：${picks}。凑齐了点「个性化方案」我就开工。` : `记下了：${w.word}`, true);
+        } else {
+          say(`取消：${w.word}`, true);
+        }
+        break;
+      }
+
+      // 用词云上已经选好的条件生成
+      case 'gen-plan': {
+        switchTab('tools');
+        $('#form-plan').hidden = false;
+        $('#form-marketing').hidden = true;
+        $$('#pane-tools [data-tool]').forEach(c => c.classList.toggle('on', c.dataset.tool === 'plan'));
+        say(pickLine('plan', {}), true);
+        // 不传 overrides：参数全部取自表单，也就是词云上点出来的那些条件
+        await generate('plan', collectPlanParams());
+        break;
+      }
+
+      case 'gen-marketing': {
+        switchTab('tools');
+        $('#form-plan').hidden = true;
+        $('#form-marketing').hidden = false;
+        $$('#pane-tools [data-tool]').forEach(c => c.classList.toggle('on', c.dataset.tool === 'marketing'));
+        say(pickLine('marketing', {}), true);
+        await generate('marketing', collectMarketingParams());
+        break;
+      }
+
+      // 兼容老词条（词表已经全部换成 pick / gen-*，这里留着以防有自定义角色卡带旧 action）
       case 'plan': {
         applyParamsToForm('tools', p);
         $('#form-plan').hidden = false;

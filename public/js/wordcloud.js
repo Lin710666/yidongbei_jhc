@@ -47,6 +47,7 @@
       this.density = 2;
       this.groupFilter = null;
       this.focusOn = null;         // 当前聚焦的分组名（null = 没聚焦）
+      this.selected = new Set();   // 已选中的词（红框），由 setSelected() 更新
       this.animate = true;
       this._resizeTimer = null;
       this._ro = null;
@@ -94,6 +95,76 @@
     }
 
     clearFocus() { this.focusOn = null; this._applyFocus(); }
+
+    /**
+     * 设置哪些词处于「已选中」状态（红框高亮）。
+     *
+     * 这一层只负责画高亮，不管业务规则 —— 选中的依据是右侧表单里的实际值，
+     * 由 app.js 的 syncCloudSelection() 反推出来传进来。
+     * 这么做的好处是词云和表单永远一致：在表单里点掉一个 chip，词云上的框也会灭。
+     */
+    setSelected(words) {
+      const next = new Set(words || []);
+      // 没变化就别碰 DOM，否则每次点击都要刷 64 个节点
+      if (next.size === this.selected.size && [...next].every((w) => this.selected.has(w))) return;
+      this.selected = next;
+      this._applySelection();
+    }
+
+    _applySelection() {
+      for (const [word, node] of this.nodes) {
+        node.classList.toggle('is-sel', this.selected.has(word));
+      }
+    }
+
+    /**
+     * 切换某个词的选中态，返回切换后是否处于选中。
+     *
+     * 同组互斥：点「苏州」会把同组的「杭州」取消掉 —— 因为一个行程只有一个目的地、
+     * 一个预算档位，同时亮着两个反而让人以为能一起用。
+     * 「兴趣」组例外（可以多选，和右侧表单里的兴趣 chip 一致），由调用方传 multi。
+     */
+    toggleSelect(word, { multi = false } = {}) {
+      const item = this.words.find((w) => w.word === word);
+      if (!item) return false;
+      if (this.selected.has(word)) {
+        this.selected.delete(word);
+        this._applySelection();
+        return false;
+      }
+      if (!multi && item.group) {
+        for (const other of this.words) {
+          if (other.group === item.group) this.selected.delete(other.word);
+        }
+      }
+      this.selected.add(word);
+      this._applySelection();
+      return true;
+    }
+
+    isSelected(word) { return this.selected.has(word); }
+    getSelected() { return [...this.selected]; }
+
+    /**
+     * 把某一组的红框**对齐成实际生效的那个词**（word 传 null 表示这组不选任何词）。
+     *
+     * 为什么需要它：词条自带的 payload 可能顺带设了别的字段 —— 比如「避坑提示」的 payload 是
+     * { city:'杭州', days:2, crowd:'带老人' }，点它会把"同行人群"也设成带老人。
+     * 那这一组之前选过的「情侣」实际上已经失效了，红框却还亮着，屏幕上显示的条件
+     * 和真正拿去生成的条件就对不上了。对齐之后红框永远等于实际值。
+     */
+    alignGroup(group, word) {
+      let changed = false;
+      for (const w of this.words) {
+        if (w.group !== group) continue;
+        const should = (w.word === word);
+        const has = this.selected.has(w.word);
+        if (should && !has) { this.selected.add(w.word); changed = true; }
+        else if (!should && has) { this.selected.delete(w.word); changed = true; }
+      }
+      if (changed) this._applySelection();
+    }
+
 
     /** 把聚焦状态刷到 DOM 上（render() 重建节点后也要补一次） */
     _applyFocus() {
@@ -176,6 +247,7 @@
         node.hidden = false;
       }
       this._applyFocus();   // 节点是重建的，聚焦状态会丢，这里补回来
+      this._applySelection();   // 选中态同理
       this.layout();
     }
 

@@ -475,6 +475,20 @@ body::before {
 }
 .wc-word[hidden] { display: none; }
 
+/* ---- 多选：选中的条件词用红框标出来 ----
+   点词云的语义已经从「立刻执行」改成「挑一个条件」，所以要能一眼看到自己组了哪些条件。
+   用 box-shadow 画框而不是 outline/border：它不占布局空间，不会把词挤歪、也就不会触发重排。
+   两个选择器写在一起是为了盖住聚焦态（.wc-focus 下成员词本来会被压到 0.10 透明度）。 */
+#wordcloud-layer .wc-word.is-sel,
+#wordcloud-layer.wc-focus .wc-word.is-sel {
+  color: var(--wc-ink);
+  border-color: #ff4d4f;
+  background: color-mix(in srgb, #ff4d4f 16%, transparent);
+  box-shadow: 0 0 0 2px #ff4d4f, 0 0 16px rgb(255 77 79 / 0.42);
+  opacity: 1;
+  z-index: 22;
+}
+
 /* ---- 词云字色的色板 + 取色器 ---- */
 .ink-swatches { display: flex; align-items: center; gap: 7px; margin-top: 9px; flex-wrap: wrap; }
 .ink-sw {
