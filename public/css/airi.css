@@ -446,7 +446,11 @@ body::before {
 #wordcloud-layer .wc-word[data-role="label"]::after {
   content: " ▾"; font-size: .68em; opacity: .5;
 }
-#wordcloud-layer .wc-word[data-role="member"] { opacity: .35; }
+/* 成员词默认**藏起来**，只留骨架（分组标签 + 核心功能词），一眼清爽不杂乱。
+   鼠标移进舞台（.wc-reveal）才淡入 —— 要看细节、要点词，鼠标总得先进来。
+   聚焦某一组时也会保持可见（见 app.js 里 mouseleave 的处理）。 */
+#wordcloud-layer .wc-word[data-role="member"] { opacity: 0; }
+#wordcloud-layer.wc-reveal .wc-word[data-role="member"] { opacity: .35; }
 
 /* 悬停：任何词都提到满血（特异性要高于上面的 member 规则） */
 #wordcloud-layer .wc-word[data-role]:hover { opacity: 1; }
@@ -454,6 +458,8 @@ body::before {
 /* 聚焦态：选中的那一组全亮，其余退到背景 */
 #wordcloud-layer.wc-focus .wc-word[data-role="member"],
 #wordcloud-layer.wc-focus .wc-word[data-role="core"] { opacity: .10; }
+/* 聚焦时即便鼠标移开也要看得见这一组，否则点完标签词就消失了 */
+#wordcloud-layer.wc-focus.wc-reveal .wc-word[data-role="member"] { opacity: .35; }
 #wordcloud-layer.wc-focus .wc-word[data-role="label"]:not(.is-open) { opacity: .28; }
 #wordcloud-layer.wc-focus .wc-word.is-open {
   opacity: 1;
@@ -478,9 +484,14 @@ body::before {
 /* ---- 多选：选中的条件词用红框标出来 ----
    点词云的语义已经从「立刻执行」改成「挑一个条件」，所以要能一眼看到自己组了哪些条件。
    用 box-shadow 画框而不是 outline/border：它不占布局空间，不会把词挤歪、也就不会触发重排。
-   两个选择器写在一起是为了盖住聚焦态（.wc-focus 下成员词本来会被压到 0.10 透明度）。 */
+   三个选择器并列是为了盖住所有会改 opacity 的规则 —— 成员词默认藏着、鼠标移开时淡出、
+   聚焦时其他组压暗，但"已经选中的条件"必须始终看得见，不然用户根本不知道自己选了什么。 */
 #wordcloud-layer .wc-word.is-sel,
-#wordcloud-layer.wc-focus .wc-word.is-sel {
+#wordcloud-layer.wc-reveal .wc-word.is-sel,
+#wordcloud-layer.wc-focus .wc-word.is-sel,
+/* 最后这条是必须的：#wordcloud-layer.wc-focus.wc-reveal .wc-word[data-role="member"] 的特异性
+   是 (1,4,0)，比上面三条都高 —— 不补这一条，红框在"聚焦 + 鼠标在舞台上"时会被那套淡入规则盖掉。 */
+#wordcloud-layer.wc-focus.wc-reveal .wc-word.is-sel {
   color: var(--wc-ink);
   border-color: #ff4d4f;
   background: color-mix(in srgb, #ff4d4f 16%, transparent);

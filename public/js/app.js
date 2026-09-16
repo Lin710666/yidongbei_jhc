@@ -407,6 +407,7 @@
       // 只改透明度、不重排布局，所以词不会乱跳；也不切换面板，演示时可以连点看。
       case 'focus-group': {
         const now = cloud.focusGroup(p.group);
+        syncCloudReveal();   // 聚焦后要让这一组的成员词露出来，否则点完标签什么都看不到
         // 注意用 S.caps 而不是局部变量 caps —— loadCapabilities() 里的 caps 是函数内的局部量，
         // 在这个作用域拿不到（写成 caps 会直接 ReferenceError）。
         const g = ((S.caps && S.caps.wordCloudGroups) || []).find(x => x.name === p.group);
@@ -1528,6 +1529,16 @@
   }
 
   function bindStage() {
+    // 词云默认只显示"骨架"（分组标签 + 核心功能词），成员词是藏起来的。
+    // 鼠标移进舞台就淡入 —— 想看点词、点条件，鼠标总得先进来。
+    // 离开时收回去；但如果正聚焦着某一组，就不收，否则刚点开的那组会当场消失。
+    const layer = $('#wordcloud-layer');
+    const stageEl = $('#stage');
+    if (layer && stageEl) {
+      stageEl.addEventListener('mouseenter', syncCloudReveal);
+      stageEl.addEventListener('mouseleave', syncCloudReveal);
+    }
+
     // 点空白处收起字幕
     $('#stage').addEventListener('click', (e) => {
       if (e.target.id === 'stage' || e.target.id === 'live2d-canvas' || e.target.id === 'bg-canvas') hideSubtitle();
@@ -2122,6 +2133,22 @@
     }
     syncInkControls();
     updateInkHint(ink, auto);
+  }
+
+  /**
+   * 唤出 / 收回词云的成员词。
+   *
+   * 词云默认只显示骨架（分组标签 + 核心功能词），49 个成员词是藏着的 ——
+   * 全摆出来即使压到 0.35 透明度，看上去还是有点满。
+   * 两种情况要露出来：鼠标在舞台上（要看要点词就得先进来）、或者正聚焦着某一组。
+   * 统一走这一个函数，免得鼠标进出、点标签、取消聚焦几条路径各写一套判断从而对不上。
+   */
+  function syncCloudReveal() {
+    const layer = $('#wordcloud-layer');
+    const stageEl = $('#stage');
+    if (!layer || !stageEl) return;
+    const inStage = stageEl.matches(':hover');
+    layer.classList.toggle('wc-reveal', inStage || layer.classList.contains('wc-focus'));
   }
 
   /** 把当前设置同步到界面：下拉框选项 + 色板高亮 + 取色器当前色 */
