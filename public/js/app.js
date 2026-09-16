@@ -1013,7 +1013,7 @@
     const c = card || {
       name: '新角色', avatar: '🙂', accent: '#a78bfa', tagline: '', persona: '', speakingStyle: '',
       greeting: '', voice: { presetId: 'wenlv-guide-female', mode: 'custom-voice', instruct: '', language: 'Chinese' },
-      model: { temperature: 0.7, numCtx: 8192, numPredict: 1024 },
+      model: { temperature: 0.7, numCtx: 16384, numPredict: 1024 },
       live2d: { model: (S.l2dModels[0] && S.l2dModels[0].id) || 'nahida', scale: 1, x: 0, y: 0, expression: '' },
       memory: { enabled: true, topK: 5 }, vision: { enabled: true }, tags: [],
     };
@@ -1081,7 +1081,7 @@
         o[parts[parts.length - 1]] = val;
       }
       out.model.temperature = Number(out.model.temperature) || 0.7;
-      out.model.numCtx = Number(out.model.numCtx) || 8192;
+      out.model.numCtx = Number(out.model.numCtx) || 16384;
       out.model.numPredict = Number(out.model.numPredict) || 1024;
       out.memory.topK = 5;
       return out;

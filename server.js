@@ -439,7 +439,7 @@ const server = http.createServer(async (req, res) => {
         for await (const chunk of ollama.chatStream({
           model: useModel,
           temperature: (card.model && card.model.temperature) ?? 0.7,
-          numCtx: (card.model && card.model.numCtx) || 8192,
+          numCtx: (card.model && card.model.numCtx) || 16384,
           numPredict: (card.model && card.model.numPredict) || 1024,
           messages,
           signal: undefined,
