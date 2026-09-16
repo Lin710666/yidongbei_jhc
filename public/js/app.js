@@ -430,8 +430,14 @@
         // 「兴趣」可以多选（和右侧表单里的兴趣 chip 一致），其余组单选互斥
         const on = cloud.toggleSelect(w.word, { multi: w.group === '兴趣' });
         if (on) {
-          applyParamsToForm('tools', p, { merge: true });   // 兴趣取并集，别把之前选的冲掉
-          alignPicksFromPayload(p);                          // 顺带被改掉的组，红框跟着改
+          // 注意第一个参数传 null（= 不切面板）。
+          // 以前传 'tools'，于是每点一个条件词，右侧面板就被强行切走一次；
+          // 面板一换会触发重新测量安全边距 → 词云整片重排 ——
+          // 用户点完「杭州」想接着点「苏州」，所有词已经跑到别的位置去了，非常难用。
+          // 条件填进表单本来就不需要用户盯着看，词云上的红框才是主要反馈；
+          // 真要生成时（gen-plan / gen-marketing）再切过去也来得及。
+          applyParamsToForm(null, p, { merge: true });
+          alignPicksFromPayload(p);
           const picks = describePicks();
           say(picks ? `记下了：${picks}。凑齐了点「个性化方案」我就开工。` : `记下了：${w.word}`, true);
         } else {
@@ -639,18 +645,24 @@
     setSubtitleVisible(false);
   }
 
-  /** 把工具栏与字幕条的实际高度量出来给词云当安全边距 */
+  /**
+   * 把工具栏与字幕条的尺寸算成词云的安全边距。
+   *
+   * 字幕条这里**按固定值预留**，而不是去量它当前的实际高度 ——
+   * 量实际高度的话，每次说话（字幕条出现 / 消失 / 从一行变两行）都会改 insets，
+   * 进而让词云**整片重排、所有词跳位**。用户点完「杭州」正打算点「苏州」，
+   * 一说话词就全跑别处去了，那一指头必然点空 —— 这个"点不中"的怪问题就是这么来的。
+   * 宁可偶尔让字幕条遮住底部一两个词，也不要让整片词云跳来跳去。
+   */
   function syncCloudInsets() {
     if (!cloud) return;
     const st = $('.stage');
     const top = $('.stage-top');
-    const sub = $('#subtitle');
     if (!st) return;
     const topH = top ? top.offsetHeight : 44;
-    const subH = (sub && !sub.hidden) ? sub.offsetHeight : 0;
     const insets = {
       top: Math.round(topH + 34),                 // 工具条高度 + 顶部留白
-      bottom: Math.round(subH + 30),              // 字幕条高度 + 底部留白
+      bottom: 72,                                 // 字幕条常用高度 + 底部留白（固定值，见上面的说明）
       left: 16,
       right: 16,
     };

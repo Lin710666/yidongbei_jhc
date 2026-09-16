@@ -72,8 +72,12 @@
 
     /** 设置安全边距（由界面按实际工具栏 / 字幕条高度传入） */
     setInsets(insets) {
-      this.insets = { ...this.insets, ...(insets || {}) };
-      this.layout();
+      const next = { ...this.insets, ...(insets || {}) };
+      // 值没变就**不要重排**。重排会让所有词换位置，而用户很可能正打算点下一个词 ——
+      // 词一跳位，那一指头就点到别处去了。这条保护很便宜，但能挡掉一大类"点不中"的怪问题。
+      const same = ['top', 'right', 'bottom', 'left'].every((k) => next[k] === this.insets[k]);
+      this.insets = next;
+      if (!same) this.layout();
     }
 
     setWords(words) {
@@ -147,11 +151,17 @@
     getSelected() { return [...this.selected]; }
 
     /**
-     * 鼠标是不是还停在这一组的词上（标签本身或该组的成员词）。
-     * 用来决定"离开标签之后要不要把预览收回去" —— 鼠标从标签滑到同组成员词上时不能收，
-     * 否则那批词会在鼠标到达之前就消失，根本点不到。
+     * 鼠标是不是还"在这一组的活动范围里"（该组的标签 / 成员词，或者整个舞台）。
+     * 用来决定"离开标签之后要不要把预览收回去"。
+     *
+     * 这里刻意放宽到"只要鼠标还在舞台上就先不收"，而不是只认"鼠标正停在某个成员词上"：
+     * 杭州和苏州之间是有空隙的，鼠标从杭州滑向苏州的途中会短暂落在空隙上，
+     * 按"是否停在词上"判定会失败 → 该组被收回 → 苏州在鼠标到达之前就消失了，
+     * 表现就是"点掉杭州、想改点苏州，却怎么都点不到"。
      */
     _peekStillNeeded(group) {
+      const stageEl = this.container.parentElement;
+      if (stageEl && stageEl.matches(':hover')) return true;
       const el = document.querySelector('#wordcloud-layer .wc-word:hover');
       return !!(el && el.dataset.group === group);
     }
