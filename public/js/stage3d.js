@@ -121,9 +121,25 @@ export class ThreeDStage {
     host.addEventListener('mouseleave', () => { this.pointer.x = 0; this.pointer.y = 0 })
     host.addEventListener('pointerdown', () => { if (this.onTapCb) this.onTapCb() })
 
-    window.addEventListener('resize', () => this.resize())
+    // 尺寸变化就重新摆相机。和 Live2D 那边一样，光靠 window.resize 不够：
+    // 舞台尺寸还会因为侧栏、全屏词云、字体加载等原因变，那些不一定触发 window 的 resize。
+    window.addEventListener('resize', () => this.scheduleResize())
+    if (typeof window.ResizeObserver === 'function') {
+      this.ro = new window.ResizeObserver(() => this.scheduleResize())
+      this.ro.observe(host)
+    }
+    this.lastDpr = Math.min(window.devicePixelRatio || 1, 2)
     this.ready = true
     this._loop()
+  }
+
+  /** 一帧内触发多次也只重排一次 */
+  scheduleResize() {
+    if (this.resizeRaf) return
+    this.resizeRaf = requestAnimationFrame(() => {
+      this.resizeRaf = 0
+      this.resize()
+    })
   }
 
   /**
@@ -277,6 +293,11 @@ export class ThreeDStage {
     const r = host.getBoundingClientRect()
     const w = Math.max(1, Math.floor(r.width))
     const h = Math.max(1, Math.floor(r.height))
+    // 浏览器缩放会改 devicePixelRatio，不跟着更新 setPixelRatio 的话
+    // three.js 会按旧像素比渲染，放大后整只发虚
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    this.lastDpr = dpr
+    this.renderer.setPixelRatio(dpr)
     this.renderer.setSize(w, h, false)
     this.camera.aspect = w / h
     this._frameCamera()
@@ -367,6 +388,12 @@ export class ThreeDStage {
     const step = () => {
       if (this._disposed) return
       this._raf = requestAnimationFrame(step)
+
+      // 浏览器缩放会改 devicePixelRatio。window.resize 在个别路径上不一定来，
+      // 每帧比一次最省心，成本就是一次比较。
+      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+      if (dpr !== this.lastDpr) this.scheduleResize()
+
       const dt = Math.min(this.clock.getDelta(), 0.05)
       const now = performance.now()
 
@@ -440,6 +467,8 @@ export class ThreeDStage {
   destroy() {
     this._disposed = true
     if (this._raf) cancelAnimationFrame(this._raf)
+    if (this.resizeRaf) cancelAnimationFrame(this.resizeRaf)
+    if (this.ro) { try { this.ro.disconnect() } catch { /* 忽略 */ } }
     clearTimeout(this._exprTimer)
     this._unload()
     if (this.renderer) { try { this.renderer.dispose() } catch { /* 忽略 */ } }

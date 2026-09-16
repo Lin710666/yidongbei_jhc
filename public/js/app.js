@@ -20,6 +20,8 @@
     cards: [],
     card: null,
     voices: [],
+    speakers: [],
+    myVoices: [],
     l2dModels: [],
     models3d: { bundled: [], custom: [], formats: {} },
     backgrounds: { bundled: [], procedural: [], custom: [] },
@@ -222,11 +224,19 @@
     const caps = await api('/api/capabilities');
     S.caps = caps;
     S.voices = caps.voices || [];
+    S.myVoices = caps.myVoices || [];
     S.l2dModels = caps.live2d || [];
     S.models3d = caps.models3d || { bundled: [], custom: [], formats: {} };
     S.cards = caps.cards || [];
     S.backgrounds = caps.backgrounds || { bundled: [], procedural: [], custom: [] };
     setActiveCard(caps.activeCardId || (S.cards[0] && S.cards[0].id), { silent: true });
+
+    // 内置说话人单独取：它依赖 Qwen TTS 服务在线，失败不影响其它能力加载
+    try {
+      S.speakers = (await api('/api/tts/speakers')).speakers || [];
+    } catch {
+      S.speakers = [];
+    }
 
     cloud.setWords(caps.wordCloud || []);
     fillOptions(caps.options);
@@ -234,6 +244,8 @@
     renderCityChips(caps.cities || []);
     renderLive2DModels();
     renderVoices();
+    renderSpeakers();
+    renderMyVoices();
     renderCards();
     renderLookPreview();
   }
@@ -529,16 +541,74 @@
     if (layer) layer.dataset.insets = JSON.stringify(insets);
   }
 
+  /**
+   * 语音合成进度浮层。
+   *
+   * 本机 TTS 的实时率只有 0.45x 左右（跑出 1 秒音频要 2.2 秒），一段几百字的回复
+   * 要花好几分钟。之前界面上只有输入框旁边一句静态的"正在本地合成语音…"，
+   * 用户看不出它到底在跑还是卡死了。这里做成一个常驻浮层，
+   * 把"已经等了多久"一直显示出来，并对还要多久给个粗略预期。
+   */
+  function speakProgress(label) {
+    const wrap = $('#toasts');
+    const node = wrap ? el('div', { class: 'toast speak-progress' }) : null;
+    const txt = el('span', {});
+    let timer = null;
+    let t0 = Date.now();
+    if (node) { node.appendChild(txt); wrap.appendChild(node); }
+
+    const paint = (msg) => { if (txt) txt.textContent = msg; };
+    const close = (delay) => {
+      if (!node) return;
+      setTimeout(() => {
+        node.style.transition = 'opacity .3s, transform .3s';
+        node.style.opacity = '0';
+        node.style.transform = 'translateY(10px)';
+        setTimeout(() => node.remove(), 320);
+      }, delay);
+    };
+
+    return {
+      /** 开始计时；hint 说明这段文本大概要跑多久，让用户心里有数 */
+      start(hint) {
+        t0 = Date.now();
+        const tick = () => {
+          const s = Math.round((Date.now() - t0) / 1000);
+          paint(`${label}…已等待 ${s} 秒${hint ? `（${hint}）` : ''}`);
+        };
+        tick();
+        timer = setInterval(tick, 1000);
+      },
+      /** 改文案但继续计时（例如音频已拿到、正在交给播放器） */
+      note(msg) { clearInterval(timer); timer = null; paint(msg); },
+      /** 结束：显示结果，停留一会儿再淡出 */
+      finish(msg, keepMs) {
+        clearInterval(timer);
+        timer = null;
+        paint(msg);
+        close(keepMs === undefined ? 2600 : keepMs);
+      },
+    };
+  }
+
   /** 调本地 Qwen TTS 出声，并驱动 Live2D 嘴型 */
   async function speakText(text) {
     if (!text || !String(text).trim()) return;
     const audio = $('#tts-audio');
+    // 前端与后端都按 600 字封顶：再长会显著拖慢合成，也可能把显存顶爆
+    const clipped = String(text).slice(0, 600);
+    const truncated = String(text).length > clipped.length;
+    const prog = speakProgress('语音正在生成本地音频');
     try {
+      // 本地实测大约每字 0.48~0.61 秒（越长越接近上限），取 0.55 做粗略预期即可，
+      // 目的只是让用户知道"要等一会儿"而不是以为卡死，不追求精确。
+      prog.start(`长文本更慢，预计 ${Math.round(clipped.length * 0.55) + 5} 秒左右`);
       $('#composer-hint').textContent = '正在本地合成语音…';
+      const t0 = Date.now();
       const res = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: String(text).slice(0, 600), cardId: S.card && S.card.id }),
+        body: JSON.stringify({ text: clipped, cardId: S.card && S.card.id }),
       });
       if (!res.ok) {
         let d = {};
@@ -546,16 +616,21 @@
         throw new Error(d.error || `语音合成失败（HTTP ${res.status}）`);
       }
       const blob = await res.blob();
+      const secs = Math.round((Date.now() - t0) / 1000);
       const url = URL.createObjectURL(blob);
       const cached = res.headers.get('X-TTS-Cached') === '1';
+      prog.note(`${cached ? '▶ 命中语音缓存' : '✅ 语音已生成'}（${secs} 秒），正在播放…`);
       $('#composer-hint').textContent = cached ? '播放缓存语音' : '播放本地合成语音';
       const st = activeStage();
       if (st && st.speak) await st.speak(url, audio);
       else { audio.src = url; await audio.play().catch(() => {}); }
       setTimeout(() => URL.revokeObjectURL(url), 8000);
+      prog.finish(`${cached ? '▶ 播放缓存语音' : '✅ 语音已生成'}（${secs} 秒）`
+        + (truncated ? '，仅朗读前 600 字' : ''));
       $('#composer-hint').textContent = '';
     } catch (e) {
       $('#composer-hint').textContent = '';
+      prog.finish(`⚠️ 语音生成失败：${e.message}`, 7000);
       toast(e.message, 'err', 6000);
     }
   }
@@ -919,7 +994,7 @@
       field('人设（system prompt 的主体）', 'persona', 'textarea', '你是谁、擅长什么、怎么做事…'),
       field('说话风格', 'speakingStyle', 'textarea', '语气、口头禅、句式偏好…'),
       field('开场白', 'greeting', 'textarea'),
-      field('音色语气指令 instruct（决定 TTS 音色）', 'voice.instruct', 'textarea'),
+      field('语气指令 instruct（只管语气节奏；「是谁在说话」由声音页签的内置音色决定）', 'voice.instruct', 'textarea'),
       el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' } }, [
         field('温度 temperature', 'model.temperature', 'number'),
         field('上下文 numCtx', 'model.numCtx', 'number'),
@@ -1499,20 +1574,31 @@
       const node = el('div', { class: `voice-item${v.id === cur ? ' active' : ''}` }, [
         el('div', { style: { flex: '1', minWidth: '0' } }, [
           el('div', { class: 'nm', text: v.name }),
-          el('div', { class: 'ds', text: `${v.desc}（${v.mode}，语速${v.speedHint || '中等'}）` }),
+          el('div', { class: 'ds', text: `${v.desc}（语速${v.speedHint || '中等'}）` }),
         ]),
-        el('span', { class: 'badge', text: v.mode }),
+        el('span', { class: 'badge', text: v.speaker || v.mode }),
       ]);
       node.addEventListener('click', async () => {
         if (!S.card) return;
+        // speaker 必须一起存 —— CustomVoice 模型下"是谁在说话"由它决定，
+        // 只存 instruct 的话换预设也不会换声音（会一直用后端默认的男声）。
         await api(`/api/cards/${S.card.id}`, {
           method: 'PUT',
-          body: { voice: { presetId: v.id, mode: v.mode, instruct: v.instruct, language: v.language || 'Chinese' } },
+          body: {
+            voice: {
+              presetId: v.id,
+              mode: v.mode,
+              speaker: v.speaker || null,
+              instruct: v.instruct,
+              language: v.language || 'Chinese',
+            },
+          },
         });
         await reloadCards();
         S.card = S.cards.find(c => c.id === S.card.id);
         $('#voice-instruct').value = v.instruct;
         renderVoices();
+        renderSpeakers();
         toast(`音色已切换为「${v.name}」`, 'ok');
         speakText('你好，我是你的文旅向导，现在用的是' + v.name + '。');
       });
@@ -1521,10 +1607,255 @@
     if (!S.voices.length) box.appendChild(el('div', { class: 'info-box', text: '没有取到音色库，请点右上角刷新。' }));
   }
 
+  /**
+   * 内置说话人选择器。
+   *
+   * 为什么非要有这一栏：Qwen3-TTS 的 CustomVoice 模型自带 9 个音色，
+   * 其中 5 个男声 4 个女声；而后端的默认值是列表第一个 —— **aiden，男声**。
+   * 项目原来 5 个预设全都把 speaker 留空，于是不管选哪个、instruct 写"年轻女声"
+   * 还是"元气少女"，出来的都是同一个男声。把音色直接摊在界面上，
+   * 用户才能自己挑，而不是被迫用那个默认值。
+   */
+  function renderSpeakers() {
+    const box = $('#speaker-list');
+    if (!box) return;
+    box.innerHTML = '';
+    const cur = S.card && S.card.voice ? S.card.voice.speaker : null;
+    if (!S.speakers.length) {
+      box.appendChild(el('div', {
+        class: 'info-box',
+        text: '没取到音色列表 —— 多半是 Qwen TTS 服务没在跑。启动后点右上角「⟳ 刷新」。',
+      }));
+      return;
+    }
+    const grid = el('div', { class: 'speaker-grid' });
+    for (const sp of S.speakers) {
+      const isCur = sp.id === cur;
+      const node = el('div', { class: `speaker-item${isCur ? ' active' : ''}` }, [
+        el('div', { class: 'nm', text: sp.name || sp.id }),
+        el('div', { class: 'ds', text: `${sp.gender === 'female' ? '女声' : sp.gender === 'male' ? '男声' : '—'}${sp.freq ? ` · ${sp.freq}Hz` : ''}` }),
+        el('div', { class: 'ds2', text: sp.desc || '' }),
+      ]);
+      node.title = `speaker id: ${sp.id}`;
+      node.addEventListener('click', async () => {
+        if (!S.card) return;
+        await api(`/api/cards/${S.card.id}`, { method: 'PUT', body: { voice: { speaker: sp.id } } });
+        await reloadCards();
+        S.card = S.cards.find(c => c.id === S.card.id);
+        renderSpeakers();
+        renderVoices();
+        toast(`说话人已切换为「${sp.name || sp.id}」`, 'ok');
+        speakText('你好，我现在是这个音色。');
+      });
+      grid.appendChild(node);
+    }
+    box.appendChild(grid);
+    box.appendChild(el('div', {
+      class: 'ds',
+      style: { marginTop: '6px' },
+      text: '这一栏决定「是谁在说话」，上面的音色库是预设好的组合（含语气描述）。点一下即可试听。',
+    }));
+  }
+
+  /**
+   * 「我的音色」：用户自己上传参考音频克隆出来的嗓子。
+   *
+   * 和上面两组音色的区别：
+   *   内置音色 —— 后端自带的 9 个 id，挑一个就行
+   *   音色库   —— 内置音色 + 语气描述的预设组合
+   *   我的音色 —— 用户的一段录音，合成时走 voice-clone（更慢，但声音是"自己人"的）
+   */
+  function renderMyVoices() {
+    const box = $('#my-voices');
+    if (!box) return;
+    box.innerHTML = '';
+    const cur = S.card && S.card.voice ? S.card.voice.refVoiceId : null;
+
+    if (!S.myVoices.length) {
+      box.appendChild(el('div', {
+        class: 'info-box',
+        text: '还没有自己的音色。点下面「＋ 添加音色」，选一段 5~15 秒、干净的单人录音（必须是真 WAV）即可。',
+      }));
+      return;
+    }
+
+    for (const v of S.myVoices) {
+      const btns = el('span', { class: 'lbl-actions' }, [
+        el('button', {
+          class: 'mini-btn',
+          text: '↺',
+          title: '试听这段参考音频',
+          onclick: (e) => { e.stopPropagation(); new Audio(v.url).play().catch(() => toast('试听失败', 'err')); },
+        }),
+        el('button', {
+          class: 'mini-btn',
+          text: '✕',
+          title: '删除这个音色',
+          onclick: async (e) => {
+            e.stopPropagation();
+            try {
+              await api(`/api/voices/${v.id}`, { method: 'DELETE' });
+              // 如果正用着它，把卡片上的引用清掉，免得下次朗读报"音色找不到"
+              if (S.card && S.card.voice && S.card.voice.refVoiceId === v.id) {
+                await api(`/api/cards/${S.card.id}`, {
+                  method: 'PUT',
+                  body: { voice: { presetId: VOICE_RESET_PRESET, mode: 'custom-voice', speaker: null, refVoiceId: null, instruct: '' } },
+                });
+                await reloadCards();
+                S.card = S.cards.find(c => c.id === S.card.id);
+              }
+              await reloadMyVoices();
+              renderVoices();
+              renderSpeakers();
+              toast(`已删除「${v.name}」`, 'ok');
+            } catch (err) { toast(err.message, 'err'); }
+          },
+        }),
+      ]);
+      const node = el('div', { class: `voice-item${v.id === cur ? ' active' : ''}` }, [
+        el('div', { style: { flex: '1', minWidth: '0' } }, [
+          el('div', { class: 'nm', text: v.name }),
+          el('div', { class: 'ds', text: `${v.seconds} 秒 · ${v.sampleRate}Hz · 参考音频克隆` }),
+        ]),
+        btns,
+      ]);
+      node.addEventListener('click', () => useMyVoice(v));
+      box.appendChild(node);
+    }
+  }
+
+  /** 切到某个自定义音色：写进角色卡，之后朗读就走 voice-clone */
+  async function useMyVoice(v) {
+    if (!S.card) return;
+    await api(`/api/cards/${S.card.id}`, {
+      method: 'PUT',
+      body: {
+        voice: {
+          presetId: `custom-${v.id}`,
+          mode: 'voice-clone',
+          speaker: null,
+          instruct: '',
+          refVoiceId: v.id,
+          language: 'Chinese',
+        },
+      },
+    });
+    await reloadCards();
+    S.card = S.cards.find(c => c.id === S.card.id);
+    renderVoices();
+    renderSpeakers();
+    renderMyVoices();
+    toast(`音色已切换为「${v.name}」（克隆音色，第一次合成会慢几秒）`, 'ok');
+    speakText('你好，我现在用的是' + v.name + '。');
+  }
+
+  async function reloadMyVoices() {
+    try {
+      S.myVoices = (await api('/api/voices')).voices || [];
+    } catch { S.myVoices = []; }
+    renderMyVoices();
+  }
+
+  /** 添加音色的弹窗：选文件 → 起名 → （可选）填参考文本 → 上传 */
+  function openVoiceAdder() {
+    let picked = null;
+
+    const fileLabel = el('div', { class: 'ds', text: '还没选文件' });
+    const fileInput = el('input', {
+      type: 'file',
+      accept: '.wav,audio/wav,audio/x-wav',
+      style: { display: 'none' },
+    });
+    fileInput.addEventListener('change', () => {
+      picked = (fileInput.files && fileInput.files[0]) || null;
+      fileLabel.textContent = picked
+        ? `${picked.name}（${(picked.size / 1024 / 1024).toFixed(2)} MB）`
+        : '还没选文件';
+    });
+
+    const nameInput = el('input', { class: 'inp', type: 'text', placeholder: '例如：我的声音 / 讲解员小王', maxLength: 24 });
+    const refTextInput = el('textarea', {
+      placeholder: '这段录音里说的原话（可不填；填了音色更准，尤其是语气）',
+      rows: 2,
+    });
+
+    const tip = el('div', { class: 'ds', style: { marginTop: '4px' }, text: '' });
+    const okBtn = el('button', { class: 'btn sm', text: '确认添加' });
+
+    const modal = el('div', { class: 'modal' }, [
+      el('header', {}, [
+        el('h3', { text: '添加我的音色' }),
+        el('button', { class: 'icon-btn', style: { marginLeft: 'auto', width: '28px', height: '28px' }, text: '✕', onclick: () => close() }),
+      ]),
+      el('div', { class: 'modal-body' }, [
+        el('div', { class: 'lbl', text: '① 参考音频（必须是真 WAV，5~15 秒最好）' }),
+        el('div', { class: 'actions', style: { marginTop: '6px' } }, [
+          el('button', { class: 'btn ghost sm', text: '选择 WAV 文件…', onclick: () => fileInput.click() }),
+        ]),
+        fileLabel,
+        fileInput,
+        el('div', { class: 'lbl', style: { marginTop: '14px' }, text: '② 给这个音色起个名字' }),
+        nameInput,
+        el('div', { class: 'lbl', style: { marginTop: '12px' }, text: '③ 这段录音里说的原话（可不填）' }),
+        refTextInput,
+        tip,
+      ]),
+      el('footer', {}, [
+        el('div', { class: 'spacer' }),
+        el('button', { class: 'btn ghost sm', text: '取消', onclick: () => close() }),
+        okBtn,
+      ]),
+    ]);
+
+    const mask = el('div', { class: 'modal-mask', onclick: (e) => { if (e.target === mask) close(); } }, [modal]);
+    function close() { mask.remove(); }
+    $('#modal-root').appendChild(mask);
+
+    okBtn.addEventListener('click', async () => {
+      if (!picked) { tip.textContent = '先选一个 WAV 文件吧。'; tip.style.color = 'var(--warn)'; return; }
+      if (!nameInput.value.trim()) { tip.textContent = '给它起个名字吧，不然列表里分不清。'; tip.style.color = 'var(--warn)'; return; }
+
+      okBtn.disabled = true;
+      okBtn.textContent = '上传中…';
+      tip.textContent = '';
+      try {
+        const dataUrl = await readAsDataURL(picked);
+        await api('/api/voices', {
+          method: 'POST',
+          body: {
+            name: nameInput.value.trim(),
+            refText: refTextInput.value.trim(),
+            audio: dataUrl,
+            originalName: picked.name,
+          },
+        });
+        await reloadMyVoices();
+        close();
+        toast('音色已添加，点它一下就能用', 'ok');
+      } catch (e) {
+        tip.textContent = e.message;
+        tip.style.color = 'var(--err)';
+        okBtn.disabled = false;
+        okBtn.textContent = '确认添加';
+      }
+    });
+  }
+
+  /** 删除自定义音色后回落到的默认预设 */
+  const VOICE_RESET_PRESET = 'wenlv-guide-female';
+
   function bindVoice() {
     $('#voice-test').addEventListener('click', () => speakText($('#voice-test-text').value));
+    const addBtn = $('#voice-add');
+    if (addBtn) addBtn.addEventListener('click', openVoiceAdder);
     $('#voice-refresh').addEventListener('click', async () => {
       await refreshStatus();
+      try {
+        S.speakers = (await api('/api/tts/speakers')).speakers || [];
+      } catch { S.speakers = []; }
+      await reloadMyVoices();
+      renderSpeakers();
+      renderVoices();
       toast('已刷新语音服务状态', 'ok');
     });
     $('#voice-save').addEventListener('click', async () => {

@@ -1,10 +1,17 @@
-﻿# 文旅智能辅助 v3.0
+# 文旅智能辅助 v3.1
 
 一个跑在本机的文旅智能助手。左边是 Live2D 或 3D 虚拟向导，右边是对话与功能面板，
 所有能做的事都做成了环绕在人物周围的词，点一下就执行。
 
-v3.0 相比 v2.2 的变化：把原来的表单页换成了虚拟人物交互界面，
-接入了本机的语音合成，并给对话、记忆、视觉这几项能力都补上了本地实现。
+v3.1 在 v3.0 基础上修了一批实际问题，并补上了声音克隆：
+
+- **音色修好了**。v3.0 的 5 个音色预设都没指定 speaker，后端会统一退回默认那个男声，
+  听下来「全都是男的」；现在每个预设都配了实测过的音色，界面上还能直接挑 9 个内置音色。
+- **新增「我的音色」**。上传一段 5~15 秒的人声，就能克隆出这副嗓子给角色用。
+- **修了界面缩放后角色跑偏**。原来算缩放时用了已经缩放过的尺寸，会自引用，放大缩小几次就偏。
+- **启动脚本重做**。start.bat 会把 Ollama、语音服务、网页服务一起拉起来；
+  stop.bat 只关后两个，保留 Ollama。
+- **新增 检测并安装依赖.bat**，缺哪个模型或依赖一键补装。
 
 主要特点：
 
@@ -18,29 +25,41 @@ v3.0 相比 v2.2 的变化：把原来的表单页换成了虚拟人物交互界
 
 ## 快速开始
 
-```powershell
-# 1. 本机大模型（若托盘已有 Ollama 可跳过）
-ollama serve
-ollama pull qwen2.5:7b          # 首选，4.7GB
+### 第一次用：先补装依赖
 
-# 2. 启动
-cd web
-双击 start.bat                # 或 node server.js
-# 浏览器打开 http://localhost:8000
-```
+双击 **`检测并安装依赖.bat`**。它会逐项检查 Node.js、Ollama、三个本地大模型、
+Qwen TTS WebUI、语音模型和前端素材，把缺的列出来，确认后自动下载。
+已经装好的会跳过，不会重复下；什么都没缺就直接告诉你"可以启动了"。
 
-**零第三方依赖**：`package.json` 的 `dependencies` 是空的，只用 Node 内置模块，
-不需要 `npm install`，也没有构建步骤。
+### 日常使用：一键启动
 
-可选服务（缺了也能跑，界面上会显示橙色状态灯并告诉你补装命令）：
+双击 **`start.bat`**。它会依次把下面三个都拉起来，最后自动打开浏览器：
 
-```powershell
-ollama pull qwen2.5vl:7b      # 视觉理解（约 6 GB）
-ollama pull nomic-embed-text  # 记忆语义检索（约 274 MB）
+| 顺序 | 启动什么 | 窗口标题 |
+| --- | --- | --- |
+| 1 | 本机 Ollama（对话 / 视觉 / 记忆向量），没运行会自动起 | —— 托盘运行 |
+| 2 | 本机 Qwen TTS 语音合成，没运行会自动起 | `文旅-QwenTTS语音服务` |
+| 3 | 文旅智能辅助网页服务 | `文旅智能辅助-网页服务` |
 
-# 本地语音合成：在 Qwen TTS WebUI 目录执行（--nowebui = 只跑 API，不开网页界面）
-python launch.py --nowebui --server-port 7860
-```
+然后打开 <http://localhost:8000>。
+
+### 关掉：一键停止
+
+双击 **`stop.bat`**。它会关掉网页服务和语音服务（含它们占用的端口和窗口），
+**但按要求保留 Ollama 不动**，结束时还会复查一遍端口有没有真的释放。
+
+**零第三方依赖**：`package.json` 的 `dependencies` 是空的，所以 `检测并安装依赖.bat` 里
+没有任何 npm 相关步骤。
+
+### Qwen TTS 装在别的盘？
+
+它是个独立安装的第三方程序，位置因人而异，`start.bat` / `stop.bat` 会自动去找
+（常见位置：桌面、各盘根目录、`<盘>:\声音` 等）。找不到时可以手动告诉它，二选一：
+
+1. 在项目根目录建一个 `qwen-tts-home.txt`，里面写一行安装路径；
+2. 或设环境变量 `QWEN_TTS_HOME` 指向该路径。
+
+没装 Qwen TTS 也能正常跑，只是虚拟人物不会出声，其它功能不受影响。
 
 ---
 
@@ -75,8 +94,8 @@ python launch.py --nowebui --server-port 7860
 cloud.setInsets({ top: 工具条高 + 34, bottom: 字幕条高 + 30, left: 16, right: 16 });
 ```
 
-词云的排布边界改用「可用区」（容器减去安全边距），于是三者永远不会互相遮挡。
-字幕后出现/消失时会重新量一次（只在**可见性变化**时重排，不是每个流式片段都重排）。
+词云的排布边界改用「可用区」（容器减去安全边距），于是三者不会互相遮挡。
+字幕条出现/消失时会重新量一次（只在**可见性变化**时重排，不是每个流式片段都重排）。
 
 > 有个容易写错的细节：**人物排除椭圆的圆心必须用「舞台中心」，不能用「可用区中心」**。
 > 因为 Live2D 人物站在舞台正中，而"可用区"会被工具栏和字幕条挤得整体上移；
@@ -99,7 +118,7 @@ cloud.setInsets({ top: 工具条高 + 34, bottom: 字幕条高 + 30, left: 16, r
 
 程序化背景是照着 AIRI 的 `Backgrounds` 组件重写的（`part-animated-wave` → 动态波浪、
 `SakuraPetal` → 樱花飘落、`pattern-cross` → 十字点纹、默认色相流动 → 极光渐变），
-好处是**零素材体积、任意分辨率都不糊**，而且不依赖任何图片文件。
+好处是不用带任何图片素材，放到多大都不糊。
 
 「极光渐变」会**跟随角色卡主色**变色；其余背景保留自己的配色
 （樱花被染成绿色、山水被染成粉色都不好看）。
@@ -118,8 +137,8 @@ cloud.setInsets({ top: 工具条高 + 34, bottom: 字幕条高 + 30, left: 16, r
 
 三套都支持口型同步（`ParamMouthOpenY`）。
 
-> 模型是第三方素材，**没有随仓库分发**。首次运行先双击仓库根目录的
-> 「获取示例模型.bat」（约 33MB，走 jsDelivr），它会装好上面三套 Live2D
+> 模型是第三方素材，**没有随仓库分发**。首次运行先双击
+> `tools\获取示例模型.bat`（约 33MB，走 jsDelivr），它会装好上面三套 Live2D
 > 和两套 VRM。目录约定与换模型的办法见 `public/models/README.md`。
 
 **预览图是离线生成的真实渲染帧**，不是占位图：
@@ -173,7 +192,7 @@ node test/gen-3d-previews.mjs
 
 ## 交互词云说明
 
-词云有 **59 个词条**，分 12 组，全部来自服务端 `lib/wenlv.js` 的 `WORD_CLOUD`：
+词云有 **53 个词条**，分 12 组，全部来自服务端 `lib/wenlv.js` 的 `WORD_CLOUD`：
 
 | 分组 | 词条示例 | 点击效果 |
 | --- | --- | --- |
@@ -191,7 +210,7 @@ node test/gen-3d-previews.mjs
 | 形象 | 换表情、打招呼 | 轮换 Live2D 表情 / 角色打招呼 |
 
 **词云与表单用的是同一份选项常量**（`lib/wenlv.js` 的 `OPTIONS` / `DEFAULTS`），
-所以两者永远不可能对不上。
+所以两者不会对不上。
 
 点词条时角色还会**随口说一句**（如点「杭州」会说"杭州的安排交给我，正在翻本地样本库…"），
 让点击有即时反馈。
@@ -201,7 +220,7 @@ node test/gen-3d-previews.mjs
 ## 目录结构
 
 ```
-web/
+./
 ├── server.js                 # 本地服务入口（路由 + 编排，零依赖）
 ├── lib/
 │   ├── ollama.js             # 本机 Ollama：对话 / 视觉 / 向量，自动挑选本机已有模型
@@ -209,24 +228,39 @@ web/
 │   ├── tts.js                # 本机 Qwen TTS 客户端 + 5 个音色预设 + 语音缓存
 │   ├── cards.js              # AI 角色卡：CRUD + 导入导出（兼容 SillyTavern 卡）
 │   ├── wenlv.js              # 文旅 Skill 引擎：提示词 / 样本库切片 / 质检 / 词云清单
+│   ├── backgrounds.js        # 背景清单：内置图片 + 程序化 Canvas 背景
+│   ├── models3d.js           # 3D 模型（VRM / GLB）：校验 / 存储 / 预览图
+│   ├── voices.js             # 「我的音色」：参考音频上传与声音克隆
 │   └── audit.js              # 输出质检（沿用原项目，含 30 项回归测试）
 ├── public/
 │   ├── index.html            # 页面骨架
 │   ├── css/airi.css          # 设计令牌与全部样式（对齐 AIRI）
 │   ├── js/
 │   │   ├── util.js           # DOM / Markdown（防 XSS）/ SSE / 图片降采样
+│   │   ├── backgrounds.js    # 背景管理器（内置图片 / 程序化 / 纯色）
 │   │   ├── live2d.js         # Live2D 舞台（视线跟随 / 嘴型同步 / 表情 / 动作）
 │   │   ├── wordcloud.js      # 词云（螺线布局 + 碰撞检测 + 点击分发）
+│   │   ├── stage3d.js        # 3D 舞台（three.js + three-vrm，按需加载）
 │   │   └── app.js            # 主程序
 │   ├── vendor/               # Live2D 运行时（已本地化，离线可用）
 │   └── models/               # Live2D 模型目录（空，跑「获取示例模型.bat」填充）
 ├── .agents/skills/wenlv-assistant/   # 符合 AgentSkill/OpenClaw 规范的技能包
+├── docs/                     # 部署教程 / 架构说明 / 评分点对照 / 验收报告
 ├── test/
 │   ├── audit.js              # 输出质检回归测试（30 项，含两次真实翻车输出）
 │   ├── smoke.js              # 冒烟测试（28 项：崩服回归 / 穿越 / data 泄露 / 新接口契约）
 │   └── fixtures/             # 回归样本
-├── data/                     # 运行期数据（记忆 / 角色卡 / 语音缓存），不出本机
-├── start.bat / stop.bat
+├── data/                     # 运行期数据（记忆 / 角色卡 / 语音缓存 / 自定义音色），不出本机
+├── start.bat                 # 一键启动：Ollama + Qwen TTS + 网页服务 + 开浏览器
+├── stop.bat                  # 一键停止：关掉网页与语音服务，保留 Ollama
+├── 检测并安装依赖.bat          # 检查并补装所有缺失的依赖与模型
+├── tools/
+│   ├── env-detect.bat        # 共用：探测 Qwen TTS 装在哪（三个 bat 都调它）
+│   ├── find-tts.ps1          # 自动扫描常见安装位置
+│   ├── start-tts.bat         # 在新窗口启动 Qwen TTS 语音服务
+│   ├── stop-services.ps1     # 按端口 + 命令行特征精确停服务，绝不误伤 Ollama
+│   ├── fetch-tts-model.ps1   # 触发 Qwen TTS 下载语音模型
+│   └── 获取示例模型.bat/.ps1  # 下载 Live2D 与 3D 示例模型（第三方素材）
 └── package.json
 ```
 
@@ -245,8 +279,11 @@ web/
 | GET | `/api/quick-marketing` | Agent 友好：纯文本文案 |
 | GET/POST/DELETE | `/api/memory*` | 机体记忆：列表 / 写入 / 检索 / 清空 / 删除 |
 | POST | `/api/vision` | 视觉理解（base64 图片 → 中文描述） |
-| POST | `/api/tts` | 语音合成（返回 `audio/wav` 二进制） |
+| POST | `/api/tts` | 语音合成（返回 `audio/wav` 二进制）。卡片带 `refVoiceId` 时自动走声音克隆 |
 | GET | `/api/tts/status` | 语音服务状态 + 音色预设 |
+| GET | `/api/tts/speakers` | 内置说话人清单（9 个，含中文名与实测基频） |
+| GET/POST | `/api/voices` | 「我的音色」：列表 / 上传参考音频（`{name, refText, audio}`）→ 存 `data/voice-refs/` |
+| GET/PUT/DELETE | `/api/voices/:id` | 试听（`/audio`）/ 改名 / 删除 |
 | GET/POST/PUT/DELETE | `/api/cards*` | AI 角色卡：列表 / 新建 / 更新 / 删除 / 复制 / 激活 / 导入 / 导出 |
 | GET | `/api/backgrounds` | 背景清单：`{ bundled, procedural, custom }` |
 | POST | `/api/backgrounds` | 上传背景（`{image: dataURL, name}`）→ 存 `data/backgrounds/` |
@@ -280,8 +317,8 @@ web/
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `PORT` | `8000` | 服务端口 |
-| `HOST` | `127.0.0.1` | 监听地址。默认仅本机可访问，保证"数据不出本机"在实现层成立 |
-| `DATA_DIR` | `./data` | 数据目录（记忆 / 角色卡 / 语音缓存） |
+| `HOST` | `127.0.0.1` | 监听地址。默认只监听本机，外部连不进来 |
+| `DATA_DIR` | `./data` | 数据目录（记忆 / 角色卡 / 语音缓存 / `voice-refs/` 自定义音色） |
 | `OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama 地址 |
 | `OLLAMA_MODEL` | 自动挑选 | 强制指定对话模型 |
 | `OLLAMA_VISION_MODEL` | 自动挑选 | 强制指定视觉模型 |
@@ -303,7 +340,6 @@ web/
 ## 测试
 
 ```powershell
-cd web
 npm test                          # 服务端两组一起跑
 node test/audit.js                # 输出质检回归（30 项）
 node test/smoke.js                # 冒烟测试（28 项）
@@ -349,5 +385,5 @@ node test/generate-model-previews.mjs   # 给每个 Live2D 模型重新生成预
 | 长天数方案可能写不满 | 7 天方案在 7B 模型上仍可能提前收尾，已由输出质检主动告警 |
 | 输出质检是"检查"而非"纠正" | 能发现并标注编造内容，不能阻止模型生成它 |
 | 无并发控制 | 多个请求同时打到 Ollama 会互相拖慢，前端已用"生成期间禁用按钮"缓解 |
-| 样本库为示例数据 | `references/` 为公开常识整理，正式使用需替换为本地真实业态数据 |
+| 样本库为示例数据 | `.agents/skills/wenlv-assistant/references/` 为公开常识整理，正式使用需替换为本地真实业态数据 |
 | 模型需自行获取 | 仓库不含模型文件（第三方版权）。跑一次「获取示例模型.bat」装好示例模型，或把自己的模型放进 `public/models/` |

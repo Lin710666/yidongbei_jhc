@@ -147,6 +147,71 @@ async function main() {
     check('音色预设非空', Array.isArray(cj.voices) && cj.voices.length > 0);
     check('Live2D 模型已就绪', Array.isArray(cj.live2d) && cj.live2d.length > 0);
 
+    // 「我的音色」（声音克隆的参考音频）
+    // 这几条盯的是两个真实踩过的坑：
+    //   ① 后端只是把字节写进 .wav，什么都不校验 —— MP3 改名也能"上传成功"，
+    //      所以必须在服务端拦下来，这里就测它拦不拦。
+    //   ② 角色卡白名单漏了 refVoiceId —— 界面选了自定义音色、合成时却拿不到参考音频。
+    check('能力清单带 myVoices', Array.isArray(cj.myVoices), typeof cj.myVoices);
+    const badVoice = await request('POST', '/api/voices', JSON.stringify({
+      name: '冒烟测试-假WAV', audio: Buffer.from('这不是音频，只是个文本').toString('base64'),
+    }));
+    check('假 WAV 被挡下来（不是 2xx）', badVoice.status >= 400, `实际 ${badVoice.status}`);
+    const noName = await request('POST', '/api/voices', JSON.stringify({ audio: '' }));
+    check('没名字没音频被挡下来（400）', noName.status === 400, `实际 ${noName.status}`);
+
+    // 造一段 3 秒的正经 WAV（24000Hz / 16bit / 单声道），走一遍 上传 → 列出 → 删除
+    {
+      const sr = 24000;
+      const pcm = Buffer.alloc(sr * 2 * 3);
+      for (let i = 0; i < sr * 3; i++) pcm.writeInt16LE(Math.round(Math.sin(i / 20) * 8000), i * 2);
+      const hdr = Buffer.alloc(44);
+      hdr.write('RIFF', 0, 'ascii'); hdr.writeUInt32LE(36 + pcm.length, 4); hdr.write('WAVE', 8, 'ascii');
+      hdr.write('fmt ', 12, 'ascii'); hdr.writeUInt32LE(16, 16); hdr.writeUInt16LE(1, 20);
+      hdr.writeUInt16LE(1, 22); hdr.writeUInt32LE(sr, 24); hdr.writeUInt32LE(sr * 2, 28);
+      hdr.writeUInt16LE(2, 32); hdr.writeUInt16LE(16, 34);
+      hdr.write('data', 36, 'ascii'); hdr.writeUInt32LE(pcm.length, 40);
+      const wav = Buffer.concat([hdr, pcm]);
+
+      const up = await request('POST', '/api/voices', JSON.stringify({
+        name: '冒烟测试音色', refText: '测试', audio: wav.toString('base64'), originalName: 'smoke.wav',
+      }));
+      const upJson = j(up);
+      check('上传正经 WAV 返回 201 且有 id', up.status === 201 && upJson.voice && upJson.voice.id, `实际 ${up.status}`);
+      check('记下了时长与采样率', upJson.voice && upJson.voice.seconds === 3 && upJson.voice.sampleRate === sr,
+        JSON.stringify(upJson.voice && { s: upJson.voice.seconds, sr: upJson.voice.sampleRate }));
+
+      if (upJson.voice) {
+        const ls = await request('GET', '/api/voices');
+        check('清单里能读到刚上传的', (j(ls).voices || []).some(v => v.id === upJson.voice.id));
+        const audioRes = await request('GET', `/api/voices/${upJson.voice.id}/audio`);
+        check('试听接口能回音频字节', audioRes.status === 200, `实际 ${audioRes.status}`);
+
+        // 角色卡要能记住 refVoiceId（不能又被白名单吃掉）
+        const cardsNow = j(await request('GET', '/api/cards'));
+        const target = cardsNow.cards && cardsNow.cards[0];
+        if (target) {
+          const put = await request('PUT', `/api/cards/${target.id}`, JSON.stringify({
+            voice: { presetId: `custom-${upJson.voice.id}`, mode: 'voice-clone', speaker: null, refVoiceId: upJson.voice.id },
+          }));
+          const saved = j(put).card || j(put).item || {};
+          const c2 = j(await request('GET', '/api/cards')).cards.find(c => c.id === target.id);
+          check('角色卡能存住 refVoiceId（没被白名单吃掉）', c2 && c2.voice && c2.voice.refVoiceId === upJson.voice.id,
+            JSON.stringify(c2 && c2.voice));
+          void saved;
+          // 还原，别把用户卡片改坏了
+          await request('PUT', `/api/cards/${target.id}`, JSON.stringify({
+            voice: { presetId: 'wenlv-guide-female', mode: 'custom-voice', speaker: 'vivian', refVoiceId: null, instruct: '' },
+          }));
+        }
+
+        const del = await request('DELETE', `/api/voices/${upJson.voice.id}`);
+        check('自定义音色能删掉', del.status === 200, `实际 ${del.status}`);
+        const ls2 = await request('GET', '/api/voices');
+        check('删掉之后清单里没有了', !(j(ls2).voices || []).some(v => v.id === upJson.voice.id));
+      }
+    }
+
     // 记忆：写 → 读 → 检索 → 删
     const addMem = await request('POST', '/api/memory', JSON.stringify({ text: '冒烟测试：用户带 6 岁小孩，忌辣', kind: 'fact' }));
     const addJson = j(addMem);

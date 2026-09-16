@@ -762,6 +762,25 @@ input[type="checkbox"] { accent-color: var(--primary); width: 15px; height: 15px
 }
 .voice-item:hover { background: var(--surface-hover); }
 .voice-item.active { border-color: color-mix(in srgb, var(--primary) 55%, transparent); background: color-mix(in srgb, var(--primary) 12%, transparent); }
+
+/* 内置音色（说话人）网格：9 个音色一屏放下，点一下就能试听。
+   以前没有这一栏，用户只能看着 preset 里那句 instruct 猜音色，
+   而后端默认是个男声，于是"怎么全都是男的"。 */
+.speaker-grid {
+  display: grid; gap: 7px;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+}
+.speaker-item {
+  padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: rgb(255 255 255 / 0.025);
+  cursor: pointer; transition: all 200ms var(--ease);
+}
+.speaker-item:hover { background: var(--surface-hover); }
+.speaker-item.active { border-color: color-mix(in srgb, var(--primary) 55%, transparent); background: color-mix(in srgb, var(--primary) 12%, transparent); }
+.speaker-item .nm { font-weight: 600; font-size: 12px; }
+.speaker-item .ds { font-size: 10.5px; color: var(--text-sub); }
+.speaker-item .ds2 { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
 .voice-item .nm { font-weight: 600; font-size: 12.5px; }
 .voice-item .ds { font-size: 10.8px; color: var(--text-dim); }
 
@@ -823,6 +842,17 @@ input[type="checkbox"] { accent-color: var(--primary); width: 15px; height: 15px
 .toast.err { border-color: color-mix(in srgb, var(--err) 55%, transparent); }
 .toast.ok { border-color: color-mix(in srgb, var(--ok) 55%, transparent); }
 @keyframes toastIn { from { opacity: 0; transform: translateY(12px) scale(.96); } to { opacity: 1; transform: none; } }
+
+/* 语音合成进度：本地 TTS 只有 0.45x 实时率，长文本要跑好几分钟，
+   必须让用户看见"在跑"和"跑了多久"，否则界面看着和卡死没区别。 */
+.speak-progress { display: flex; align-items: center; gap: 9px; }
+.speak-progress::before {
+  content: ''; flex: none;
+  width: 9px; height: 9px; border-radius: 50%;
+  border: 2px solid var(--wenlv); border-top-color: transparent;
+  animation: speakSpin 900ms linear infinite;
+}
+@keyframes speakSpin { to { transform: rotate(360deg); } }
 
 /* 弹层（角色卡编辑 / 词云放大） */
 .modal-mask {

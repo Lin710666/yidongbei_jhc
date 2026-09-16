@@ -28,6 +28,7 @@ const { createCards } = require('./lib/cards');
 const { createWenlv } = require('./lib/wenlv');
 const { createBackgrounds } = require('./lib/backgrounds');
 const { createModels3D } = require('./lib/models3d');
+const { createVoices } = require('./lib/voices');
 
 // ===== 配置 =====
 const PORT = Number(process.env.PORT || 8000);
@@ -37,6 +38,9 @@ const HOST = process.env.HOST || '127.0.0.1';       // 默认只监听回环，�
 const MAX_BODY = Number(process.env.MAX_BODY || 150 * 1024 * 1024);
 const MAX_IMAGE_BYTES = Number(process.env.MAX_IMAGE_BYTES || 12 * 1024 * 1024);
 const MAX_MODEL3D_BYTES = Number(process.env.MAX_MODEL3D_BYTES || 100 * 1024 * 1024);
+// 参考音频：24MB 够放 4 分钟 24kHz/16bit 单声道。再长也没有意义 ——
+// 实测参考音频越长合成越慢、显存吃得越多，音色本身靠开头十几秒就定型了。
+const MAX_VOICE_BYTES = Number(process.env.MAX_VOICE_BYTES || 24 * 1024 * 1024);
 
 const ROOT = __dirname;
 const WEB_ROOT = path.join(ROOT, 'public');
@@ -54,11 +58,16 @@ const cards = createCards({ dir: DATA_DIR });
 const wenlv = createWenlv({ skillDir: SKILL_DIR, ollama });
 const backgrounds = createBackgrounds({ publicDir: WEB_ROOT, dataDir: DATA_DIR });
 const models3d = createModels3D({ publicDir: WEB_ROOT, dataDir: DATA_DIR });
+// "我的音色"：用户上传的参考音频，供 voice-clone 用（存 data/voice-refs/）
+const voices = createVoices({ dir: DATA_DIR, maxBytes: MAX_VOICE_BYTES });
 
 // ===== 小工具 =====
 const CODE_STATUS = {
   BAD_INPUT: 400,
   TOO_LARGE: 413,
+  BAD_FORMAT: 400,
+  TOO_SHORT: 400,
+  NOT_FOUND: 404,
   NO_OLLAMA: 502,
   TIMEOUT: 504,
   NO_MODEL: 503,
@@ -280,6 +289,7 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         ...caps,
         voices: VOICE_PRESETS,
+        myVoices: voices.list(),
         live2d: listLive2DModels(),
         models3d: models3d.list(),
         backgrounds: backgrounds.list(),
@@ -583,13 +593,37 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const card = (body.cardId && cards.get(body.cardId)) || cards.active();
       const voice = body.voice || (card && card.voice) || undefined;
+
+      // ---------- "我的音色"：把参考音频一起发给 TTS ----------
+      // 卡片上记着 refVoiceId，这里把那段 WAV 读出来转 base64。
+      // 之前 server 漏了这一环，所以 lib/tts.js 里那条 voice-clone 分支根本走不到。
+      const refVoiceId = body.refVoiceId || (voice && voice.refVoiceId);
+      let refAudioBase64;
+      let refText = '';
+      let mode = body.mode || (voice && voice.mode);
+      if (refVoiceId) {
+        const ref = voices.read(refVoiceId);
+        if (!ref) {
+          const e = new Error('这个自定义音色找不到了，可能已经被删掉。请重新选一个音色。');
+          e.code = 'NOT_FOUND';
+          throw e;
+        }
+        refAudioBase64 = ref.buffer.toString('base64');
+        refText = ref.meta.refText || '';
+        mode = 'voice-clone';   // 有参考音频就一定走克隆
+      }
+
       const r = await tts.synthesize({
         text: body.text,
         voice,
-        mode: body.mode || (voice && voice.mode),
+        mode,
         speaker: body.speaker,
         language: body.language,
         model: body.model,
+        refAudioBase64,
+        refText,
+        // 缓存键要带上是哪个音色，否则换了音色还在放上一副嗓子的缓存
+        refKey: refVoiceId || '',
         useCache: body.useCache !== false,
       });
       res.writeHead(200, {
@@ -603,6 +637,63 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && p === '/api/tts/status') {
       return sendJSON(res, 200, { ok: true, ...(await tts.status()), presets: VOICE_PRESETS });
+    }
+    // 内置说话人清单（含中文名与实测音高）。
+    // 界面靠它把 speaker 暴露给用户 —— 只给英文 id 的话，
+    // 用户根本分不出哪个是女声，就只能一直用后端默认的那个男声。
+    if (req.method === 'GET' && p === '/api/tts/speakers') {
+      return sendJSON(res, 200, { ok: true, speakers: await tts.speakers() });
+    }
+
+    // ---------- 我的音色（声音克隆的参考音频）----------
+    // 上传一段 5~15 秒的干净人声，之后就能像内置音色一样点着用。
+    // 音频存本机 data/voice-refs/，合成时直接喂给 127.0.0.1 的 TTS，不出本机。
+    if (p === '/api/voices') {
+      if (req.method === 'GET') {
+        return sendJSON(res, 200, { ok: true, voices: voices.list() });
+      }
+      if (req.method === 'POST') {
+        const body = await readBody(req);
+        const v = voices.save({
+          name: body.name,
+          desc: body.desc,
+          refText: body.refText,
+          audio: body.audio,
+          originalName: body.originalName,
+        });
+        return sendJSON(res, 201, { ok: true, voice: v });
+      }
+    }
+    if (p.startsWith('/api/voices/')) {
+      const rest = p.slice('/api/voices/'.length);
+      const slash = rest.indexOf('/');
+      const id = slash < 0 ? rest : rest.slice(0, slash);
+      const sub = slash < 0 ? '' : rest.slice(slash + 1);
+
+      // 试听：把参考音频原样回给浏览器播
+      if (sub === 'audio' && req.method === 'GET') {
+        const ref = voices.read(id);
+        if (!ref) {
+          return sendJSON(res, 404, { ok: false, code: 'NOT_FOUND', error: '这个音色不存在' });
+        }
+        res.writeHead(200, {
+          'Content-Type': 'audio/wav',
+          'Content-Length': ref.buffer.length,
+          'Cache-Control': 'no-store',
+        });
+        return res.end(ref.buffer);
+      }
+      if (sub === '' && req.method === 'PUT') {
+        const body = await readBody(req);
+        const v = voices.update(id, body || {});
+        if (!v) return sendJSON(res, 404, { ok: false, code: 'NOT_FOUND', error: '这个音色不存在' });
+        return sendJSON(res, 200, { ok: true, voice: v });
+      }
+      if (sub === '' && req.method === 'DELETE') {
+        const ok = voices.remove(id);
+        if (!ok) return sendJSON(res, 404, { ok: false, code: 'NOT_FOUND', error: '这个音色不存在' });
+        return sendJSON(res, 200, { ok: true });
+      }
     }
 
     // ---------- AI 角色卡 ----------

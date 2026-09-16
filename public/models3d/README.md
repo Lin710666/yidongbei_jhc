@@ -6,7 +6,7 @@
 
 ## 怎么拿到
 
-双击仓库根目录的 **`获取示例模型.bat`**，或者：
+双击 **`tools\获取示例模型.bat`**，或者：
 
 ```powershell
 pwsh -File tools\获取示例模型.ps1 -SkipLive2D   # 只要 3D

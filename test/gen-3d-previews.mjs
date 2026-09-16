@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { loadPlaywright } from './_playwright.mjs'
 /**
  * gen-3d-previews.mjs —— 给所有 3D 模型生成/刷新预览图
  *
@@ -16,7 +17,8 @@
  */
 
 const BASE = (process.argv[2] || 'http://127.0.0.1:8000').replace(/\/+$/, '')
-const { chromium } = await import('file:///E:/deepseck/src/airi/node_modules/playwright/index.mjs')
+// Playwright 不在本交付物的依赖里，按候选路径自动去找（见 _playwright.mjs）
+const { chromium } = await loadPlaywright()
 
 const browser = await chromium.launch({ channel: 'msedge', headless: true })
 const page = await browser.newPage({ viewport: { width: 1600, height: 950 } })

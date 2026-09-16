@@ -35,6 +35,9 @@
       this.audioSource = null;
       this.audioEl = null;
       this.rafId = null;
+      this.resizeRaf = 0;
+      this.ro = null;
+      this.lastDpr = 0;
       this.ready = false;
       this.onReadyCb = null;
       this.onErrorCb = null;
@@ -86,9 +89,25 @@
       this.app.stage.hitArea = new window.PIXI.Rectangle(0, 0, width, height);
       this.app.stage.on('pointertap', () => { if (this.onTapCb) this.onTapCb(); });
 
-      window.addEventListener('resize', () => this.resize());
+      window.addEventListener('resize', () => this.scheduleResize());
+      // 光靠 window.resize 不够：舞台尺寸会因为侧栏、全屏词云、字体加载等原因变，
+      // 这些不一定触发 window 的 resize。ResizeObserver 盯着舞台本体最稳。
+      if (typeof window.ResizeObserver === 'function') {
+        this.ro = new window.ResizeObserver(() => this.scheduleResize());
+        this.ro.observe(host);
+      }
+      this.lastDpr = Math.min(window.devicePixelRatio || 1, 2);
       this.loop();
       this.ready = true;
+    }
+
+    /** 一帧内触发多次也只重排一次，避免拖动窗口时反复重算 */
+    scheduleResize() {
+      if (this.resizeRaf) return;
+      this.resizeRaf = requestAnimationFrame(() => {
+        this.resizeRaf = 0;
+        this.resize();
+      });
     }
 
     /** 载入模型。url 形如 /models/nahida/Nahida.model3.json */
@@ -139,25 +158,57 @@
       if (!this.app) return;
       const host = this.canvas.parentElement;
       const rect = host.getBoundingClientRect();
-      const w = Math.max(1, Math.floor(rect.width));
-      const h = Math.max(1, Math.floor(rect.height));
+      const w = Math.max(1, Math.round(rect.width));
+      const h = Math.max(1, Math.round(rect.height));
+
+      // 浏览器缩放（Ctrl + 滚轮 / Ctrl 加号）会改 devicePixelRatio。
+      // 不跟着更新 resolution 的话，画布后备区还是老分辨率，放大后整只就发虚。
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      this.lastDpr = dpr;
+      if (this.app.renderer.resolution !== dpr) this.app.renderer.resolution = dpr;
+
       this.app.renderer.resize(w, h);
       if (this.app.stage.hitArea) this.app.stage.hitArea = new window.PIXI.Rectangle(0, 0, w, h);
       if (!this.model) return;
 
-      const mw = this.model.width || 1;
-      const mh = this.model.height || 1;
-      // 让模型高度占容器的 ~86%，宽度不超过 ~92%
-      this.baseScale = Math.min((h * 0.86) / mh, (w * 0.92) / mw);
+      this.baseScale = this.fitScale(w, h);
       this.applyTransform();
+    }
+
+    /**
+     * 算出"把模型塞进容器"该用的缩放：高度占容器约 86%，宽度不超过约 92%。
+     *
+     * 这里必须用**未被缩放**的模型尺寸，不能用 `model.width/height` ——
+     * 在 pixi-live2d-display 里它们已经把当前 scale 乘进去了，
+     * 拿它们算会变成自引用：新 scale = K / 旧 scale（K 才是期望值）。
+     * 后果就是每 resize 一次漂一次，窗口拉大拉小几个来回之后，
+     * 角色要么胀满整屏、要么缩成一小点 —— 也就是"界面放大后角色位置和大小不对劲"。
+     * `getLocalBounds()` 与 `internalModel.width/height` 都是与 scale 无关的，用它们。
+     */
+    fitScale(w, h) {
+      const m = this.model;
+      let mw = 0;
+      let mh = 0;
+      try {
+        const lb = m.getLocalBounds();
+        mw = lb.width;
+        mh = lb.height;
+      } catch { /* 个别模型取不到就退回下面的兜底 */ }
+      if (!mw || !mh) {
+        const im = m.internalModel;
+        mw = (im && im.width) || 0;
+        mh = (im && im.height) || 0;
+      }
+      if (!mw || !mh) return this.baseScale || 1;
+      return Math.min((h * 0.86) / mh, (w * 0.92) / mw);
     }
 
     applyTransform() {
       if (!this.model) return;
       const host = this.canvas.parentElement;
       const rect = host.getBoundingClientRect();
-      const w = rect.width;
-      const h = rect.height;
+      const w = Math.max(1, Math.round(rect.width));
+      const h = Math.max(1, Math.round(rect.height));
       const s = this.baseScale * this.userScale;
       this.model.scale.set(s);
       this.model.anchor.set(0.5, 1);           // 以"脚底中心"为锚点
@@ -198,6 +249,12 @@
     loop() {
       const step = () => {
         this.rafId = requestAnimationFrame(step);
+
+        // 浏览器缩放会改 devicePixelRatio。window.resize 在个别路径上不一定来
+        // （比如换到另一块不同 DPI 的显示器），每帧比一次最省心，成本就是一次比较。
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        if (dpr !== this.lastDpr) this.scheduleResize();
+
         if (this.analyser) {
           const buf = new Uint8Array(this.analyser.frequencyBinCount);
           this.analyser.getByteFrequencyData(buf);
@@ -272,6 +329,8 @@
 
     destroy() {
       if (this.rafId) cancelAnimationFrame(this.rafId);
+      if (this.resizeRaf) cancelAnimationFrame(this.resizeRaf);
+      if (this.ro) { try { this.ro.disconnect(); } catch { /* 忽略 */ } }
       if (this.model) { try { this.model.destroy(); } catch { /* 忽略 */ } }
       if (this.app) { try { this.app.destroy(false, { children: true }); } catch { /* 忽略 */ } }
       this.ready = false;

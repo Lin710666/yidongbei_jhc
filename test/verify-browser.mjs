@@ -15,6 +15,7 @@
  */
 
 import { mkdirSync } from 'node:fs'
+import { loadPlaywright } from './_playwright.mjs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -24,7 +25,8 @@ mkdirSync(OUT, { recursive: true })
 
 const URL_BASE = process.argv[2] || 'http://127.0.0.1:8000'
 // playwright 来自 AIRI 的 node_modules（本交付物本身零依赖）
-const { chromium } = await import('file:///E:/deepseck/src/airi/node_modules/playwright/index.mjs')
+// Playwright 不在本交付物的依赖里，按候选路径自动去找（见 _playwright.mjs）
+const { chromium } = await loadPlaywright()
 
 const consoleErrors = []
 const failedRequests = []

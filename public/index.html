@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#121212">
-<title>文旅智能辅助 · AIRI 网页版</title>
+<title>文旅智能辅助 v3.1 · AIRI 网页版</title>
 <meta name="description" content="基于 Project AIRI 交互风格重构的文旅智能辅助系统：Live2D 虚拟人物 + 可点击交互词云 + 全本地 AI 服务（Ollama / Qwen TTS）">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='88'>🏔️</text></svg>">
 <link rel="stylesheet" href="/css/airi.css">
@@ -36,7 +36,7 @@
     <div class="brand">
       <div class="brand-logo">🏔️</div>
       <div class="brand-text">
-        <span class="brand-title">文旅智能辅助 <span class="ver">v3.0</span></span>
+        <span class="brand-title">文旅智能辅助 <span class="ver">v3.1</span></span>
         <span class="brand-sub">Live2D 虚拟向导，全程本机运行</span>
       </div>
     </div>
@@ -306,6 +306,23 @@
         <div class="section">
           <div class="lbl">音色库</div>
           <div id="voice-list"></div>
+        </div>
+
+        <div class="section">
+          <div class="lbl">内置音色（说话人 speaker）</div>
+          <div id="speaker-list"></div>
+        </div>
+
+        <div class="section">
+          <div class="lbl">我的音色（用你自己的录音克隆）</div>
+          <p class="sub" style="margin:0 0 8px">
+            选一段 <strong>5~15 秒</strong>、单人、没有背景音乐的 <strong>真 WAV</strong>，
+            本地会拿它当参考音频克隆出这副嗓子。音频只存在本机 <code>data/voice-refs/</code>，不出本机。
+          </p>
+          <div id="my-voices"></div>
+          <div class="actions" style="margin-top:8px">
+            <button class="btn sm" id="voice-add">＋ 添加音色</button>
+          </div>
         </div>
 
         <div class="section">

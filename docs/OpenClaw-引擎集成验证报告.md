@@ -13,8 +13,7 @@
 
 > **本项目的 Skill 产物，能否被真实的 OpenClaw 引擎识别、加载并实际使用？**
 
-为避免"仅在文档中声称符合规范"，本次验证在真实引擎中完整执行了「安装 → 就绪 → 注入 → 读取 → 生成」全部环节，
-并保留每一步的原始输出作为证据。
+下面记录的是真实引擎里的实测过程，每一步的原始回显都原样贴出。
 
 ---
 
@@ -29,7 +28,7 @@
 | Ollama 地址 | `http://127.0.0.1:11434` |
 | 技能包位置 | `<项目>/.agents/skills/wenlv-assistant` |
 
-**本次验证全程不涉及任何第三方 API、不需要 API Key、不访问外部网络。**
+验证全程只访问本机服务，没有用到 API Key。
 
 ---
 
@@ -43,7 +42,7 @@ Installing to C:\Users\11702\.openclaw\workspace\skills\wenlv-assistant…
 Installed wenlv-assistant from path -> C:\Users\11702\.openclaw\workspace\skills\wenlv-assistant
 ```
 
-结论：技能包结构被引擎接受，安装成功。✓
+技能包结构被引擎接受，安装成功。✓
 
 ### 步骤 2：就绪状态确认
 
@@ -66,7 +65,6 @@ Requirements:
 
 技能总数变化：`Skills (13/52 ready)` → **`Skills (14/53 ready)`**
 
-结论：
 - 状态为 **Ready**（无缺失依赖）
 - 模型可发现（Visible to model: yes）
 - 可作为命令调用（Available as command: yes）
@@ -108,8 +106,7 @@ Model                    Input   Ctx    Local  Auth  Tags
 ollama/qwen2.5:7b        text    32k    yes    yes   default
 ```
 
-结论：本机 Ollama 被识别为 `Local: yes`、鉴权通过、并成为默认模型。
-推理与本机数据均不出本机。
+本机 Ollama 被识别为 `Local: yes`、鉴权通过、并成为默认模型。
 
 ### 步骤 4：确认技能被注入模型上下文
 
@@ -183,13 +180,13 @@ $ openclaw agent --agent main --session-key wenlv-test-4 \
 
 ## 五、过程中发现并修正的三个问题
 
-以下问题均为实测暴露、已修正，并已留档以避免重犯。
+以下问题都是实测中暴露并已修正的。
 
 ### 问题 1：`metadata` 多行写法导致解析失效
 
 | 项 | 内容 |
 | --- | --- |
-| **现象** | 技能显示 `✓ ready`，但 emoji 不显示、`requires` 依赖检查完全失效——**静默失效，无任何报错** |
+| **现象** | 技能显示 `✓ ready`，但 emoji 不显示、`requires` 依赖检查完全失效，**没有任何报错** |
 | **原因** | `metadata:` 后换行再跟 `{ ... }`（YAML 块 + flow mapping）时引擎解析不到 |
 | **修正** | 写成与引擎自带技能一致的**单行 flow mapping** |
 
@@ -219,7 +216,7 @@ metadata: { "openclaw": { "emoji": "🏔️", "os": ["darwin","linux","win32"], 
 | **现象** | 默认 `tools.profile: "coding"` 暴露约 25 个工具，7B 模型被工具描述淹没：请求"回复两个字：你好"，模型却反复调用文件写入工具（`Successfully wrote 2 bytes to greeting.txt`），最终 `stopReason=toolUse`、`payloads=0`，**无法产出回答** |
 | **修正** | 收窄为技能加载所必需的工具：`{ tools: { profile: "coding", allow: ["read"] } }` |
 
-> 坑中坑：`tools.allow` 是在 profile **之后**做交集过滤的，因此不能与 `minimal` 档同用——
+> 坑中坑：`tools.allow` 是在 profile **之后**做交集过滤的，因此不能与 `minimal` 档同用。
 > `minimal` 档本身不含 `read`，两者叠加会导致零工具可用并报错：
 > `No callable tools remain after resolving explicit tool allowlist`。
 
@@ -231,11 +228,11 @@ metadata: { "openclaw": { "emoji": "🏔️", "os": ["darwin","linux","win32"], 
 | **根因 1（写法）** | 本项目的 SKILL.md 采用**产品说明书**写法（定位/价值/功能描述/技术实现），而 AgentSkill 惯例是**操作手册**写法（祈使句 + Routing + Workflow）。对比引擎自带技能 `diagram-maker`，其开头即 `Create diagrams as artifacts, not prose.`，随后是 `Routing` / `Workflow` 步骤 |
 | **根因 2（模型）** | 7B 级模型对"元指令"（读了文档后按它做事）的遵循能力很弱，倾向于把读到的文档当作要汇报的内容 |
 | **已做改进** | 在 `SKILL.md` 正文最前面新增「**执行指令**」章节：明确"直接产出结果、不要复述本文件内容、不要描述计划"，并以表格给出意图路由，指向后续各执行章节 |
-| **改进效果** | 项目自身流程无回归（改动前后同一请求：均为 2/3 天、字符数 787→683）；但在 OpenClaw 中，**7B 模型仍会复述**——它不遵循文件内部的指令 |
+| **改进效果** | 项目自身流程无回归（改动前后同一请求：均为 2/3 天、字符数 787→683）；但在 OpenClaw 中，**7B 模型仍会复述**，它不遵循文件内的指令 |
 | **最终可用方法** | 把"不要复述"写进**用户消息**：<br>`读取 skills/wenlv-assistant/SKILL.md。注意：不要复述技能内容，不要描述你的计划，不要问我是否开始。直接输出杭州2天情侣游玩方案的 Markdown 正文。`<br>**实测：同一请求，复述用时 79 秒；明确要求后 21.7 秒直接产出方案。** |
 
-> 结论：技能文档的写法改进是**正确的方向**（已按 AgentSkill 惯例补齐执行指令段，对更强模型会生效），
-> 但在 7B 级模型上无法单靠文档解决。这是模型能力边界，不是技能包或集成环节的问题。
+> 结论：改写法对更强的模型应该有用（已按 AgentSkill 惯例补齐执行指令段），
+> 但 7B 级模型不遵循文件里的指令，光改文档解决不了，这是模型能力的问题。
 
 ### 问题 5：OpenClaw 屏蔽本地地址，`web_fetch` 走不通 → 改用 `scripts/` + `exec`
 
@@ -271,8 +268,8 @@ GET /api/quick-marketing?product=景区&platform=小红书&audience=年轻情侣
 ……
 ```
 
-> 意义：至此 OpenClaw 路线也能用上项目**完整的可信度保障机制**（样本库白名单质检、结构校验、
-> 固定输出模板），而不再依赖模型自由发挥。
+> 这样 OpenClaw 路线也能用上样本库白名单质检、结构校验和固定输出模板，
+> 输出不用靠模型自由发挥。
 >
 > 注意：`exec` 会给 Agent 系统访问权限，需在 `tools.allow` 中包含 `exec`；
 > 不需要时可收窄回 `["read"]`。另外，若用自然语言直接提问（不给出脚本命令），
@@ -285,7 +282,7 @@ GET /api/quick-marketing?product=景区&platform=小红书&audience=年轻情侣
 | --- | --- |
 | 自然提问「帮我规划杭州2天方案」 | ❌ 不读技能，凭自身知识作答 |
 | 「读取 SKILL.md 并按其指示执行」 | ❌ 复述技能内容 / 编造 HTML 页面 |
-| **「请执行这条命令：node .../generate-plan.js --city 杭州 …」** | ✅ **正确执行并原样返回含质检的结果** |
+| **「请执行这条命令：node .../generate-plan.js --city 杭州 …」** | ✅ 正确执行并原样返回含质检的结果 |
 
 ---
 
@@ -295,7 +292,7 @@ GET /api/quick-marketing?product=景区&platform=小红书&audience=年轻情侣
 | --- | --- |
 | **技能触发依赖模型能力** | 7B 模型不会主动按 `description` 触发技能。直接提问"帮我规划杭州2天方案"时，它未读取 SKILL.md，而是凭自身知识作答；需在指令中显式要求读取技能文件。已确认这是**模型能力限制**，非链路问题 |
 | **公开版与赛事平台的差异** | 本次验证使用 npm 公开发行版 OpenClaw 2026.6.35。赛事保障方"网易帝王蟹（ClawHive）"为同一技术体系的平台产品，两者规范可能一致，但**建议在获得官方账号后再于官方环境复验** |
-| **未验证的能力** | 未验证 ClawHub 上传/发布、未验证多技能协同编排、未验证长会话下的技能重载 |
+| **未验证的能力** | 未验证的还有：ClawHub 发布、多技能编排、长会话下的技能重载 |
 
 **因此项目定位是两条腿走路**：
 - 确定性演示：使用自包含的本地 Web 界面（`start.bat` → `http://localhost:8000`），含输出质检与 28 项自动化测试，不依赖任何引擎
@@ -346,4 +343,4 @@ openclaw agent --agent main -m "请读取 skills/wenlv-assistant/SKILL.md，然�
 
 ---
 
-*本报告由项目自带的合规校验器与实测日志共同支撑；技能包本身可通过 `npm run validate:skill` 独立复核。*
+复核方式：`npm run validate:skill`。

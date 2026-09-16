@@ -60,19 +60,18 @@ metadata: { "openclaw": { "emoji": "🏔️", "os": ["darwin", "linux", "win32"]
 
 ## 一、定位与价值
 
-面向文旅行业**景区、酒店、餐饮**三大核心业态的轻量化智能 Skill，
-用"智能适配、创新迭代、精准创收"重构传统"人工服务、固化产品、被动经营"的运营模式。
+本 Skill 面向景区、酒店、餐饮三类客户，只做两件事：给游客出方案，给运营方写文案。
 
 | 行业痛点 | 本 Skill 的解法 |
 | --- | --- |
-| 消费体验同质化 | 需求洞察 + 本地样本库，生成千人千面的个性化方案 |
+| 消费体验同质化 | 按用户填的预算 / 人群 / 兴趣，从本地样本库里筛出对应条目 |
 | 客源转化效率低 | 一键生成多平台营销文案，降低获客成本 |
 | 产品创新迭代慢 | 输出营销角度与文创创意，反哺产品研发 |
 
-**两大核心功能（聚焦做深，不做宽）：**
+**两大核心功能：**
 
-1. **个性化方案规划** —— 根据游客偏好，生成"游玩·旅居·餐饮"一体化方案
-2. **文旅营销素材生成** —— 按平台与客群，生成可直接发布的营销文案
+1. **个性化方案规划**：按游客偏好生成 N 天行程（景点 / 餐饮 / 住宿 / 费用预估）
+2. **文旅营销素材生成**：按平台与客群写营销文案
 
 ---
 
@@ -206,23 +205,23 @@ metadata: { "openclaw": { "emoji": "🏔️", "os": ["darwin", "linux", "win32"]
   - `hotels.md`：酒店/民宿（含价位档、特色、适配人群）
   - `dining.md`：餐厅/小吃（含人均、菜系、适配人群、禁忌友好度）
   - `marketing-playbook.md`：平台文案方法论 + 各平台模板 + 卖点提炼法
-- 规划与文案**优先引用样本库数据**，保证输出可落地、不空泛。
+- 规划与文案优先引用样本库条目；库里没有的不写。
 - 全程**本地处理，数据不出本地**，支持将结果一键导出为 Markdown。
 
 ---
 
 ## 六、演示界面
 
-`demo/index.html` 是本 Skill 的交互演示界面，由 `server.js` 本地服务器驱动：
+`public/index.html` 是本 Skill 的交互演示界面，由 `server.js` 本地服务器驱动：
 `server.js` 会读取本 SKILL.md 与 `references/` 作为系统提示词，调用本地 Ollama
-大模型（默认 qwen2.5:7b）生成结果。启动方式：双击 `start.bat` 或运行 `node server.js`，
-然后访问 http://localhost:8000 。全程数据不出本机，支持一键导出 Markdown。
+大模型（默认 qwen2.5:7b）生成结果。启动方式：在仓库根目录双击 `start.bat` 或运行
+`node server.js`，然后访问 http://localhost:8000 。
 
 ---
 
 ## 七、引擎规范与集成方式
 
-本 Skill 遵循 **AgentSkill / OpenClaw 技能规范**，可被 OpenClaw（网易帝王蟹）等支持 AgentSkill 的引擎直接加载。
+本 Skill 遵循 **AgentSkill / OpenClaw 技能规范**，可被 OpenClaw 等支持 AgentSkill 的引擎直接加载（实测用的是 npm 公开版 OpenClaw；赛事平台「网易帝王蟹（ClawHive）」为同一技术体系的平台产品，未在官方环境复验）。
 
 ### 7.1 技能包结构（符合规范约定）
 
@@ -244,19 +243,21 @@ metadata: { "openclaw": { "emoji": "🏔️", "os": ["darwin", "linux", "win32"]
 
 2. **被本地 Web 应用加载**
    `server.js` 读取本文件与 `references/` 拼成系统提示词，交给本机 Ollama 推理，
-   再由 `demo/index.html` 提供零门槛操作界面，无需任何平台账号。
+   界面由 `public/index.html` 提供。
 
 因为两种形态**共用同一份 SKILL.md 与样本库**，所以更新知识库只需改一处，两边同时生效。
 
 ### 7.3 技能包自检
 
+在仓库根目录执行：
+
 ```bash
-node scripts/validate-skill.js    # 校验 frontmatter 是否符合规范（退出码 0 = 通过）
-node scripts/package-skill.js     # 校验通过后打包为 .skill 分发文件
+node .agents/skills/wenlv-assistant/scripts/validate-skill.js    # 校验 frontmatter 是否符合规范（退出码 0 = 通过）
+node .agents/skills/wenlv-assistant/scripts/package-skill.js     # 校验通过后打包为 .skill 分发文件
 ```
 
 ### 7.4 网络与隐私
 
-`manifest.json` 的 `permissions.network.allow` 为空数组，表示**本 Skill 运行期间不访问任何外部网络**；
+`manifest.json` 的 `permissions.network.allow` 只放行 `127.0.0.1` 与 `localhost`，**本 Skill 运行期间不访问任何外部网络**；
 推理与数据全部留在本机，符合"本地部署、数据安全导出"的要求。若后续接入公开数据源（如天气），
 需在该字段中显式声明域名。

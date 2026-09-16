@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { loadPlaywright } from './_playwright.mjs'
 /**
  * generate-model-previews.mjs —— 给每个 Live2D 模型生成一张预览图
  *
@@ -19,7 +20,8 @@ const here = dirname(fileURLToPath(import.meta.url))
 const PUBLIC = join(here, '..', 'public')
 const BASE = (process.argv[2] || 'http://127.0.0.1:8000').replace(/\/+$/, '')
 
-const { chromium } = await import('file:///E:/deepseck/src/airi/node_modules/playwright/index.mjs')
+// Playwright 不在本交付物的依赖里，按候选路径自动去找（见 _playwright.mjs）
+const { chromium } = await loadPlaywright()
 
 const W = 360
 const H = 460
