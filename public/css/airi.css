@@ -362,36 +362,32 @@ body::before {
 /* 词云配色变量。
    为什么抽出来：背景是可换的（其中有些是浅色纸张那种亮背景），
    颜色写死的话，一换到亮背景，白字就直接看不见了。
-   默认这套是「深色背景 → 浅色字」。
-   亮背景时由 #wordcloud-layer[data-wc-ink="dark"] 整套覆盖 —— data-wc-ink
-   由 app.js 按背景亮度自动设置（也可以在外观面板手动指定）。
-   注意属性名说的是**字的明暗**：data-wc-ink="dark" 表示"字是深色的"。 */
+
+   --wc-ink 是**唯一需要改的东西**，其余颜色全部由它按比例推导出来。
+   所以在外观面板里换一个字色（自动判定 / 色板 / 取色器），
+   文字、边框、胶囊底、标签强调色会整套跟着变，不用一个一个调。
+   --wc-ink 由 app.js 写入；两种模式用 data-wc-ink 区分。 */
 #wordcloud-layer {
-  --wc-text:          rgb(255 255 255 / 0.62);
-  --wc-text-mid:      rgb(255 255 255 / 0.80);
-  --wc-text-strong:   rgb(255 255 255 / 0.94);
-  --wc-text-hover:    #ffffff;
-  --wc-border:        rgb(255 255 255 / 0.09);
-  --wc-border-strong: rgb(255 255 255 / 0.16);
-  --wc-fill:          rgb(255 255 255 / 0.035);
-  --wc-fill-strong:   rgb(255 255 255 / 0.075);
-  /* 标签用的强调色。这里刻意往白里提亮一档，而不是直接用 --primary：
-     极光背景是"跟随角色卡主色"的，标签直接用主色会和背景撞成同色系，
-     实测对比度只有 1.07:1，标签基本读不出来。提亮后约 5:1 起。 */
+  --wc-ink: #ffffff;
+  --wc-text:          color-mix(in srgb, var(--wc-ink) 64%, transparent);
+  --wc-text-mid:      color-mix(in srgb, var(--wc-ink) 80%, transparent);
+  --wc-text-strong:   color-mix(in srgb, var(--wc-ink) 94%, transparent);
+  --wc-text-hover:    var(--wc-ink);
+  --wc-border:        color-mix(in srgb, var(--wc-ink) 11%, transparent);
+  --wc-border-strong: color-mix(in srgb, var(--wc-ink) 19%, transparent);
+  --wc-fill:          color-mix(in srgb, var(--wc-ink) 4%, transparent);
+  --wc-fill-strong:   color-mix(in srgb, var(--wc-ink) 8%, transparent);
+  /* 标签色默认用主题主色（提亮过，避免和"跟随主色"的极光背景撞色） */
   --wc-accent:        color-mix(in srgb, var(--primary) 62%, #ffffff);
 }
-/* 亮背景专用的「浅底深字」配色（data-wc-ink="dark" = 字色是深的） */
+/* 亮背景专用的「浅底深字」：只换 ink，后面的推导规则完全一样 */
 #wordcloud-layer[data-wc-ink="dark"] {
-  --wc-text:          rgb(22 25 30 / 0.68);
-  --wc-text-mid:      rgb(18 21 26 / 0.85);
-  --wc-text-strong:   rgb(12 15 19 / 0.96);
-  --wc-text-hover:    #05070a;
-  --wc-border:        rgb(0 0 0 / 0.16);
-  --wc-border-strong: rgb(0 0 0 / 0.30);
-  --wc-fill:          rgb(255 255 255 / 0.55);
-  --wc-fill-strong:   rgb(255 255 255 / 0.82);
-  /* 主色本身偏亮，放在亮背景上对比度不够，往深里混一点 */
-  --wc-accent:        color-mix(in srgb, var(--primary) 52%, #0d1218);
+  --wc-ink: #0c0f13;
+  --wc-accent: color-mix(in srgb, var(--primary) 52%, #0d1218);
+}
+/* 主人在色板/取色器里挑的颜色：标签也跟着字色走，整片保持同一个色 */
+#wordcloud-layer[data-wc-ink="custom"] {
+  --wc-accent: var(--wc-ink);
 }
 
 .wc-word {
@@ -478,6 +474,28 @@ body::before {
   100% { transform: scale(1); }
 }
 .wc-word[hidden] { display: none; }
+
+/* ---- 词云字色的色板 + 取色器 ---- */
+.ink-swatches { display: flex; align-items: center; gap: 7px; margin-top: 9px; flex-wrap: wrap; }
+.ink-sw {
+  width: 21px; height: 21px; padding: 0;
+  border-radius: 50%; cursor: pointer;
+  background: var(--c, #fff);
+  border: 1px solid var(--border-strong);
+  transition: transform 150ms var(--ease), box-shadow 150ms var(--ease);
+}
+.ink-sw:hover { transform: scale(1.15); }
+.ink-sw.on { box-shadow: 0 0 0 2px var(--primary); transform: scale(1.1); }
+/* 系统取色器。默认那个色块太丑，这里把内部 swatch 藏掉，露出底下的彩虹渐变，
+   一看就知道"点它可以挑任意颜色"。 */
+.ink-picker {
+  width: 28px; height: 21px; padding: 0; cursor: pointer;
+  border: 1px solid var(--border-strong); border-radius: 6px;
+  background: linear-gradient(135deg, #ff6b6b, #ffd93d, #6bcb77, #4d96ff, #b16dff);
+  -webkit-appearance: none; appearance: none;
+}
+.ink-picker::-webkit-color-swatch-wrapper { padding: 0; }
+.ink-picker::-webkit-color-swatch { border: none; opacity: 0; }
 
 /* ---------- 6. 右侧面板 ---------- */
 .side {

@@ -1996,9 +1996,18 @@
   /**
    * 把词云配色切到该有的档位。
    *
-   * 自动模式按背景亮度决定：> 0.58 认为是亮背景，改用深色字。
-   * 阈值 0.58 留了足够余量 —— 极光那类深色背景实测 0.10~0.35，纸张类亮背景在 0.7 以上，
-   * 中间空着，免得背景稍微变一点就来回切字色。
+   * S.settings.wcInk 有四种取值：
+   *   'auto'    按背景亮度自动决定（> 0.58 认为是亮背景 → 深色字）
+   *   'light'   固定浅色字（深色背景用）
+   *   'dark'    固定深色字（亮背景用）
+   *   '#rrggbb' 主人自己在色板/取色器里挑的颜色
+   *
+   * 前三种只挂 data-wc-ink，颜色写在 CSS 里；第四种把 --wc-ink 直接写成内联样式
+   * （内联优先级更高，会盖住 CSS 里的那两套预设）。
+   * CSS 里所有词云颜色都是由 --wc-ink 推导的，所以这里只要给一个颜色就够了。
+   *
+   * 自动模式的阈值 0.58 是实测调的：极光那类深背景在 0.10~0.41，纸张类亮背景 0.95，
+   * 中间空着一大片，免得背景稍微一变就来回切字色。
    */
   function applyCloudInk({ retry = 0 } = {}) {
     const layer = $('#wordcloud-layer');
@@ -2019,18 +2028,46 @@
     } else {
       S.bgLuminance = null;
     }
-    // 浅色字是默认值，不需要挂属性；只在需要深色字时才挂 data-wc-ink="dark"
-    if (ink === 'dark') layer.dataset.wcInk = 'dark';
-    else delete layer.dataset.wcInk;
+
+    const isHex = /^#[0-9a-f]{6}$/i.test(ink);
+    if (isHex) {
+      layer.dataset.wcInk = 'custom';
+      layer.style.setProperty('--wc-ink', ink);
+    } else {
+      layer.style.removeProperty('--wc-ink');   // 清掉自定义色，回到 CSS 里的预设
+      if (ink === 'dark') layer.dataset.wcInk = 'dark';
+      else delete layer.dataset.wcInk;          // 浅色字是默认值，不用挂属性
+    }
+    syncInkControls();
     updateInkHint(ink, auto);
   }
 
-  /** 把判定结果写到设置项下面那行小字，让人知道自动模式到底判成了什么 */
+  /** 把当前设置同步到界面：下拉框选项 + 色板高亮 + 取色器当前色 */
+  function syncInkControls() {
+    // 注意这里是按「设置里选的是什么」同步，而不是按自动判定出来的结果。
+    // 自动模式下判定结果可能是"浅色字"，但下拉框必须显示"自动" ——
+    // 否则用户一看下拉框是"浅色字"，会以为自己手动选了，然后再也回不到自动。
+    const setting = S.settings.wcInk || 'auto';
+    const isHex = /^#[0-9a-f]{6}$/i.test(setting);
+    const sel = $('#wc-ink');
+    if (sel) sel.value = isHex ? 'custom' : setting;
+    if (isHex) {
+      const picker = $('#wc-ink-custom');
+      if (picker) picker.value = setting;
+    }
+    $$('#wc-ink-swatches .ink-sw').forEach((b) => {
+      b.classList.toggle('on', String(b.dataset.ink).toLowerCase() === String(setting).toLowerCase());
+    });
+  }
+
+  /** 把判定结果写到设置项下面那行小字，让人知道现在到底是什么颜色、为什么 */
   function updateInkHint(ink, auto) {
     const el = $('#wc-ink-hint');
     if (!el) return;
+    const isHex = /^#[0-9a-f]{6}$/i.test(ink);
     if (!auto) {
-      el.textContent = ink === 'dark' ? '固定用深色字（适合浅色背景）。' : '固定用浅色字（适合深色背景）。';
+      if (isHex) el.textContent = `固定用自定义色 ${ink.toUpperCase()}。想跟着背景走就选「自动」。`;
+      else el.textContent = ink === 'dark' ? '固定用深色字（适合浅色背景）。' : '固定用浅色字（适合深色背景）。';
       return;
     }
     if (S.bgLuminance === null) {
@@ -2210,12 +2247,36 @@
       $('#wc-density-label').textContent = ['精简', '标准', '全部'][S.settings.wcDensity - 1] || '标准';
       saveSettings(); cloud.setDensity(S.settings.wcDensity);
     });
-    // 词云字色：自动 / 浅色字 / 深色字
+    // 词云字色：自动 / 浅色字 / 深色字 / 自定义
     $('#wc-ink').addEventListener('change', (e) => {
-      S.settings.wcInk = e.target.value;
+      const v = e.target.value;
+      // 选「自定义」时用取色器里当前的颜色（取色器没动过就用它默认的那个青）
+      const picker = $('#wc-ink-custom');
+      S.settings.wcInk = (v === 'custom') ? ((picker && picker.value) || '#7fd4e8') : v;
       saveSettings();
       applyCloudInk();
     });
+    // 色板：点一下就换成这个颜色，顺手把下拉框切到「自定义」
+    $$('#wc-ink-swatches .ink-sw').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        S.settings.wcInk = btn.dataset.ink;
+        saveSettings();
+        applyCloudInk();
+      });
+    });
+    // 取色器：拖动时实时预览（不落盘），松手才存 —— 免得拖一下就写几十次设置
+    const pickerEl = $('#wc-ink-custom');
+    if (pickerEl) {
+      pickerEl.addEventListener('input', (e) => {
+        S.settings.wcInk = e.target.value;
+        applyCloudInk();
+      });
+      pickerEl.addEventListener('change', (e) => {
+        S.settings.wcInk = e.target.value;
+        saveSettings();
+        applyCloudInk();
+      });
+    }
   }
 
   /** 背景选择器：内置图片 + 程序化 + 自定义，三组一起给 */
@@ -2538,8 +2599,9 @@
     const sx = $('#l2d-x'); if (sx) { sx.value = s.l2dX || 0; $('#l2d-x-label').textContent = String(s.l2dX || 0); }
     const sy = $('#l2d-y'); if (sy) { sy.value = s.l2dY || 0; $('#l2d-y-label').textContent = String(s.l2dY || 0); }
     const wd = $('#wc-density'); if (wd) { wd.value = s.wcDensity || 2; $('#wc-density-label').textContent = ['精简', '标准', '全部'][(s.wcDensity || 2) - 1]; }
-    const wk = $('#wc-ink'); if (wk) wk.value = s.wcInk || 'auto';
-    // 设置恢复完（可能刚从本地存储读回来）重判一次字色，保证下拉框显示的和实际生效的一致
+    const wk = $('#wc-ink');
+    if (wk) wk.value = /^#[0-9a-f]{6}$/i.test(s.wcInk || '') ? 'custom' : (s.wcInk || 'auto');
+    // 设置恢复完（可能刚从本地存储读回来）重判一次字色，保证界面显示的选项和实际生效的一致
     applyCloudInk();
     const wt = $('#btn-wc-toggle'); if (wt) wt.classList.toggle('on', s.wcEnabled);
     const st2 = $('#btn-speak-toggle'); if (st2) st2.classList.toggle('on', s.autospeak);

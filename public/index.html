@@ -240,7 +240,21 @@
               <option value="auto">自动 · 跟随背景亮度</option>
               <option value="light">浅色字 · 适合深色背景</option>
               <option value="dark">深色字 · 适合浅色背景</option>
+              <option value="custom">自定义 · 用下面的色板</option>
             </select>
+            <!-- 色板：点一下就把词云字色换成这个颜色。
+                 后面的圆点是取色器（系统调色板），能挑任意颜色。 -->
+            <div class="ink-swatches" id="wc-ink-swatches">
+              <button type="button" class="ink-sw" data-ink="#ffffff" style="--c:#ffffff" title="纯白"></button>
+              <button type="button" class="ink-sw" data-ink="#0c0f13" style="--c:#0c0f13" title="墨黑"></button>
+              <button type="button" class="ink-sw" data-ink="#7fd4e8" style="--c:#7fd4e8" title="青"></button>
+              <button type="button" class="ink-sw" data-ink="#ffcf70" style="--c:#ffcf70" title="金"></button>
+              <button type="button" class="ink-sw" data-ink="#f0a6c8" style="--c:#f0a6c8" title="粉"></button>
+              <button type="button" class="ink-sw" data-ink="#8fe0a8" style="--c:#8fe0a8" title="绿"></button>
+              <button type="button" class="ink-sw" data-ink="#c4a7f0" style="--c:#c4a7f0" title="紫"></button>
+              <button type="button" class="ink-sw" data-ink="#ffab70" style="--c:#ffab70" title="橙"></button>
+              <input type="color" id="wc-ink-custom" class="ink-picker" value="#7fd4e8" title="自定义颜色">
+            </div>
             <div class="hintline" id="wc-ink-hint" style="margin-top:6px">背景一换，字色会自动跟着调。</div>
           </div>
         </div>
