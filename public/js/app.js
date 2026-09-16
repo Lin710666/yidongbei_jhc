@@ -448,22 +448,25 @@
 
       // 用词云上已经选好的条件生成
       case 'gen-plan': {
-        switchTab('tools');
+        say(pickLine('plan', {}), true);
+        // 全屏词云模式下走舞台上的结果卡（右栏这时看不见）；非全屏才切到文旅页看结果
+        const onCard = openStageResult();
+        if (!onCard) switchTab('tools');
         $('#form-plan').hidden = false;
         $('#form-marketing').hidden = true;
         $$('#pane-tools [data-tool]').forEach(c => c.classList.toggle('on', c.dataset.tool === 'plan'));
-        say(pickLine('plan', {}), true);
         // 不传 overrides：参数全部取自表单，也就是词云上点出来的那些条件
         await generate('plan', collectPlanParams());
         break;
       }
 
       case 'gen-marketing': {
-        switchTab('tools');
+        say(pickLine('marketing', {}), true);
+        const onCardM = openStageResult();
+        if (!onCardM) switchTab('tools');
         $('#form-plan').hidden = true;
         $('#form-marketing').hidden = false;
         $$('#pane-tools [data-tool]').forEach(c => c.classList.toggle('on', c.dataset.tool === 'marketing'));
-        say(pickLine('marketing', {}), true);
         await generate('marketing', collectMarketingParams());
         break;
       }
@@ -643,6 +646,53 @@
 
   function hideSubtitle() {
     setSubtitleVisible(false);
+  }
+
+  /**
+   * 全屏词云模式下，把生成结果显示到舞台上的结果卡里。
+   *
+   * 为什么需要：进了全屏（body.wc-full）之后右侧面板是藏起来的 ——
+   * 生成结果再写到 #tools-output 就等于写进了看不见的地方，用户点完「个性化方案」
+   * 会觉得"什么都没发生"。这里让词云收起、结果卡浮上来，
+   * 左上角挂虚拟导游的名字、右上角放朗读按钮，看起来像一个播报面板。
+   *
+   * 返回 false 表示当前不是全屏模式，调用方应该走原来的路径（写到右侧面板）。
+   */
+  function openStageResult() {
+    if (!document.body.classList.contains('wc-full')) return false;
+    const card = $('#result-card');
+    if (!card) return false;
+    const who = $('#result-who');
+    if (who) who.textContent = (S.card && S.card.name) || 'AI 导览';
+    const body = $('#result-body');
+    if (body) body.innerHTML = '';
+    setResultSpeakState(false);
+    card.hidden = false;
+    requestAnimationFrame(() => card.classList.add('show'));
+    document.body.classList.add('wc-result');
+    return true;
+  }
+
+  /** 收起结果卡，回到词云 */
+  function closeStageResult() {
+    document.body.classList.remove('wc-result');
+    const audio = $('#tts-audio');
+    if (audio) { try { audio.pause(); } catch { /* 没在放就别管 */ } }
+    const card = $('#result-card');
+    if (!card) return;
+    card.classList.remove('show');
+    setTimeout(() => { card.hidden = true; }, 300);
+    setResultSpeakState(false);
+  }
+
+  /** 结果卡右上角那个朗读按钮的状态（合成中禁用 + 点亮 + 换 ⏳） */
+  function setResultSpeakState(busy) {
+    const btn = $('#result-speak');
+    if (!btn) return;
+    btn.disabled = !!busy;
+    btn.classList.toggle('on', !!busy);
+    const ico = btn.querySelector('.ico');
+    if (ico) ico.textContent = busy ? '⏳' : '🔊';
   }
 
   /**
@@ -912,9 +962,12 @@
    * ======================================================================*/
   async function generate(type, params) {
     if (S.busy) { toast('正在生成中…', 'err'); return; }
-    if (type === 'plan' || type === 'marketing') switchTab('tools');
+    // 全屏结果模式下右侧面板本来就看不见，切过去没有意义，还会白白触发一次布局重算
+    const onStageResult = document.body.classList.contains('wc-result');
+    if ((type === 'plan' || type === 'marketing') && !onStageResult) switchTab('tools');
 
-    const out = $('#tools-output');
+    // 输出目标：全屏结果模式下写进舞台上的结果卡，否则写右侧面板
+    const out = onStageResult ? $('#result-body') : $('#tools-output');
     const warn = $('#tools-warn');
     out.textContent = '⏳ 正在调用本机大模型生成…';
     warn.innerHTML = '';
@@ -1518,8 +1571,24 @@
     $('#open-model').addEventListener('click', openModelPicker);
     $('#wc-full').addEventListener('click', () => {
       document.body.classList.toggle('wc-full');
+      // 退出全屏时顺手收起结果卡：右栏这会儿又露出来了，结果看那边那份就行
+      if (!document.body.classList.contains('wc-full')) closeStageResult();
       setTimeout(() => { syncCloudInsets(); cloud.layout(); }, 80);
     });
+
+    // 结果卡右上角：喇叭 = 用本机 TTS 把这段内容读出来；✕ = 收起，回到词云
+    const resultSpeak = $('#result-speak');
+    if (resultSpeak) {
+      resultSpeak.addEventListener('click', async () => {
+        const body = $('#result-body');
+        const text = body ? body.textContent.trim() : '';
+        if (!text) { toast('还没有内容可以朗读', 'err'); return; }
+        setResultSpeakState(true);
+        try { await speakText(text); } finally { setResultSpeakState(false); }
+      });
+    }
+    const resultClose = $('#result-close');
+    if (resultClose) resultClose.addEventListener('click', closeStageResult);
     $('#wc-shuffle').addEventListener('click', () => cloud.shuffle());
 
     // 状态灯：按初始设置点亮

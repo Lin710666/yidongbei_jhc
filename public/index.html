@@ -61,6 +61,22 @@
     <canvas id="stage3d-canvas"></canvas>
     <div id="wordcloud-layer"></div>
 
+    <!-- 全屏词云模式下的结果卡。
+         进了全屏（body.wc-full）之后右侧面板是藏起来的，生成结果再写到 #tools-output
+         就等于写进了看不见的地方 —— 用户点完「个性化方案」会觉得"没反应"。
+         所以这时候让词云收起、这张卡浮上来：左上角是虚拟导游名字，右上角是朗读按钮。 -->
+    <div class="result-card" id="result-card" hidden>
+      <div class="result-head">
+        <div class="result-who" id="result-who">AI 导览</div>
+        <div class="result-actions">
+          <button class="result-btn" id="result-speak" title="朗读这段内容"><span class="ico">🔊</span></button>
+          <button class="result-btn" id="result-close" title="收起，回到词云"><span class="ico">✕</span></button>
+        </div>
+      </div>
+      <!-- 带 output 类是为了复用 .output 里那套 markdown 排版（标题 / 表格 / 列表） -->
+      <div class="result-body output" id="result-body"></div>
+    </div>
+
     <!-- 顶部：角色铭牌 + 外观快捷操作（原来散在四处的浮层都收进这一条） -->
     <div class="stage-top">
       <div class="char-plate">
