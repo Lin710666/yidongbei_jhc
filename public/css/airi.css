@@ -658,6 +658,23 @@ body::before {
   border-left: 1px solid var(--border);
 }
 
+/* 行程方案：Day 1..N 横着排成一行，行程总览 / 费用预估 / 替代方案 各占一整行。
+   为什么要这样：那些块天生就是"并列的几天"，竖着堆一列又长又难对比；
+   而「行程总览」是个 8 列的表格，必须占满整行才不至于被挤成竖条。 */
+.result-card .result-body.is-days .result-days {
+  display: flex; align-items: flex-start;
+  gap: 0 16px;
+  margin-bottom: 6px;
+}
+.result-card .result-body.is-days .result-day { flex: 1 1 0; min-width: 0; }
+.result-card .result-body.is-days .result-day + .result-day {
+  padding-left: 16px;
+  border-left: 1px solid var(--border);
+}
+/* Day 块里的列表本来就窄，缩进收一点，别把内容挤没了 */
+.result-card .result-body.is-days .result-day ul,
+.result-card .result-body.is-days .result-day ol { padding-left: 15px; }
+
 /* 进入结果模式：词云整体收起。用 opacity 而不是 display ——
    过渡更自然，也不动布局（词的位置不会因为收起而重排）。 */
 body.wc-result #wordcloud-layer { opacity: 0; pointer-events: none; }

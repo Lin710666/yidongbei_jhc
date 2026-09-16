@@ -735,31 +735,42 @@
   }
 
   /**
-   * 结果卡里把 A/B 两版文案并排成两列。
+   * 结果卡里的排版。按内容结构分三种走法：
    *
-   * 为什么：营销文案的输出天然就是「版本 A / 版本 B」两块（各带一个 h2），
-   * 堆成一条要滚 4 屏；并排之后纵向高度直接砍半，而且"我们一次给你两版"这个卖点
-   * 一眼就能看见 —— 比埋在长条里强得多。
+   *   · 营销文案：「版本 A / 版本 B」两块 → 并排成两列（纵向高度砍半，一次看全两版）
+   *   · 行程方案：「行程总览 + Day 1..N + 费用预估 + 替代方案」→
+   *     把 Day 那几块横着排成一行，其余各占一整行
+   *   · 其他 → 原样竖向排列
    *
-   * 只在确实有两个以上 h2 时才分列：行程方案那种单块内容保持原样，
-   * 硬分列会让表格和长段落断得很难看。
+   * 为什么不能"见到多个 h2 就当 A/B 分成两列"：行程方案有 7 个 h2，
+   * 那样会把前 4 块塞左列、后 3 块塞右列，而「行程总览」是个 8 列的表格，
+   * 挤进半列宽的 600px 里每列只剩 75px，字全被挤成竖着的一条一条 —— 实测就是这样，很难看。
    */
-  function layoutResultColumns(node) {
+  function layoutResultBlock(node) {
     if (!node) return;
-    node.classList.remove('is-columns');
-    // 先量一遍（上一次渲染可能已经改过结构，DOM 里存的是拆好的列）
+    node.classList.remove('is-columns', 'is-days');
+
     const blocks = Array.from(node.children);
-    const firstIdx = blocks.findIndex((b) => b.tagName === 'H2');
-    if (firstIdx < 0) return;
+    const firstH2 = blocks.findIndex((b) => b.tagName === 'H2');
+    if (firstH2 < 0) return;
+
+    // 从第一个 h2 开始按 h2 切段
     const groups = [];
     let cur = null;
-    for (const b of blocks.slice(firstIdx)) {
+    for (const b of blocks.slice(firstH2)) {
       if (b.tagName === 'H2') { cur = [b]; groups.push(cur); }
       else if (cur) cur.push(b);
     }
     if (groups.length < 2) return;
 
-    const pre = blocks.slice(0, firstIdx);
+    const titleOf = (g) => (g[0].textContent || '').trim();
+    const isDay = (t) => /^Day\s*\d+/i.test(t);
+    const isVersion = (t) => /版本\s*[AB]|^[AB][版\s]/.test(t);
+
+    const days = groups.filter((g) => isDay(titleOf(g)));
+    const vers = groups.filter((g) => isVersion(titleOf(g)));
+
+    const pre = blocks.slice(0, firstH2);
     const frag = document.createDocumentFragment();
     if (pre.length) {
       const preBox = document.createElement('div');
@@ -767,15 +778,40 @@
       pre.forEach((b) => preBox.appendChild(b));
       frag.appendChild(preBox);
     }
-    for (const g of groups) {
-      const col = document.createElement('div');
-      col.className = 'result-col';
-      g.forEach((b) => col.appendChild(b));
-      frag.appendChild(col);
+    const mkCol = (g, cls) => {
+      const box = document.createElement('div');
+      box.className = cls;
+      g.forEach((b) => box.appendChild(b));
+      return box;
+    };
+
+    // ① 全是「版本 X」→ 两列并排
+    if (vers.length >= 2 && vers.length === groups.length) {
+      for (const g of groups) frag.appendChild(mkCol(g, 'result-col'));
+      node.innerHTML = '';
+      node.appendChild(frag);
+      node.classList.add('is-columns');
+      return;
     }
-    node.innerHTML = '';
-    node.appendChild(frag);
-    node.classList.add('is-columns');
+
+    // ② 有「Day N」→ 这几块横着排成一行，其余各占一整行
+    if (days.length >= 2) {
+      const daySet = new Set(days);
+      let dayBox = null;
+      for (const g of groups) {
+        if (daySet.has(g)) {
+          if (!dayBox) { dayBox = document.createElement('div'); dayBox.className = 'result-days'; frag.appendChild(dayBox); }
+          dayBox.appendChild(mkCol(g, 'result-day'));
+        } else {
+          dayBox = null;                 // 中间插进别的块时，后面若还有 Day 就另起一行
+          frag.appendChild(mkCol(g, 'result-block'));
+        }
+      }
+      node.innerHTML = '';
+      node.appendChild(frag);
+      node.classList.add('is-days');
+      return;
+    }
   }
 
   /**
@@ -1068,19 +1104,38 @@
     }, 1000);
 
     let acc = '';
+    // 和聊天那边同一个道理：每来一条 delta 就把整篇 markdown 重渲一遍是 O(n²)。
+    // 实测一次方案生成有 500 多条 delta，主线程被重绘占满后会反压住 fetch 的流，
+    // 同一个接口用 node 直连只要 23 秒，在网页里却拖到 101 秒。
+    // 这里按时间节流：内容一个字都不丢，只是渲染次数从「等于 delta 数」降到「每秒最多 12 次」。
+    const GEN_REDRAW_MS = 80;
+    let genTimer = 0;
+    let genFirstDone = false;
+    const renderGen = () => {
+      genTimer = 0;
+      out.innerHTML = renderMarkdown(acc);
+      out.scrollTop = out.scrollHeight;
+    };
+    const flushGen = () => {
+      if (!genFirstDone) { genFirstDone = true; renderGen(); return; }  // 第一个字立刻出，别让用户干等
+      if (genTimer) return;                                             // 已排过一次，这次的 delta 并进 acc 就行
+      genTimer = setTimeout(renderGen, GEN_REDRAW_MS);
+    };
+    const stopGen = () => { if (genTimer) { clearTimeout(genTimer); genTimer = 0; } };
+
     const stream = sse('/api/wenlv/generate', { type, params }, (ev) => {
       if (ev.type === 'delta') {
         acc += ev.text;
         clearInterval(tick);
-        out.innerHTML = renderMarkdown(acc);
-        out.scrollTop = out.scrollHeight;
+        flushGen();
       } else if (ev.type === 'done') {
         clearInterval(tick);
+        stopGen();                    // 别让排队中的那一帧盖掉定稿结果
         acc = ev.content || acc;
         S.lastResult = acc;
         out.innerHTML = renderMarkdown(acc);
-        // 只有结果卡才分列：右侧面板本来就只有巴掌宽，再分两列会挤成一条
-        if (out.id === 'result-body') layoutResultColumns(out);
+        // 只有结果卡才排这个版：右侧面板本来就只有巴掌宽，再分列会挤成一条
+        if (out.id === 'result-body') layoutResultBlock(out);
         renderWarnings(warn, ev.warnings || []);
         const secs = Math.round((Date.now() - t0) / 1000);
         toast((ev.warnings && ev.warnings.length)
@@ -1091,6 +1146,7 @@
         renderMemoryList();
       } else if (ev.type === 'error') {
         clearInterval(tick);
+        stopGen();
         out.textContent = `⚠️ 生成失败\n\n${ev.error}`;
         toast(ev.error.split('\n')[0], 'err', 7000);
       }
@@ -1101,6 +1157,7 @@
       if (e.name !== 'AbortError') out.textContent = `⚠️ 生成失败\n\n${e.message}`;
     } finally {
       clearInterval(tick);
+      stopGen();
       S.busy = false;
       S.currentStream = null;
       setBusy(false);
@@ -2906,5 +2963,8 @@
     // 背景管理器实例。验收脚本要用它读实际生成出来的粒子数，
     // 验证"大屏上密度和小屏一致"（原来大屏会被数量上限截顶）。
     background: () => bg,
+    // 结果卡的排版函数。验收脚本可以直接塞一段假 HTML 进来验证排版规则，
+    // 不用每次都真跑一遍模型（跑一次要几十秒，定位排版问题太慢）。
+    layoutResultBlock,
   };
 })();
