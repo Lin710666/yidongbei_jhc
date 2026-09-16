@@ -484,6 +484,32 @@ body::before {
 }
 .wc-word[hidden] { display: none; }
 
+/* ---- 带箭头的数值控件（游玩天数）----
+   结构是  ▼ 游玩天数 3天 ▲ ，直接在词云上调天数，不用跑去右侧表单。
+   左右两个箭头各自有自己的 hover 反馈，让人一看就知道"这里能点"。 */
+.wc-stepper {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 9px;
+}
+.wc-stepper .wc-step-label {
+  font-variant-numeric: tabular-nums;   /* 数字等宽，加减的时候不会左右抖 */
+}
+.wc-step {
+  display: grid; place-items: center;
+  width: 17px; height: 17px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--wc-ink) 12%, transparent);
+  font-size: 8px; line-height: 1;
+  opacity: .75;
+  transition: background 160ms var(--ease), opacity 160ms var(--ease), transform 160ms var(--ease);
+}
+.wc-step:hover {
+  background: color-mix(in srgb, var(--wc-ink) 30%, transparent);
+  opacity: 1;
+  transform: scale(1.14);
+}
+.wc-step:active { transform: scale(.9); }
+
 /* ---- 多选：选中的条件词用红框标出来 ----
    点词云的语义已经从「立刻执行」改成「挑一个条件」，所以要能一眼看到自己组了哪些条件。
    用 box-shadow 画框而不是 outline/border：它不占布局空间，不会把词挤歪、也就不会触发重排。
@@ -522,20 +548,27 @@ body::before {
 .ink-picker::-webkit-color-swatch { border: none; opacity: 0; }
 
 /* ---------- 全屏词云模式下的结果卡 ----------
-   点「个性化方案」/「营销文案」时，词云收起、这张卡浮上来显示生成内容。
-   半透明 + 毛玻璃，底下的角色和背景还透得出来，不像整个页面被盖住。 */
+   点「个性化方案」/「营销文案」时，词云收起、这张卡从底部浮上来显示生成内容。
+
+   为什么是"底部一条、只占约 1/4"而不是铺满整个舞台：
+   Live2D 角色本身就是这个项目的一大卖点，结果卡铺满就把人挡死了。
+   现在上面 2/3 留给角色（看得见她一直在那儿），下面 1/4 出结果，两边同时看得见。
+   bottom 用 9% 是为了避开底部那条字幕条，不然字幕会被卡片压住。 */
 .result-card {
-  position: absolute; inset: 5% 7%;
+  position: absolute;
+  left: 4%; right: 4%; bottom: 9%;
+  height: 27%;
+  min-height: 132px;
   z-index: 700;
   display: flex; flex-direction: column;
   border: 1px solid var(--border-strong);
-  border-radius: 18px;
+  border-radius: 16px;
   background: rgb(14 16 18 / 0.74);
   backdrop-filter: blur(22px);
   -webkit-backdrop-filter: blur(22px);
   box-shadow: var(--shadow);
   opacity: 0;
-  transform: translateY(16px);
+  transform: translateY(18px);
   transition: opacity 280ms var(--ease), transform 280ms var(--ease);
   pointer-events: none;
 }
@@ -545,29 +578,29 @@ body::before {
 .result-head {
   flex: none;
   display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 14px 12px 20px;
+  padding: 8px 12px 8px 16px;
   border-bottom: 1px solid var(--border);
 }
 .result-who {
-  display: flex; align-items: center; gap: 9px;
-  font-size: 14px; font-weight: 700; color: var(--primary);
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 700; color: var(--primary);
 }
 /* 名字左边一颗呼吸的小圆点，暗示"这个角色在说话" */
 .result-who::before {
-  content: ""; width: 7px; height: 7px; border-radius: 50%;
+  content: ""; width: 6px; height: 6px; border-radius: 50%;
   background: var(--primary);
   box-shadow: 0 0 10px var(--primary);
   animation: resultDot 2.2s ease-in-out infinite;
 }
 @keyframes resultDot { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
 
-.result-actions { display: flex; align-items: center; gap: 7px; }
+.result-actions { display: flex; align-items: center; gap: 6px; }
 .result-btn {
   display: grid; place-items: center;
-  width: 30px; height: 30px; padding: 0;
-  border: 1px solid var(--border); border-radius: 9px;
+  width: 27px; height: 27px; padding: 0;
+  border: 1px solid var(--border); border-radius: 8px;
   background: var(--surface); color: var(--text-sub);
-  cursor: pointer; font-size: 14px; line-height: 1;
+  cursor: pointer; font-size: 13px; line-height: 1;
   transition: color 180ms var(--ease), border-color 180ms var(--ease),
               background 180ms var(--ease), transform 180ms var(--ease);
 }
@@ -582,11 +615,11 @@ body::before {
 .result-btn[disabled] { cursor: default; }
 
 /* 内容区。带 output 类是为了复用 .output 里那套 markdown 排版，
-   这里用更高特异性把它的 padding / 字号调成卡片里合适的样子。 */
+   这里用更高特异性把 padding / 字号调成卡片里合适的样子。 */
 .result-card .result-body {
   flex: 1; min-height: 0; overflow-y: auto;
-  padding: 20px 24px 26px;
-  font-size: 13.5px; line-height: 1.85;
+  padding: 13px 18px 16px;
+  font-size: 12.8px; line-height: 1.75;
 }
 
 /* 进入结果模式：词云整体收起。用 opacity 而不是 display ——

@@ -39,9 +39,10 @@
   const rectOf = (x, y, w, h) => ({ x: x - PAD_X, y: y - PAD_Y, w: w + PAD_X * 2, h: h + PAD_Y * 2 });
 
   class WordCloud {
-    constructor(container, { onAction } = {}) {
+    constructor(container, { onAction, onStep } = {}) {
       this.container = container;
       this.onAction = onAction || (() => {});
+      this.onStep = onStep || null;   // 带箭头控件（游玩天数）加减时的回调
       this.words = [];
       this.nodes = new Map();      // word -> node
       this.density = 2;
@@ -151,6 +152,38 @@
     getSelected() { return [...this.selected]; }
 
     /**
+     * 造一个带箭头的数值控件（目前给「游玩天数」用）。结构是：
+     *      ▼  游玩天数 3天  ▲
+     * 两个箭头各自 stopPropagation —— 不然点箭头会把整个词的 click action 一起触发，
+     * 变成"调了天数又顺手执行了一次生成"。
+     */
+    _buildStepper(w) {
+      const node = el('div', { class: 'wc-word wc-stepper' });
+      const mkStep = (dir, glyph, title) => {
+        const b = el('span', { class: 'wc-step', text: glyph });
+        b.title = title;
+        b.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          if (this.onStep) this.onStep(w, dir);
+        });
+        return b;
+      };
+      node.appendChild(mkStep(-1, '▼', '少一天'));
+      node.appendChild(el('span', { class: 'wc-step-label', text: w.word }));
+      node.appendChild(mkStep(1, '▲', '多一天'));
+      return node;
+    }
+
+    /** 更新某个词的显示文字（带箭头的那种只改中间那截标签，不碰箭头） */
+    setWordLabel(word, text) {
+      const node = this.nodes.get(word);
+      if (!node) return;
+      const label = node.querySelector('.wc-step-label');
+      if (label) label.textContent = text;
+      else node.textContent = text;
+    }
+
+    /**
      * 鼠标是不是还"在这一组的活动范围里"（该组的标签 / 成员词，或者整个舞台）。
      * 用来决定"离开标签之后要不要把预览收回去"。
      *
@@ -247,7 +280,11 @@
       for (const w of list) {
         let node = this.nodes.get(w.word);
         if (!node) {
-          node = el('div', { class: 'wc-word', text: w.word });
+          // 「游玩天数」这类带箭头的控件走单独一套结构：词本身带两个可点的箭头，
+          // 直接在词云上就能调数值，不用为了改一天跑去右侧表单。
+          node = w.action === 'days-stepper'
+            ? this._buildStepper(w)
+            : el('div', { class: 'wc-word', text: w.word });
           // 这两个属性是「分组渐进披露」的钩子：
           //   data-group 给聚焦用（点标签时知道该点亮哪些）
           //   data-role  给 CSS 用（label/core 常亮，member 默认压淡）

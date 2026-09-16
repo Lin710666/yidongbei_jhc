@@ -101,7 +101,7 @@
     bindLook();
     bindStage();
 
-    cloud = new window.WordCloud($('#wordcloud-layer'), { onAction: handleWordAction });
+    cloud = new window.WordCloud($('#wordcloud-layer'), { onAction: handleWordAction, onStep: handleDaysStep });
     cloud.setAnimate(S.settings.wcGlow);
     cloud.setDensity(S.settings.wcDensity);
     cloud.setInsets(S.settings.wcInsets);
@@ -242,6 +242,7 @@
     }
 
     cloud.setWords(caps.wordCloud || []);
+    updateDaysWord();   // 词云建好后，把当前天数写进「游玩天数」那个控件
     fillOptions(caps.options);
     $('#city-list-inline').textContent = (caps.cities || []).join('、') || '—';
     renderCityChips(caps.cities || []);
@@ -328,6 +329,37 @@
       audience: chipVal('audience') || '年轻情侣',
       style: chipVal('style') || '种草',
     }, overrides || {});
+  }
+
+  /**
+   * 词云上「游玩天数」两侧箭头的回调。
+   *
+   * 这里只改那个 range 的值、然后派发一个 input 事件 —— 剩下的同步
+   * （表单里的数字标签、词云控件上显示的天数）全部交给 range 自己那条 input 链路处理。
+   * 一条链路到底，免得两处各写一套、改一处忘一处。
+   */
+  function handleDaysStep(w, dir) {
+    const input = $('#plan-days');
+    if (!input) return;
+    const min = Number(input.min) || 1;
+    const max = Number(input.max) || 7;
+    const cur = Number(input.value) || 2;
+    const next = Math.min(max, Math.max(min, cur + dir));
+    if (next === cur) {
+      say(dir > 0 ? `最多 ${max} 天了` : `最少 ${min} 天`, true);
+      return;
+    }
+    input.value = next;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    say(`游玩天数：${next} 天`, true);
+  }
+
+  /** 把当前天数写到词云上的「游玩天数」控件里（形如「游玩天数 3天」） */
+  function updateDaysWord() {
+    if (!cloud) return;
+    const input = $('#plan-days');
+    const days = input ? (Number(input.value) || 2) : 2;
+    cloud.setWordLabel('游玩天数', `游玩天数 ${days}天`);
   }
 
   /**
@@ -1715,7 +1747,10 @@
         $('#form-marketing').hidden = tool !== 'marketing';
       });
     });
-    $('#plan-days').addEventListener('input', (e) => { $('#days-label').textContent = e.target.value; });
+    $('#plan-days').addEventListener('input', (e) => {
+      $('#days-label').textContent = e.target.value;
+      updateDaysWord();   // 天数变了，词云上那个带箭头的控件也要跟着显示新值
+    });
     $('#btn-generate').addEventListener('click', () => {
       const isPlan = !$('#form-plan').hidden;
       generate(isPlan ? 'plan' : 'marketing', isPlan ? collectPlanParams() : collectMarketingParams());
