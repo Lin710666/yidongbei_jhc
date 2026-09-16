@@ -359,6 +359,21 @@
     const a = w.action;
     const p = w.payload || {};
     switch (a) {
+      // 点分组标签（目的地 / 行程 / 兴趣 …）：把该组点亮、其余压暗，再点一次取消。
+      // 只改透明度、不重排布局，所以词不会乱跳；也不切换面板，演示时可以连点看。
+      case 'focus-group': {
+        const now = cloud.focusGroup(p.group);
+        // 注意用 S.caps 而不是局部变量 caps —— loadCapabilities() 里的 caps 是函数内的局部量，
+        // 在这个作用域拿不到（写成 caps 会直接 ReferenceError）。
+        const g = ((S.caps && S.caps.wordCloudGroups) || []).find(x => x.name === p.group);
+        if (now) {
+          say(`${now} —— ${(g && g.desc) || '这一组'}。再点一次「${now}」就收起来。`, true);
+        } else {
+          say('好，收起来了。', true);
+        }
+        break;
+      }
+
       case 'panel':
         switchTab(p.tab || 'tools');
         break;

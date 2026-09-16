@@ -16,7 +16,27 @@
 
   const { el } = window.U;
 
-  const DENSITY_LIMIT = { 1: 22, 2: 38, 3: 999 };
+  // 每档最多显示多少词。
+  // 默认档（2）改成全放：词库一共 64 个词（53 个功能词 + 11 个分组标签），
+  // 以前默认只放 38 个，剩下的 15 个词用户永远看不到。改成全放之后并不显乱——
+  // 因为分组标签机制会把成员词压淡，见 focusGroup()。
+  // 1 档保留成"简洁模式"，给想要极简的人用。
+  const DENSITY_LIMIT = { 1: 22, 2: 999, 3: 999 };
+
+  /**
+   * 碰撞矩形相对词本身外扩的间隙（唯一的真值来源，别在别处手写这几个数）。
+   *
+   * 垂直方向必须大于词的浮动幅度上限（layout 里 --float-amp 最大 5px），
+   * 否则两个相邻的词会随着浮动晃到一起。实测上下各 6px 才稳。
+   *
+   * 血泪教训：螺线路径、兜底行排、以及 push 进 placed 的矩形**必须用同一套值**。
+   * 之前改间隙时漏改了其中一处（兜底那处的写法带了 placed.push 前缀，替换没命中），
+   * 结果螺线放下的词和兜底放下的词之间只剩 8px 余量，64 个词时出现了 28~55 对重叠。
+   * 所以这里提成函数，所有地方都调它。
+   */
+  const PAD_X = 5;
+  const PAD_Y = 6;
+  const rectOf = (x, y, w, h) => ({ x: x - PAD_X, y: y - PAD_Y, w: w + PAD_X * 2, h: h + PAD_Y * 2 });
 
   class WordCloud {
     constructor(container, { onAction } = {}) {
@@ -26,6 +46,7 @@
       this.nodes = new Map();      // word -> node
       this.density = 2;
       this.groupFilter = null;
+      this.focusOn = null;         // 当前聚焦的分组名（null = 没聚焦）
       this.animate = true;
       this._resizeTimer = null;
       this._ro = null;
@@ -60,6 +81,28 @@
 
     setDensity(level) { this.density = Number(level) || 2; this.render(); }
     setGroup(group) { this.groupFilter = group; this.render(); }
+
+    /**
+     * 聚焦某个分组：把该组点亮、其余压暗。再调一次同一个组名则取消。
+     * 只改透明度、不重新布局，所以点下去词不会乱跳。
+     * 返回聚焦后的组名（null 表示已取消），方便调用方同步 UI 状态。
+     */
+    focusGroup(group) {
+      this.focusOn = (this.focusOn === group) ? null : (group || null);
+      this._applyFocus();
+      return this.focusOn;
+    }
+
+    clearFocus() { this.focusOn = null; this._applyFocus(); }
+
+    /** 把聚焦状态刷到 DOM 上（render() 重建节点后也要补一次） */
+    _applyFocus() {
+      this.container.classList.toggle('wc-focus', !!this.focusOn);
+      for (const node of this.nodes.values()) {
+        node.classList.toggle('is-open', !!this.focusOn && node.dataset.group === this.focusOn);
+      }
+    }
+
     setAnimate(on) {
       this.animate = on;
       for (const node of this.nodes.values()) {
@@ -69,6 +112,17 @@
       if (on) this.layout();
     }
 
+    /**
+     * 字号量程说明（渲染和"换一批"两处都用这套规则，改的时候两边要一起改）：
+     *
+     * 原来是 Math.min(...weights, 0) / Math.max(...weights, 100)，等于拿 0~100 当量程。
+     * 但实际显示的词权重都挤在 44~100 之间，算出来的 ratio 只在 0.44~1.0 徘徊，
+     * 字号被压成 19~25px —— 公式名义上有 2.27 倍跨度，实际只用了 1.3 倍。
+     * 结果就是所有词看起来一样大，眼睛没有落点，用户会觉得"词云很杂乱"。
+     *
+     * 改成按「当前实际显示的这些词」归一化后，字号能铺满 11~25px，
+     * tier 分层也从「tier2 一个都没有」变成正常的三档。
+     */
     get visibleWords() {
       let list = this.words.filter(w => !this.groupFilter || w.group === this.groupFilter);
       list = list.slice().sort((a, b) => (b.weight || 0) - (a.weight || 0));
@@ -86,13 +140,18 @@
       }
 
       const weights = list.map(w => w.weight || 50);
-      const minW = Math.min(...weights, 0);
-      const maxW = Math.max(...weights, 100);
+      const minW = Math.min(...weights);
+      const maxW = Math.max(...weights);
 
       for (const w of list) {
         let node = this.nodes.get(w.word);
         if (!node) {
           node = el('div', { class: 'wc-word', text: w.word });
+          // 这两个属性是「分组渐进披露」的钩子：
+          //   data-group 给聚焦用（点标签时知道该点亮哪些）
+          //   data-role  给 CSS 用（label/core 常亮，member 默认压淡）
+          node.dataset.group = w.group || '';
+          node.dataset.role = w.role || 'member';
           node.addEventListener('click', (ev) => {
             ev.stopPropagation();
             this.flash(w.word);
@@ -103,12 +162,20 @@
           this.nodes.set(w.word, node);
         }
         const ratio = maxW === minW ? 0.5 : ((w.weight || 50) - minW) / (maxW - minW);
-        const size = 11 + ratio * 14;                   // 11px ~ 25px
+        // 字号量程 10~21px。原本是 11~25px，但实测 64 个词（11 标签 + 4 核心 + 49 成员）
+        // 在 936×798 的舞台上放不下：螺线环可覆盖面积约 347,900 px²，
+        // 11~25px 需要约 329,664 px²（占用率 95%），结果有 20 对词重叠。
+        // 收敛到 10~21px 后占用率降到 80%，重叠 0 对，最大词宽只从 153px 变成 133px。
+        let size = 10 + ratio * 11;                   // 10px ~ 21px
+        // 分组标签是词云的"骨架"，太小的标签就不像标签了。
+        // 实测按权重算下来，「形象」只有 13px，和成员词一样大，看不出它是个能点开的入口。
+        if (w.role === 'label') size = Math.max(size, 16);
         node.style.fontSize = `${size.toFixed(1)}px`;
         node.dataset.tier = ratio > 0.72 ? '0' : ratio > 0.42 ? '1' : '2';
         node.dataset.fontSize = size.toFixed(1);
         node.hidden = false;
       }
+      this._applyFocus();   // 节点是重建的，聚焦状态会丢，这里补回来
       this.layout();
     }
 
@@ -183,7 +250,8 @@
             theta += step;
             const px = cx + Math.cos(theta) * r - w / 2;
             const py = cy + Math.sin(theta) * r * 0.92 - h / 2;   // 纵向略压，更像"环绕"
-            const rect = { x: px - 5, y: py - 4, w: w + 10, h: h + 8 };
+            // 碰撞矩形比词本身大一圈（间隙统一由 rectOf 决定，见文件顶部说明）
+            const rect = rectOf(px, py, w, h);
             // 边界用的是"可用区"，不是容器 —— 这样词不会被工具栏或字幕条压住
             if (px < availL || py < availT || px + w > availR || py + h > availB) continue;
             if (hitsCharacter(rect)) continue;
@@ -199,7 +267,7 @@
           // 否则螺线放不下的词会直接堆到人物身上。
           const rect = this._packRow(placed, availL, availT, availR, availB, w, h, hitsCharacter);
           x = rect.x; y = rect.y;
-          placed.push({ x: x - 5, y: y - 4, w: w + 10, h: h + 8 });
+          placed.push(rectOf(x, y, w, h));   // ← 这里曾经漏改过，间隙必须和螺线路径一致
         }
 
         node.hidden = false;
@@ -209,7 +277,9 @@
           // 每个词一套独立的浮动参数，避免整体像一块板在动
           const dur = 7 + Math.random() * 5;
           const delay = -Math.random() * 6;
-          const amp = 3 + Math.random() * 5;
+          // 浮动幅度上限 5px，和上面碰撞矩形的垂直余量（上下各 6px）配套。
+          // 原来是 3~8px，超过了余量，两个相邻的词会在浮动中晃到一起（实测会重叠）。
+          const amp = 2 + Math.random() * 3;
           node.style.setProperty('--float-dur', `${dur.toFixed(1)}s`);
           node.style.setProperty('--float-delay', `${delay.toFixed(1)}s`);
           node.style.setProperty('--float-amp', `${amp.toFixed(1)}px`);
@@ -232,15 +302,32 @@
       for (let guard = 0; guard < 80; guard++) {
         let x = availL + pad;
         while (x + w <= availR - pad) {
-          const rect = { x: x - 5, y: y - 4, w: w + 10, h: h + 8 };
+          const rect = rectOf(x, y, w, h);
           if (!blocks(rect)) return { x, y };
           x += 12;                              // 每次右移一点再试，尽量塞满这一行
         }
         y -= h + gapY;
         if (y < availT + pad) break;
       }
-      // 实在没地方了（词太多 / 舞台太小）才允许压人物：可见性优先于完全不遮挡
-      return { x: availL + pad, y: Math.max(availT + pad, availB - h - pad) };
+      // 兜底：螺线没找到位置时，在整片可用区里按网格逐格找。
+      // 关键是不能像原来那样直接返回同一个坐标 —— 那样所有放不下的词会完全叠在一起，
+      // 而且 placed 里一旦堆进重叠矩形，后面的词就更找不到位置，形成恶性循环。
+      // （实测 64 个词时，左下角一个点上叠了 20 多个词。）
+      const stepX = 14;
+      const stepY = 10;
+      for (let yy = availB - h - pad; yy >= availT + pad; yy -= stepY) {
+        for (let xx = availL + pad; xx + w <= availR - pad; xx += stepX) {
+          const rect = rectOf(xx, yy, w, h);
+          if (!blocks(rect)) return { x: xx, y: yy };
+        }
+      }
+      // 整片可用区真的一点空位都没有了（词太多 / 舞台太小）：回到最高处，
+      // 并且按调用次序横向错开，至少不要叠在同一个像素上。
+      const spill = (this._spill = (this._spill || 0) + 1);
+      return {
+        x: availL + pad + ((spill - 1) % 8) * 12,
+        y: Math.max(availT + pad, availB - h - pad - Math.floor((spill - 1) / 8) * (h + gapY)),
+      };
     }
 
     /** 点击时的高亮脉冲 */
@@ -263,12 +350,13 @@
       }
       const order = new Map(list.map((w, i) => [w.word, i]));
       const weights = list.map(w => w.weight || 50);
-      const minW = Math.min(...weights, 0);
-      const maxW = Math.max(...weights, 100);
+      const minW = Math.min(...weights);
+      const maxW = Math.max(...weights);
       // 通过对调权重制造新的字号层次，再按新顺序放置
       for (const w of list) {
         const ratio = maxW === minW ? 0.5 : ((w.weight || 50) - minW) / (maxW - minW);
-        const size = 11 + ratio * 14;
+        let size = 10 + ratio * 11;                          // 量程同 render()，见那里的说明
+        if (w.role === 'label') size = Math.max(size, 16);    // 标签字号下限，规则同 render()
         const node = this.nodes.get(w.word);
         if (node) node.style.fontSize = `${size.toFixed(1)}px`;
       }
