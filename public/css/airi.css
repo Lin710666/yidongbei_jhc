@@ -615,12 +615,32 @@ body::before {
 .result-btn[disabled] { cursor: default; }
 
 /* 内容区。带 output 类是为了复用 .output 里那套 markdown 排版，
-   这里用更高特异性把 padding / 字号调成卡片里合适的样子。 */
+   这里用更高特异性把 padding / 字号 / 行距调成卡片这种"矮而宽"的空间里合适的样子。 */
 .result-card .result-body {
   flex: 1; min-height: 0; overflow-y: auto;
-  padding: 13px 18px 16px;
-  font-size: 12.8px; line-height: 1.75;
+  padding: 12px 18px 14px;
+  font-size: 12.8px; line-height: 1.72;
+  /* 覆盖掉 .output 上的 white-space: pre-wrap。
+     renderMarkdown 输出的是 HTML，而 HTML 源码里标签之间天然带换行 ——
+     pre-wrap 会把这些换行也当成真换行渲染出来，于是每个块之间多空一行。
+     实测内容高度被放大整整 2 倍（2084px → 1068px），本来滚 6 屏变成滚 13 屏。 */
+  white-space: normal;
 }
+
+/* 卡片里纵向空间金贵，把 markdown 的块间距整体收紧 —— 少滚好几屏 */
+.result-card .result-body > :first-child { margin-top: 0; }
+.result-card .result-body h1,
+.result-card .result-body h2,
+.result-card .result-body h3 {
+  font-size: 12.6px;
+  margin: 9px 0 3px;
+  padding-bottom: 2px;
+}
+.result-card .result-body p { margin: 0 0 5px; }
+.result-card .result-body ul,
+.result-card .result-body ol { margin: 0 0 6px; padding-left: 18px; }
+.result-card .result-body li { margin: 0 0 2px; }
+.result-card .result-body table { margin: 5px 0; font-size: 12px; }
 
 /* 进入结果模式：词云整体收起。用 opacity 而不是 display ——
    过渡更自然，也不动布局（词的位置不会因为收起而重排）。 */
