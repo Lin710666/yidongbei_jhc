@@ -2585,5 +2585,8 @@
     openBackgroundPicker,
     openModelPicker,
     activeStage,
+    // 背景管理器实例。验收脚本要用它读实际生成出来的粒子数，
+    // 验证"大屏上密度和小屏一致"（原来大屏会被数量上限截顶）。
+    background: () => bg,
   };
 })();

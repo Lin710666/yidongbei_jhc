@@ -41,7 +41,10 @@
       this.particles = [];
       this.w = 0;
       this.h = 0;
-      this.dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      // DPR 上限跟 Live2D / 3D 对齐（它们都是 2）。
+      // 原来这里是 1.5，结果高分屏上背景比角色糊一档 —— 同一屏里一个清晰一个虚，很出戏。
+      // 背景每帧的开销本来就很低（实测关掉它帧率只涨 1fps），提到 2 不会拖慢。
+      this.dpr = Math.min(window.devicePixelRatio || 1, 2);
       this.paused = false;
 
       this._onResize = () => this.resize();
@@ -59,6 +62,10 @@
       const r = host.getBoundingClientRect();
       this.w = Math.max(1, Math.floor(r.width));
       this.h = Math.max(1, Math.floor(r.height));
+      // 浏览器缩放（Ctrl + 滚轮 / Ctrl 加号）会改 devicePixelRatio，但只监听 window.resize
+      // 在个别路径上不一定收到。这里每次 resize 都重算一遍，保证缩放后不会变糊
+      //（Live2D / 3D 那边也是这么处理的）。
+      this.dpr = Math.min(window.devicePixelRatio || 1, 2);
       this.canvasEl.width = Math.floor(this.w * this.dpr);
       this.canvasEl.height = Math.floor(this.h * this.dpr);
       this.canvasEl.style.width = `${this.w}px`;
@@ -107,8 +114,12 @@
       this.particles = [];
 
       if (kind === 'sakura') {
-        // 花瓣数量按面积算，保证大屏小屏密度观感一致
-        const n = Math.round(Math.min(90, Math.max(24, (this.w * this.h) / 24000)));
+        // 花瓣数量按面积算，保证大屏小屏密度观感一致。
+        // 上限原来是 90 —— 那在小屏（938×800 ≈ 0.75M px²，算出来 31 片）够用，
+        // 但 4K 全屏（约 6.9M px²）本该 287 片却被截到 90，密度只剩小屏的三成，
+        // 看起来"稀稀拉拉、没铺满"，这其实就是"大屏不支持"的真正原因。
+        // 背景每帧开销很低（实测关掉它帧率只涨 1fps），放宽上限不会拖慢。
+        const n = Math.round(Math.min(420, Math.max(24, (this.w * this.h) / 24000)));
         for (let i = 0; i < n; i++) {
           this.particles.push({
             x: rand() * this.w,
@@ -124,7 +135,9 @@
           });
         }
       } else if (kind === 'stars') {
-        const n = Math.round(Math.min(220, Math.max(60, (this.w * this.h) / 9000)));
+        // 同理：上限从 220 提到 900。4K 全屏按面积该有 764 颗，原来被截到 220，
+        // 星空看着就像"只有几粒"，和小屏完全不是一个观感。
+        const n = Math.round(Math.min(900, Math.max(60, (this.w * this.h) / 9000)));
         for (let i = 0; i < n; i++) {
           this.particles.push({
             x: rand() * this.w,
@@ -206,7 +219,11 @@
       layers.forEach((L, i) => {
         ctx.beginPath();
         ctx.moveTo(0, h);
-        for (let x = 0; x <= w; x += 6) {
+        // 采样步长跟着宽度走。原来固定 6px：大屏上要多算好几倍的 lineTo，
+      // 曲线本身很平滑、用不着那么密。按宽度取步长能让各尺寸下平滑度一致
+      //（每个波长约 200 个采样点），同时省掉大屏上的无用计算。
+      const stepX = Math.max(4, w / 260);
+      for (let x = 0; x <= w; x += stepX) {
           const u = x / w;
           const y = (L.base + Math.sin(u * Math.PI * 2 * L.k + t * L.sp) * L.amp
             + Math.sin(u * Math.PI * 2 * L.k * 2.3 + t * L.sp * 1.7) * L.amp * 0.35) * h;
@@ -276,7 +293,10 @@
     _cross(ctx, w, h, p, t) {
       ctx.fillStyle = '#101216';
       ctx.fillRect(0, 0, w, h);
-      const step = 26;
+      // 格距跟着舞台尺寸缩放。固定 26px 在小屏（约 938×800）上刚好，
+      // 但 4K 全屏（约 3338×2060）上格子会相对变小、显得比小屏密得多。
+      // 以短边为基准，26px 对应约 800 的高度。
+      const step = Math.max(26, Math.min(w, h) * 0.0325);
       ctx.strokeStyle = hexA(p[0] || '#94a3b8', 0.16);
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -318,7 +338,8 @@
       ridges.forEach((R, i) => {
         ctx.beginPath();
         ctx.moveTo(0, h);
-        for (let x = 0; x <= w; x += 5) {
+        const stepX = Math.max(4, w / 300);   // 采样步长同上，按宽度缩放
+        for (let x = 0; x <= w; x += stepX) {
           const u = x / w;
           const y = (R.base
             + Math.sin(u * Math.PI * 2 * R.k + i * 1.7) * R.amp
