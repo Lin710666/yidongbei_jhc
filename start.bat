@@ -61,6 +61,10 @@ goto NO_OLLAMA
 
 :OLLAMA_OK
 for /f "delims=" %%m in ('node -e "fetch('http://127.0.0.1:11434/api/tags').then(r=>r.json()).then(d=>{const n=(d.models||[]).map(x=>x.name);const p=n.find(x=>/^qwen2\.5:7b/.test(x))||n.find(x=>/^qwen3/.test(x))||n[0];console.log(p||'(一个模型都没有)')}).catch(()=>console.log('未知'))"') do echo        对话模型：%%m
+echo        正在后台预热对话模型，约 20~60 秒完成，不影响你继续用
+REM  为什么要预热：Ollama 默认 5 分钟不用就把模型从显存卸载，下次提问要重新加载。
+REM  本机实测冷启动首字 70.2 秒 vs 热启动 0.2 秒，差 350 倍，很影响演示观感。
+start "文旅-模型预热" /min /D "%~dp0tools" cmd /c "warmup.bat"
 goto CHECK_MODELS
 
 :NO_OLLAMA

@@ -326,7 +326,23 @@ body::before {
 }
 .subtitle-text {
   font-size: 13px; line-height: 1.5; color: var(--text);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* 两行封顶。原来是单行 nowrap + 省略号，条宽只有 619px，
+     实测一条 179 字的回复 scrollWidth 2318px——73% 的字被省略号吃掉，
+     用户会以为"输出被截断了"。改成两行后可见字数翻倍，剩下的点开就能看全。 */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  word-break: break-word;
+}
+/* 内容超过两行时允许点开看全文（超长了才加这个 class，短回复点了没反应） */
+.subtitle-text.can-expand { cursor: pointer; }
+.subtitle.expanded { max-width: min(760px, 92%); border-radius: 16px; align-items: flex-start; }
+.subtitle.expanded .subtitle-text {
+  display: block; -webkit-line-clamp: unset;
+  /* 展开后一次尽量看全：857 字大约 20 行（约 390px），给到 56vh 基本不用滚 */
+  max-height: 56vh; overflow-y: auto; cursor: pointer;
+  min-width: 0; overscroll-behavior: contain;
 }
 .subtitle-close {
   flex: none; width: 22px; height: 22px; border-radius: 50%;

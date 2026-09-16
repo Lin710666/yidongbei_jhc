@@ -495,12 +495,30 @@
     setTimeout(syncCloudInsets, 380);      // 等过渡结束再量高度，否则量到的是动画中间值
   }
 
+  /** 字幕文本规范化：压平空白，不在 JS 里砍字数——显示几行由 CSS 决定 */
+  const subtitleText = (text) => String(text).replace(/\s+/g, ' ').trim();
+
+  /** 内容超过两行时给字幕加"可展开"标记（读 scrollHeight 会触发重排，只在定稿时调一次） */
+  function markSubtitleExpandable() {
+    const box = $('#subtitle'), t = $('#subtitle-text');
+    if (!box || !t) return;
+    const over = t.scrollHeight > t.clientHeight + 2;
+    t.classList.toggle('can-expand', over);
+    t.title = over ? '点一下看完整回复' : '';
+    if (!over) box.classList.remove('expanded');
+  }
+
   function say(text, autoHide) {
     if (!text) return;
+    const box = $('#subtitle');
+    if (box) box.classList.remove('expanded');
     $('#subtitle-who').textContent = S.card ? S.card.name : 'AIRI';
     $('#subtitle-text').classList.remove('typing');
-    $('#subtitle-text').textContent = String(text).replace(/\s+/g, ' ').slice(0, 400);
+    // 原来这里 slice(0, 400)；字幕条只有两个行位，完整文本交给 CSS 省略，
+    // 点一下能展开看全，所以不必在 JS 里先砍一刀。
+    $('#subtitle-text').textContent = subtitleText(text);
     setSubtitleVisible(true);
+    markSubtitleExpandable();
     clearTimeout(subtitleTimer);
     if (autoHide) subtitleTimer = setTimeout(hideSubtitle, 7000);
   }
@@ -508,8 +526,10 @@
   /** 流式说话：字幕随内容增长，末尾带打字光标 */
   function sayStreaming(text) {
     $('#subtitle-who').textContent = S.card ? S.card.name : 'AIRI';
-    // 只显示最后一段：字幕条是单行，前面的内容显示不下也没意义
-    $('#subtitle-text').textContent = String(text).replace(/\s+/g, ' ').slice(-200);
+    // 和 say() 用同一份文本、同一套 CSS 规则。
+    // 原来是 slice(-200)（显示尾巴），say() 是 slice(0,400)（显示开头），
+    // 于是流式一结束字幕会"闪"一下跳回开头——现在两边一致，不会跳了。
+    $('#subtitle-text').textContent = subtitleText(text);
     $('#subtitle-text').classList.add('typing');
     setSubtitleVisible(true);
     clearTimeout(subtitleTimer);
@@ -686,6 +706,31 @@
     setBusy(true);
     let acc = '';
 
+    // 流式重绘按时间节流。
+    // 原来是每个 delta 都执行 bd.innerHTML = renderMarkdown(acc)，也就是把「已生成的全部文本」
+    // 反复重新解析并重建整棵 DOM。一条 1000 字的回复会来 600 多个 delta，
+    // 每次都重解析当前全部内容，累计重复解析几万字（O(n²)），长方案越写越卡。
+    // 这里合并成"最快 80ms 重绘一次"：delta 照收不误（acc 一直是最新的），
+    // 只是渲染次数从「等于 delta 数」降到「每秒最多 12 次」。
+    // 也试过用 requestAnimationFrame 合并，但实测 delta 只有 43 个/秒、比 60fps 还慢，
+    // 按帧合并等于没合并——瓶颈是重绘次数，不是帧。所以这里用时间节流。
+    const STREAM_REDRAW_MS = 80;
+    let streamTimer = 0;
+    let streamFirstDone = false;
+    const renderStream = () => {
+      streamTimer = 0;
+      bd.classList.remove('typing');
+      bd.innerHTML = renderMarkdown(acc);
+      scrollChat();
+      sayStreaming(acc);
+    };
+    const flushStream = () => {
+      if (!streamFirstDone) { streamFirstDone = true; renderStream(); return; }  // 第一个字立刻出，别让用户等
+      if (streamTimer) return;                                                   // 已排过一次，这次的 delta 并进 acc 就行
+      streamTimer = setTimeout(renderStream, STREAM_REDRAW_MS);
+    };
+    const stopStream = () => { if (streamTimer) { clearTimeout(streamTimer); streamTimer = 0; } };
+
     const stream = sse('/api/chat', {
       message: text,
       image,
@@ -706,12 +751,9 @@
         }
       } else if (ev.type === 'delta') {
         acc += ev.text;
-        bd.classList.remove('typing');
-        bd.innerHTML = renderMarkdown(acc);
-        scrollChat();
-        // 字幕跟着流式长出来：这样不用等整段生成完就能看到角色在"说话"
-        sayStreaming(acc);
+        flushStream();
       } else if (ev.type === 'done') {
+        stopStream();                 // 别让排队中的那一帧覆盖掉定稿结果
         acc = ev.content || acc;
         bd.classList.remove('typing');
         bd.innerHTML = renderMarkdown(acc);
@@ -723,6 +765,7 @@
         setPill('#pill-model', 'ok', (S.status && S.status.ollama && S.status.ollama.chatModel) || '就绪');
         refreshStatus();
       } else if (ev.type === 'error') {
+        stopStream();
         bd.classList.remove('typing');
         bd.parentElement.classList.add('err');
         bd.textContent = `⚠️ ${ev.error}`;
@@ -1371,6 +1414,17 @@
     $('#btn-speak-toggle').classList.toggle('on', S.settings.autospeak);
     $('#btn-wc-toggle').classList.toggle('on', S.settings.wcEnabled);
     $('#subtitle-close').addEventListener('click', hideSubtitle);
+    // 字幕条只显示两行，点它可以把整条回复展开/收起。
+    // 只有确实超长（markSubtitleExpandable 加了 can-expand）才响应，
+    // 免得短句子点一下也弹开、看着莫名其妙。
+    $('#subtitle').addEventListener('click', (e) => {
+      if (e.target.closest('.subtitle-close')) return;
+      const t = $('#subtitle-text');
+      if (!t || !t.classList.contains('can-expand')) return;
+      $('#subtitle').classList.toggle('expanded');
+      clearTimeout(subtitleTimer);
+      subtitleTimer = setTimeout(hideSubtitle, 12000);
+    });
   }
 
   function bindStage() {
