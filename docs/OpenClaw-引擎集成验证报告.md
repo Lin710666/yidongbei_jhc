@@ -9,9 +9,9 @@
 
 ## 一、验证目的
 
-赛题要求"基于 AI Coding **或 OpenClaw 引擎规范**"开发 Skill 系统。本文档用于回答一个具体问题：
+赛题要求"基于 AI Coding **或 OpenClaw 引擎规范**"开发 Skill 系统。本文档要验证的是一件事：
 
-> **本项目的 Skill 产物，能否被真实的 OpenClaw 引擎识别、加载并实际使用？**
+> 本项目的 Skill 产物能否被真实的 OpenClaw 引擎识别、加载并实际使用。
 
 下面记录的是真实引擎里的实测过程，每一步的原始回显都原样贴出。
 
@@ -65,7 +65,7 @@ Requirements:
 
 技能总数变化：`Skills (13/52 ready)` → **`Skills (14/53 ready)`**
 
-- 状态为 **Ready**（无缺失依赖）
+- 状态为 Ready（无缺失依赖）
 - 模型可发现（Visible to model: yes）
 - 可作为命令调用（Available as command: yes）
 - `metadata` 中声明的 `bins: [node, ollama]` 被引擎实际校验并通过 ✓
@@ -253,7 +253,7 @@ GET /api/quick-marketing?product=景区&platform=小红书&audience=年轻情侣
 | **尝试过的放开方式** | `browser.ssrfPolicy.allowedHostnames: ["127.0.0.1","localhost"]` ❌ 无效<br>`browser.ssrfPolicy.dangerouslyAllowPrivateNetwork: true` ❌ 无效<br>（`tools.web.fetch.ssrfPolicy` 仅提供 RFC2544 与 IPv6 ULA 两个代理相关开关，无主机白名单） |
 | **最终方案** | 改用技能自带的 `scripts/` 目录，由 Agent 通过 `exec` 调用：<br>`node scripts/generate-plan.js --city 杭州 --days 2 ...`<br>脚本作为本地子进程访问 8000 端口，不受 web_fetch 的 SSRF 限制；<br>**这同时正是 OpenClaw 规范中 `scripts/` 的既定用途（确定性辅助脚本）** |
 
-**实测结果（成功）**：Agent 执行脚本后，把带质检的完整结果**原样展示**给用户：
+实测结果（成功）：Agent 执行脚本后，把带质检的完整结果原样展示给用户：
 
 ```
 【由本地样本库驱动生成】目的地：杭州 ｜ 天数：2 天 ｜ 预算：舒适 ｜ 同行人群：情侣 ｜ 饮食禁忌：无
@@ -274,7 +274,7 @@ GET /api/quick-marketing?product=景区&platform=小红书&audience=年轻情侣
 > 注意：`exec` 会给 Agent 系统访问权限，需在 `tools.allow` 中包含 `exec`；
 > 不需要时可收窄回 `["read"]`。另外，若用自然语言直接提问（不给出脚本命令），
 > 7B 模型仍可能不执行脚本，而是编造无关内容（实测产出了一个臆想的 HTML 页面）。
-> **实践中应把脚本命令直接写进用户消息。**
+> 实践中应把脚本命令直接写进用户消息。
 
 ### 问题 6（补充）：技能触发依赖明确指令
 
@@ -294,7 +294,7 @@ GET /api/quick-marketing?product=景区&platform=小红书&audience=年轻情侣
 | **公开版与赛事平台的差异** | 本次验证使用 npm 公开发行版 OpenClaw 2026.6.35。赛事保障方"网易帝王蟹（ClawHive）"为同一技术体系的平台产品，两者规范可能一致，但**建议在获得官方账号后再于官方环境复验** |
 | **未验证的能力** | 未验证的还有：ClawHub 发布、多技能编排、长会话下的技能重载 |
 
-**因此项目定位是两条腿走路**：
+因此项目定位是两条腿走路：
 - 确定性演示：使用自包含的本地 Web 界面（`start.bat` → `http://localhost:8000`），含输出质检与 28 项自动化测试，不依赖任何引擎
 - 规范符合性：同一份 Skill 产物可被 OpenClaw 引擎加载（本文档已验证）
 
