@@ -478,6 +478,15 @@
         break;
       }
 
+      // 「游玩天数」这个控件：调数值靠两侧的箭头，点词本身只是给个用法提示。
+      // 少了这个 case 的话，点词本身会掉进 default，弹一句"暂未绑定动作" —— 很出戏。
+      case 'days-stepper': {
+        const input = $('#plan-days');
+        const days = input ? Number(input.value) || 2 : 2;
+        say(`现在是 ${days} 天。点词两侧的 ▼ ▲ 就能加减。`, true);
+        break;
+      }
+
       // 用词云上已经选好的条件生成
       case 'gen-plan': {
         say(pickLine('plan', {}), true);
