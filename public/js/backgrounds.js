@@ -49,6 +49,27 @@
 
       this._onResize = () => this.resize();
       window.addEventListener('resize', this._onResize);
+
+      // 光靠 window.resize 不够 —— 舞台尺寸会因为下面这些原因变，而窗口本身没变、
+      // 根本不会触发 resize：
+      //   · 点「全屏放大词云」：body.wc-full 把 .stage 改成 position:fixed 铺满窗口
+      //   · 侧栏展开/收起、面板切换
+      //   · 字体加载完成后文字尺寸变化
+      // 之前背景这里只监听了 window.resize，所以一进全屏词云，背景 canvas 还停在旧尺寸，
+      // 舞台上就露出一大块没铺到的黑底（用户截图里那条明显的分界线就是这么来的）。
+      // Live2D / 3D / 词云都是靠 ResizeObserver 盯舞台本体解决的，背景这边漏了，这里补上。
+      this._resizeTimer = null;
+      if (typeof window.ResizeObserver === 'function') {
+        const host = this.canvasEl.parentElement;
+        if (host) {
+          this._ro = new window.ResizeObserver(() => {
+            // 稍微延后：全屏切换这类场景父容器尺寸是连续变化的，等它稳下来再量
+            clearTimeout(this._resizeTimer);
+            this._resizeTimer = setTimeout(() => this.resize(), 60);
+          });
+          this._ro.observe(host);
+        }
+      }
       document.addEventListener('visibilitychange', () => {
         this.paused = document.hidden;
         if (this.paused) this._stop();
@@ -438,6 +459,8 @@
     destroy() {
       this._stop();
       window.removeEventListener('resize', this._onResize);
+      clearTimeout(this._resizeTimer);
+      if (this._ro) { this._ro.disconnect(); this._ro = null; }
     }
   }
 
