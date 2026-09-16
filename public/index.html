@@ -234,6 +234,15 @@
             <label>显示数量 <b id="wc-density-label">标准</b></label>
             <input type="range" id="wc-density" min="1" max="3" value="2">
           </div>
+          <div class="field" style="margin-top:10px">
+            <label>词云字色</label>
+            <select id="wc-ink">
+              <option value="auto">自动 · 跟随背景亮度</option>
+              <option value="light">浅色字 · 适合深色背景</option>
+              <option value="dark">深色字 · 适合浅色背景</option>
+            </select>
+            <div class="hintline" id="wc-ink-hint" style="margin-top:6px">背景一换，字色会自动跟着调。</div>
+          </div>
         </div>
 
         <details class="fold">

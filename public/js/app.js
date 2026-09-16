@@ -42,6 +42,9 @@
       wcEnabled: true,
       wcGlow: true,
       wcDensity: 2,
+      // 词云字色：auto=按背景亮度自动切，light=浅色字（深背景），dark=深色字（浅背景）。
+      // 背景是可换的，其中「浅色纸张」那类亮背景如果还配浅色字，词就直接看不见了。
+      wcInk: 'auto',
       l2dScale: 1,
       l2dX: 0,
       l2dY: 0,
@@ -1956,6 +1959,87 @@
    * 应用背景。
    * 程序化背景会把角色卡主色当成调色板，所以换角色卡时整站（含背景）一起变色。
    */
+  /**
+   * 采样背景亮度（0~1）。
+   *
+   * 把背景画面画成 64×40 的缩略图再取像素，用的是人眼感受的亮度公式
+   * （0.2126R + 0.7152G + 0.0722B），不是简单把 RGB 平均 —— 否则一张纯蓝背景
+   * 会被误判成"亮"。
+   * 优先取 #bg-canvas（程序化背景），其次 #bg-image（图片背景）。
+   * 返回 null 表示暂时采不到：图片还没加载完，或者画布被跨域图片污染。
+   */
+  function sampleBgLuminance() {
+    const W = 64;
+    const H = 40;
+    const c = document.createElement('canvas');
+    c.width = W;
+    c.height = H;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    if (!g) return null;
+    const cv = $('#bg-canvas');
+    const img = $('#bg-image');
+    try {
+      if (cv && cv.width && cv.height) g.drawImage(cv, 0, 0, W, H);
+      else if (img && img.naturalWidth) g.drawImage(img, 0, 0, W, H);
+      else return null;
+      const d = g.getImageData(0, 0, W, H).data;
+      let sum = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        sum += (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+      }
+      return sum / (d.length / 4);
+    } catch {
+      return null;   // 画布被跨域图片污染时 getImageData 会抛错，交给调用方兜底
+    }
+  }
+
+  /**
+   * 把词云配色切到该有的档位。
+   *
+   * 自动模式按背景亮度决定：> 0.58 认为是亮背景，改用深色字。
+   * 阈值 0.58 留了足够余量 —— 极光那类深色背景实测 0.10~0.35，纸张类亮背景在 0.7 以上，
+   * 中间空着，免得背景稍微变一点就来回切字色。
+   */
+  function applyCloudInk({ retry = 0 } = {}) {
+    const layer = $('#wordcloud-layer');
+    if (!layer) return;
+    let ink = S.settings.wcInk || 'auto';
+    const auto = ink === 'auto';
+    if (auto) {
+      const lum = sampleBgLuminance();
+      if (lum === null) {
+        // 图片背景还在加载 / 采样失败：短暂重试，再不行就按深色背景处理
+        if (retry < 4) { setTimeout(() => applyCloudInk({ retry: retry + 1 }), 220); return; }
+        S.bgLuminance = null;
+        ink = 'light';
+      } else {
+        S.bgLuminance = +lum.toFixed(3);
+        ink = lum > 0.58 ? 'dark' : 'light';
+      }
+    } else {
+      S.bgLuminance = null;
+    }
+    // 浅色字是默认值，不需要挂属性；只在需要深色字时才挂 data-wc-ink="dark"
+    if (ink === 'dark') layer.dataset.wcInk = 'dark';
+    else delete layer.dataset.wcInk;
+    updateInkHint(ink, auto);
+  }
+
+  /** 把判定结果写到设置项下面那行小字，让人知道自动模式到底判成了什么 */
+  function updateInkHint(ink, auto) {
+    const el = $('#wc-ink-hint');
+    if (!el) return;
+    if (!auto) {
+      el.textContent = ink === 'dark' ? '固定用深色字（适合浅色背景）。' : '固定用浅色字（适合深色背景）。';
+      return;
+    }
+    if (S.bgLuminance === null) {
+      el.textContent = '自动：背景亮度测不准，暂按深色背景处理。';
+      return;
+    }
+    el.textContent = `自动：实测背景亮度 ${Math.round(S.bgLuminance * 100)}% → 已切到${ink === 'dark' ? '深色字' : '浅色字'}。`;
+  }
+
   function applyBackground(id, { silent } = {}) {
     if (!bg) return;
     let item = findBackground(id);
@@ -1968,6 +2052,10 @@
     bg.set(item);
     saveSettings();
     renderLookPreview();
+    // 背景换了，词云字色要重新判定。
+    // 延迟一点再采样：程序化背景是画布动画、图片背景要等 img 加载出像素
+    // （applyCloudInk 内部还有几次重试兜底）。
+    setTimeout(() => applyCloudInk(), 160);
     if (!silent && item.id !== 'proc-plain') toast(`背景已切换为「${item.label}」`, 'ok');
   }
 
@@ -2121,6 +2209,12 @@
       S.settings.wcDensity = Number(e.target.value);
       $('#wc-density-label').textContent = ['精简', '标准', '全部'][S.settings.wcDensity - 1] || '标准';
       saveSettings(); cloud.setDensity(S.settings.wcDensity);
+    });
+    // 词云字色：自动 / 浅色字 / 深色字
+    $('#wc-ink').addEventListener('change', (e) => {
+      S.settings.wcInk = e.target.value;
+      saveSettings();
+      applyCloudInk();
     });
   }
 
@@ -2444,6 +2538,9 @@
     const sx = $('#l2d-x'); if (sx) { sx.value = s.l2dX || 0; $('#l2d-x-label').textContent = String(s.l2dX || 0); }
     const sy = $('#l2d-y'); if (sy) { sy.value = s.l2dY || 0; $('#l2d-y-label').textContent = String(s.l2dY || 0); }
     const wd = $('#wc-density'); if (wd) { wd.value = s.wcDensity || 2; $('#wc-density-label').textContent = ['精简', '标准', '全部'][(s.wcDensity || 2) - 1]; }
+    const wk = $('#wc-ink'); if (wk) wk.value = s.wcInk || 'auto';
+    // 设置恢复完（可能刚从本地存储读回来）重判一次字色，保证下拉框显示的和实际生效的一致
+    applyCloudInk();
     const wt = $('#btn-wc-toggle'); if (wt) wt.classList.toggle('on', s.wcEnabled);
     const st2 = $('#btn-speak-toggle'); if (st2) st2.classList.toggle('on', s.autospeak);
   }

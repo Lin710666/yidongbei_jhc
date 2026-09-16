@@ -358,15 +358,51 @@ body::before {
    这样舞台上只剩「一条顶栏 + 一条字幕」，视觉上干净很多。 */
 
 /* ---------- 5. 词云 ---------- */
+
+/* 词云配色变量。
+   为什么抽出来：背景是可换的（其中有些是浅色纸张那种亮背景），
+   颜色写死的话，一换到亮背景，白字就直接看不见了。
+   默认这套是「深色背景 → 浅色字」。
+   亮背景时由 #wordcloud-layer[data-wc-ink="dark"] 整套覆盖 —— data-wc-ink
+   由 app.js 按背景亮度自动设置（也可以在外观面板手动指定）。
+   注意属性名说的是**字的明暗**：data-wc-ink="dark" 表示"字是深色的"。 */
+#wordcloud-layer {
+  --wc-text:          rgb(255 255 255 / 0.62);
+  --wc-text-mid:      rgb(255 255 255 / 0.80);
+  --wc-text-strong:   rgb(255 255 255 / 0.94);
+  --wc-text-hover:    #ffffff;
+  --wc-border:        rgb(255 255 255 / 0.09);
+  --wc-border-strong: rgb(255 255 255 / 0.16);
+  --wc-fill:          rgb(255 255 255 / 0.035);
+  --wc-fill-strong:   rgb(255 255 255 / 0.075);
+  /* 标签用的强调色。这里刻意往白里提亮一档，而不是直接用 --primary：
+     极光背景是"跟随角色卡主色"的，标签直接用主色会和背景撞成同色系，
+     实测对比度只有 1.07:1，标签基本读不出来。提亮后约 5:1 起。 */
+  --wc-accent:        color-mix(in srgb, var(--primary) 62%, #ffffff);
+}
+/* 亮背景专用的「浅底深字」配色（data-wc-ink="dark" = 字色是深的） */
+#wordcloud-layer[data-wc-ink="dark"] {
+  --wc-text:          rgb(22 25 30 / 0.68);
+  --wc-text-mid:      rgb(18 21 26 / 0.85);
+  --wc-text-strong:   rgb(12 15 19 / 0.96);
+  --wc-text-hover:    #05070a;
+  --wc-border:        rgb(0 0 0 / 0.16);
+  --wc-border-strong: rgb(0 0 0 / 0.30);
+  --wc-fill:          rgb(255 255 255 / 0.55);
+  --wc-fill-strong:   rgb(255 255 255 / 0.82);
+  /* 主色本身偏亮，放在亮背景上对比度不够，往深里混一点 */
+  --wc-accent:        color-mix(in srgb, var(--primary) 52%, #0d1218);
+}
+
 .wc-word {
   position: absolute;
   padding: 5px 13px;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: rgb(255 255 255 / 0.035);
+  border: 1px solid var(--wc-border);
+  background: var(--wc-fill);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  color: var(--text-sub);
+  color: var(--wc-text);
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -382,18 +418,18 @@ body::before {
   50%      { transform: translate3d(0, calc(-1 * var(--float-amp, 4px)), 0); }
 }
 .wc-word:hover {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--primary) 65%, transparent);
-  background: color-mix(in srgb, var(--primary) 16%, transparent);
-  box-shadow: 0 0 24px color-mix(in srgb, var(--primary) 40%, transparent);
+  color: var(--wc-text-strong);
+  border-color: color-mix(in srgb, var(--wc-accent) 65%, transparent);
+  background: color-mix(in srgb, var(--wc-accent) 16%, transparent);
+  box-shadow: 0 0 24px color-mix(in srgb, var(--wc-accent) 40%, transparent);
   animation-play-state: paused;
   z-index: 30;
 }
 /* 权重越高越亮，形成"重要性"的视觉层次 */
-.wc-word[data-tier="0"] { color: var(--text); border-color: var(--border-strong); background: rgb(255 255 255 / 0.075); }
-.wc-word[data-tier="1"] { color: rgb(255 255 255 / 0.80); }
+.wc-word[data-tier="0"] { color: var(--wc-text-strong); border-color: var(--wc-border-strong); background: var(--wc-fill-strong); }
+.wc-word[data-tier="1"] { color: var(--wc-text-mid); }
 .wc-word[data-tier="0"]:hover,
-.wc-word[data-tier="1"]:hover { color: #fff; }
+.wc-word[data-tier="1"]:hover { color: var(--wc-text-hover); }
 
 /* ---- 分组渐进披露 ----
    默认只让「分组标签」和核心功能词醒目，组内成员词压淡到 0.35；
@@ -404,11 +440,11 @@ body::before {
    注意选择器特异性：下面 [data-role] 的属性选择器会盖过上面的 .wc-word:hover，
    所以 hover / is-open 的规则都写得更具体（多一个属性或类名）才能生效。 */
 #wordcloud-layer .wc-word[data-role="label"] {
-  color: var(--primary);
+  color: var(--wc-accent);
   font-weight: 800;
   letter-spacing: .4px;
-  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
-  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  border-color: color-mix(in srgb, var(--wc-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--wc-accent) 10%, transparent);
 }
 /* 组名后面挂个小三角，暗示"这里可以点开" */
 #wordcloud-layer .wc-word[data-role="label"]::after {
@@ -425,16 +461,16 @@ body::before {
 #wordcloud-layer.wc-focus .wc-word[data-role="label"]:not(.is-open) { opacity: .28; }
 #wordcloud-layer.wc-focus .wc-word.is-open {
   opacity: 1;
-  color: #fff;
-  border-color: color-mix(in srgb, var(--primary) 70%, transparent);
-  background: color-mix(in srgb, var(--primary) 18%, transparent);
+  color: var(--wc-text-hover);
+  border-color: color-mix(in srgb, var(--wc-accent) 70%, transparent);
+  background: color-mix(in srgb, var(--wc-accent) 18%, transparent);
 }
 #wordcloud-layer.wc-focus .wc-word[data-role]:hover { opacity: 1; }
 .wc-word.flash {
   animation: wcFlash 700ms var(--ease);
-  color: #fff;
-  border-color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 30%, transparent);
+  color: var(--wc-text-hover);
+  border-color: var(--wc-accent);
+  background: color-mix(in srgb, var(--wc-accent) 30%, transparent);
 }
 @keyframes wcFlash {
   0% { transform: scale(1); }
