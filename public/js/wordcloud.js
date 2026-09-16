@@ -48,6 +48,7 @@
       this.groupFilter = null;
       this.focusOn = null;         // 当前聚焦的分组名（null = 没聚焦）
       this.selected = new Set();   // 已选中的词（红框），由 setSelected() 更新
+      this.hoverGroup = null;      // 鼠标正悬停的分组标签（该组成员词会露出来预览）
       this.animate = true;
       this._resizeTimer = null;
       this._ro = null;
@@ -146,6 +147,25 @@
     getSelected() { return [...this.selected]; }
 
     /**
+     * 鼠标是不是还停在这一组的词上（标签本身或该组的成员词）。
+     * 用来决定"离开标签之后要不要把预览收回去" —— 鼠标从标签滑到同组成员词上时不能收，
+     * 否则那批词会在鼠标到达之前就消失，根本点不到。
+     */
+    _peekStillNeeded(group) {
+      const el = document.querySelector('#wordcloud-layer .wc-word:hover');
+      return !!(el && el.dataset.group === group);
+    }
+
+    /** 把"悬停预览"的状态刷到 DOM：只有该组的成员词加了 is-peek */
+    _applyHoverGroup() {
+      for (const [word, node] of this.nodes) {
+        node.classList.toggle('is-peek', !!this.hoverGroup
+          && node.dataset.group === this.hoverGroup
+          && node.dataset.role === 'member');
+      }
+    }
+
+    /**
      * 把某一组的红框**对齐成实际生效的那个词**（word 传 null 表示这组不选任何词）。
      *
      * 为什么需要它：词条自带的 payload 可能顺带设了别的字段 —— 比如「避坑提示」的 payload 是
@@ -223,6 +243,27 @@
           //   data-role  给 CSS 用（label/core 常亮，member 默认压淡）
           node.dataset.group = w.group || '';
           node.dataset.role = w.role || 'member';
+          // 分组标签：鼠标悬停时把**这一组**的成员词露出来预览。
+          // 成员词默认是藏着的，只有悬停/点击具体的标签才出来 ——
+          // 这样"平时干净"和"想看细节随时能看"两件事不冲突。
+          if ((w.role || 'member') === 'label') {
+            let peekTimer = null;
+            node.addEventListener('mouseenter', () => {
+              clearTimeout(peekTimer);
+              this.hoverGroup = w.group;
+              this._applyHoverGroup();
+            });
+            node.addEventListener('mouseleave', () => {
+              clearTimeout(peekTimer);
+              // 延迟一点再收：鼠标很可能是从标签移到该组的某个成员词上去了，
+              // 立刻收的话那批词会在鼠标到达之前消失，根本点不到。
+              peekTimer = setTimeout(() => {
+                if (this._peekStillNeeded(w.group)) return;
+                this.hoverGroup = null;
+                this._applyHoverGroup();
+              }, 180);
+            });
+          }
           node.addEventListener('click', (ev) => {
             ev.stopPropagation();
             this.flash(w.word);
@@ -248,6 +289,7 @@
       }
       this._applyFocus();   // 节点是重建的，聚焦状态会丢，这里补回来
       this._applySelection();   // 选中态同理
+      this._applyHoverGroup();  // 悬停预览也同理
       this.layout();
     }
 
