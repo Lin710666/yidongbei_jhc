@@ -1,6 +1,6 @@
 {
   "name": "wenlv-assistant",
-  "version": "3.1.0",
+  "version": "4.0.0",
   "description": "文旅智能辅助 Skill：个性化游玩/旅居/餐饮方案规划 + 文旅营销素材生成，含输出质检",
   "permissions": {
     "fs": {
