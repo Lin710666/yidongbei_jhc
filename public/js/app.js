@@ -1121,9 +1121,11 @@
     setBusy(true);
 
     const t0 = Date.now();
-    const tick = setInterval(() => {
-      out.textContent = `⏳ 正在调用本机大模型生成…已等待 ${Math.round((Date.now() - t0) / 1000)} 秒（首次调用需要把模型加载进显存）`;
-    }, 1000);
+    // 服务端在排队时会发 notice 过来。原来这里只认 delta/done/error，
+    // 于是"排了五分钟队"在界面上和"正在生成"长得一模一样 —— 用户只会觉得卡死了。
+    let genNotice = '';
+    const waitingText = () => `⏳ ${genNotice ? genNotice + ' ' : ''}正在调用本机大模型生成…已等待 ${Math.round((Date.now() - t0) / 1000)} 秒（首次调用需要把模型加载进显存）`;
+    const tick = setInterval(() => { out.textContent = waitingText(); }, 1000);
 
     let acc = '';
     // 和聊天那边同一个道理：每来一条 delta 就把整篇 markdown 重渲一遍是 O(n²)。
@@ -1146,7 +1148,13 @@
     const stopGen = () => { if (genTimer) { clearTimeout(genTimer); genTimer = 0; } };
 
     const stream = sse('/api/wenlv/generate', { type, params }, (ev) => {
-      if (ev.type === 'delta') {
+      if (ev.type === 'notice') {
+        // 排队中：把状态如实显示出来，别让用户以为程序卡死了。
+        // 不 clearInterval —— 那一秒一次的 tick 会照着 waitingText() 重画，
+        // 里面已经带上了 genNotice，停掉反而就不再刷新等待秒数了。
+        genNotice = ev.text || '';
+        out.textContent = waitingText();
+      } else if (ev.type === 'delta') {
         acc += ev.text;
         clearInterval(tick);
         flushGen();

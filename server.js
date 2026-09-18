@@ -156,6 +156,34 @@ function readBody(req) {
   });
 }
 
+/**
+ * 生成任务串行队列。
+ *
+ * 为什么需要：Ollama 同一时刻只服务一个生成请求。并发打进来时，后来的请求会排在
+ * 前一个后面等，**但它的超时计时从进队列那一刻就开始了** —— 于是会出现"界面上一路
+ * 显示正在生成、等了五分钟、最后报超时"，用户完全不知道自己在排队。
+ *
+ * 这里显式排队：拿到锁之后才开始计时（超时由 ollama.chatStream 内部起），
+ * 中途还会给客户端发一条 notice，让它把"正在排队"如实显示出来。
+ */
+let genBusy = false;
+const genQueue = [];
+
+function acquireGen() {
+  if (!genBusy) { genBusy = true; return Promise.resolve(0); }
+  const enqueuedAt = Date.now();
+  return new Promise((resolve) => { genQueue.push(() => resolve(Date.now() - enqueuedAt)); });
+}
+
+function releaseGen() {
+  const next = genQueue.shift();
+  if (next) next();
+  else genBusy = false;
+}
+
+/** 当前排队的任务数（给前端显示用） */
+function genQueueDepth() { return genQueue.length; }
+
 /** SSE：先写头，再逐条推事件 */
 function openSSE(res) {
   res.writeHead(200, {
@@ -473,19 +501,36 @@ const server = http.createServer(async (req, res) => {
       const sse = openSSE(res);
       try {
         sse.send({ type: 'start', type });
-        for await (const chunk of wenlv.generateStream(type, body.params || {}, { model: body.model })) {
-          if (chunk.delta) sse.send({ type: 'delta', text: chunk.delta });
-          if (chunk.done) {
-            sse.send({ type: 'done', content: chunk.content, warnings: chunk.warnings || [], model: chunk.model, params: chunk.params });
-            // 方案/文案也进记忆，之后可以直接用自然语言追问"上次那个杭州方案"
-            try {
-              await memory.add({
-                text: `[为${chunk.params.city || chunk.params.product || '用户'}生成的${type === 'plan' ? '行程方案' : type === 'marketing' ? '营销文案' : '追问'}] ${String(chunk.content).slice(0, 600)}`,
-                role: 'assistant', kind: 'fact', tags: ['文旅', type, chunk.params.city].filter(Boolean), sessionId: cards.activeId,
-              });
-            } catch { /* 记忆失败不影响生成结果 */ }
+
+        // 先排队。注意：拿锁要在调 generateStream **之前** —— 超时计时是从真正
+        // 开始生成算起的，不能让排队的时间把用户的 300 秒白耗掉。
+        const ahead = genQueueDepth() + (genBusy ? 1 : 0);
+        if (ahead > 0) {
+          sse.send({ type: 'notice', text: `本机模型正在忙，前面还有 ${ahead} 个任务，已排队。` });
+        }
+        const queuedMs = await acquireGen();
+        const queuedSec = Math.round(queuedMs / 1000);
+        if (queuedSec >= 2) {
+          sse.send({ type: 'notice', text: `排队等了 ${queuedSec} 秒，现在轮到你了，开始生成。` });
+        }
+
+        try {
+          for await (const chunk of wenlv.generateStream(type, body.params || {}, { model: body.model })) {
+            if (chunk.delta) sse.send({ type: 'delta', text: chunk.delta });
+            if (chunk.done) {
+              sse.send({ type: 'done', content: chunk.content, warnings: chunk.warnings || [], model: chunk.model, params: chunk.params });
+              // 方案/文案也进记忆，之后可以直接用自然语言追问"上次那个杭州方案"
+              try {
+                await memory.add({
+                  text: `[为${chunk.params.city || chunk.params.product || '用户'}生成的${({ plan: '行程方案', marketing: '营销文案', product: '产品概念卡' })[type] || '追问'}] ${String(chunk.content).slice(0, 600)}`,
+                  role: 'assistant', kind: 'fact', tags: ['文旅', type, chunk.params.city].filter(Boolean), sessionId: cards.activeId,
+                });
+              } catch { /* 记忆失败不影响生成结果 */ }
+            }
+            if (sse.closed) break;
           }
-          if (sse.closed) break;
+        } finally {
+          releaseGen();     // 不管成功失败都要放锁，否则后面全部卡死
         }
       } catch (e) {
         sse.send({ type: 'error', code: e.code || 'INTERNAL', error: String(e.message || e) });
