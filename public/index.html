@@ -55,8 +55,16 @@
     <div class="stage-bg">
       <img id="bg-image" alt="" aria-hidden="true">
       <canvas id="bg-canvas" aria-hidden="true"></canvas>
+      <!-- 视频背景（如西湖美景）。muted 是自动播放的硬性前提，缺了浏览器会直接拒绝；
+           playsinline 防止移动端被强制全屏；loop 让宣传片循环播放。 -->
+      <video id="bg-video" playsinline muted loop preload="auto" aria-hidden="true"></video>
     </div>
     <canvas id="live2d-canvas"></canvas>
+    <!-- 西湖船娘（内置形象）专用画布。
+         必须与 #live2d-canvas 分开：一块 canvas 只能有一种绘图上下文，
+         PIXI 占用 WebGL 之后 `getContext('2d')` 会返回 null，
+         共用会导致其中一套形象整块画不出来。 -->
+    <canvas id="lake-canvas"></canvas>
     <!-- 3D 舞台（VRM / GLB）。与 Live2D 画布互斥显示，用哪个由所选形象决定 -->
     <canvas id="stage3d-canvas"></canvas>
     <div id="wordcloud-layer"></div>
@@ -89,6 +97,11 @@
       <div class="stage-tools">
         <button class="tool-btn" id="open-bg" title="更换背景"><span class="ico">🖼️</span><span class="txt">背景</span></button>
         <button class="tool-btn" id="open-model" title="更换人物形象"><span class="ico">🧍</span><span class="txt">形象</span></button>
+        <button class="tool-btn" id="btn-nav" title="定位导航：看我在哪、附近的景点、怎么过去"><span class="ico">🧭</span><span class="txt">导航</span></button>
+        <span class="tool-sep"></span>
+        <button class="tool-btn" id="btn-nav" title="定位导航：看我在哪、附近的景点、怎么过去"><span class="ico">🧭</span><span class="txt">导航</span></button>
+        <button class="tool-btn" id="btn-boot" title="重新播放开屏"><span class="ico">🎬</span><span class="txt">开屏</span></button>
+        <button class="tool-btn" id="btn-kiosk" title="全屏展示模式（展厅大屏：藏掉操作界面，只留形象与字幕）"><span class="ico">🖥️</span><span class="txt">大屏</span></button>
         <span class="tool-sep"></span>
         <button class="tool-btn" id="btn-wc-toggle" title="显示 / 隐藏词云"><span class="ico">☁️</span></button>
         <button class="tool-btn" id="wc-shuffle" title="重新排布词云"><span class="ico">🔀</span></button>
@@ -96,11 +109,65 @@
       </div>
     </div>
 
+    <!-- 导航模式的操作条：只在导航模式打开时出现。
+         牌子上写什么、背景用哪张，都由这一条控制。 -->
+    <div class="nav-bar" id="nav-bar" hidden>
+      <div class="nav-row">
+        <span class="nav-label">🧭 导航目标</span>
+        <input class="nav-input" id="nav-spot" type="text" placeholder="输入景点名，例如 杭州西湖" autocomplete="off">
+        <button class="mini-btn" id="nav-go">设为目标</button>
+      </div>
+      <div class="nav-row">
+        <span class="nav-label">风景图来源</span>
+        <select class="nav-select" id="nav-scenery-source">
+          <option value="builtin">内置程序化（离线现画）</option>
+          <option value="folder">自备图片目录</option>
+          <option value="web">联网搜索（默认关闭，手动触发）</option>
+        </select>
+        <button class="mini-btn" id="nav-scenery-apply">应用</button>
+        <button class="mini-btn" id="nav-open-page">📍 打开定位导航页</button>
+      </div>
+      <div class="nav-hint" id="nav-hint">选一个景点，背景会换成它的风景；点「打开定位导航页」看你在哪、怎么过去。</div>
+    </div>
+
+    <!-- 舞台上的**小**导航条。
+         原来是让形象举一块大木牌，太抢戏：牌子比人还显眼，还会挡住风景。
+         改成角落里一张小卡片，只留"去哪、多远、往哪走"，需要细节再展开成整页。 -->
+    <div class="nav-mini" id="nav-mini" hidden>
+      <button class="nav-mini-open" id="nav-mini-open" type="button" title="打开定位导航页">
+        <span class="nav-mini-dir" id="nav-mini-dir">↑</span>
+        <span class="nav-mini-text">
+          <b id="nav-mini-name">—</b>
+          <i id="nav-mini-meta">—</i>
+        </span>
+        <span class="nav-mini-go">导航 ›</span>
+      </button>
+      <button class="nav-mini-x" id="nav-mini-close" type="button" title="收起">✕</button>
+    </div>
+
     <!-- 底部：字幕条（替代原来的浮动气泡，不再和词云互相遮挡） -->
     <div class="subtitle" id="subtitle" hidden>
       <span class="subtitle-who" id="subtitle-who">小文</span>
       <span class="subtitle-text" id="subtitle-text"></span>
       <button class="subtitle-close" id="subtitle-close" title="收起字幕">✕</button>
+    </div>
+
+    <!-- 位置 HUD：显示"你在哪、景点在哪个方向、多远"。
+         做成页面浮层而不是画在 3D 里，是因为它对 Live2D 与 3D 两种舞台都适用，
+         而且中文不需要额外加载字体。 -->
+    <div class="geo-hud" id="geo-hud" hidden>
+      <div class="geo-compass"><span class="geo-arrow" id="geo-arrow">▲</span></div>
+      <div class="geo-text">
+        <div class="geo-title" id="geo-title">—</div>
+        <div class="geo-sub" id="geo-sub">—</div>
+      </div>
+      <button class="geo-close" id="geo-close" title="收起位置标记">✕</button>
+    </div>
+
+    <!-- 全景模式提示：明确告诉用户"现在在环视模式、拖动能转、点这里退出" -->
+    <div class="pano-hint" id="pano-stage-hint" hidden>
+      <span>🧭 全景环视中 · 按住拖动可环顾四周</span>
+      <b>点这里返回人物</b>
     </div>
 
     <div class="stage-empty" id="stage-empty" hidden>
@@ -136,6 +203,19 @@
       <section class="pane" id="pane-tools">
         <h3>文旅两大核心功能</h3>
         <p class="sub">由本地样本库加本机大模型生成。输出会过一遍质检，核对推荐的商家是不是真在样本库里。</p>
+
+        <!-- 定位导航：主入口在顶栏「🧭 导航」（打开整页），这里是相关设置 -->
+        <div class="field" style="margin-bottom:14px">
+          <label>定位导航</label>
+          <div class="row">
+            <button class="mini-btn" id="nav-mode-toggle" type="button">🧭 切换导航模式（换风景图）</button>
+          </div>
+          <div class="hintline">
+            顶栏的「🧭 导航」会打开整页导航：显示你的位置、附近景点、距离与方位，
+            并可一键跳到高德／百度／腾讯地图去真导航。
+            这里的「导航模式」只是在舞台上换风景图，属于展示设置。
+          </div>
+        </div>
 
         <div class="seg" style="margin-bottom:14px">
           <button class="seg-item on" data-tool="plan">🗺️ 方案规划</button>
@@ -208,6 +288,71 @@
 
         <div class="section">
           <div class="lbl">
+            视频背景（大屏宣传片）
+            <span class="lbl-actions">
+              <button class="mini-btn" id="video-upload">📤 上传视频</button>
+              <button class="mini-btn" id="video-refresh">🔄 刷新</button>
+            </span>
+          </div>
+          <p class="sub" style="margin:0 0 8px">
+            主界面舞台与开屏**共用**这里的片子。上传后点卡片即可设为主界面背景，
+            或用卡片上的「开屏」按钮设为开屏背景。
+            支持 mp4（推荐）/ webm / mov，单个上限 <strong id="video-maxmb">—</strong>。
+            <br>目录为空时，开屏与背景会自动用<strong>程序化绘制的西湖动态画面</strong>兜底，不会是一片黑。
+            <br>也可以直接把文件放进 <code id="video-dir">data/videos/</code>，或从 B 站下载：
+            <code>npm run fetch:bili -- &lt;BV号&gt; 名字</code>（连音轨一起下）。
+          </p>
+
+          <!-- 画面模式：开屏与主界面共用 -->
+          <div class="field">
+            <label>视频画面模式 <span class="hint-inline">开屏与主界面共用</span></label>
+            <div class="seg" id="video-fit-seg">
+              <button class="seg-item" data-vfit="rotate" type="button">↺ 逆时针旋转 90°</button>
+              <button class="seg-item" data-vfit="cover" type="button">⤢ 铺满裁剪</button>
+              <button class="seg-item" data-vfit="auto" type="button">🖼 完整显示（模糊铺底）</button>
+            </div>
+            <div class="hintline">
+              片源是竖屏、或横拍被封装成竖屏时，这三种模式的观感差别很大。
+              旋转适合"横拍被装进竖屏文件"的片子；铺满裁剪适合竖屏 MV 填满横屏；
+              完整显示不裁任何内容，两侧用模糊的同段视频垫底。
+            </div>
+          </div>
+
+          <div id="video-list" class="pick-grid"></div>
+          <div class="hintline" id="video-hint">—</div>
+        </div>
+
+        <div class="section">
+          <div class="lbl">开屏模板</div>
+          <p class="sub" style="margin:0 0 8px">
+            两套可随时互相切换。改动立即生效，下次进来就用新的。
+          </p>
+          <div class="seg" id="boot-tpl-seg">
+            <button class="seg-item" data-boot-tpl="video" type="button">🎬 视频主页</button>
+            <button class="seg-item" data-boot-tpl="character" type="button">🛶 形象主页</button>
+          </div>
+          <div class="hintline" id="boot-tpl-hint">—</div>
+
+          <!-- 开屏背景：本机视频（画面模式在上面的「视频背景」一节里统一设置） -->
+          <div class="field" style="margin-top:12px">
+            <label>开屏背景视频</label>
+            <select id="boot-video-sel">
+              <option value="">（自动：优先名字带「西湖」的，否则用第一个）</option>
+            </select>
+          </div>
+          <div class="hintline" id="boot-video-hint">
+            视频从 <code>data/videos/</code> 读取，<b>本机文件、离线可用</b>。
+            画面模式（旋转／铺满／完整显示）在上面「视频背景」一节里设置，开屏与主界面共用。
+            <br>声音：受浏览器自动播放策略限制，开屏是<b>先静音起播</b>，
+            点开屏上的 <b>🔊</b> 即可出声；选「静音」会记住你的选择。
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button class="mini-btn" id="boot-replay">▶️ 重新播放开屏</button>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="lbl">
             人物形象（Live2D）
             <span class="lbl-actions">
               <button class="mini-btn" id="look-model-pick">🧍 更换形象</button>
@@ -274,6 +419,342 @@
             <div class="hintline" id="wc-ink-hint" style="margin-top:6px">背景一换，字色会自动跟着调。</div>
           </div>
         </div>
+
+        <details class="fold" id="fold-blender">
+          <summary>Blender 动画（可选：在 Blender 里生成移动动画并回传网页）</summary>
+          <div style="margin-top:10px">
+            <p class="hintline" style="margin:0 0 10px">
+              通过 <b>MCP</b> 驱动你已装的「MCP for Blender」插件，在 Blender 里建一个
+              会绕圈巡逻的小人、打好关键帧，导出 glTF 回传网页，用 three.js 的
+              <b>AnimationMixer</b> 播放。
+            </p>
+
+            <div class="badges" id="blender-badges"></div>
+
+            <div class="actions" style="margin-top:10px">
+              <button class="btn ghost sm" id="blender-check" type="button">检测 Blender 服务</button>
+              <button class="btn sm" id="blender-generate" type="button">🎬 生成移动动画</button>
+            </div>
+            <div class="hintline" id="blender-hint">
+              需要 Blender 开着（在跑）。没开的话运行 <code>npm run blender:start</code> ——
+              会弹出 Blender 窗口，<b>这是必须的</b>：该插件的命令队列靠 Blender 主线程的定时器排空，
+              后台模式（<code>blender -b</code>）下命令永远不会执行。
+            </div>
+
+            <div class="field" style="margin-top:12px">
+              <label>时长（帧）<b id="blender-frames-label">72</b> · 24fps</label>
+              <input type="range" id="blender-frames" min="24" max="240" step="24" value="72">
+            </div>
+            <div class="field">
+              <label>巡逻半径 <b id="blender-radius-label">2.4</b> 米</label>
+              <input type="range" id="blender-radius" min="5" max="60" step="1" value="24">
+            </div>
+            <div class="hintline">
+              动画是<b>首尾闭合</b>的：小人绕圈巡逻、朝向始终沿切线，所以循环播放时不会跳帧。
+            </div>
+
+            <div class="field">
+              <label>已生成</label>
+              <div id="blender-list"></div>
+            </div>
+            <div id="blender-result"></div>
+          </div>
+        </details>
+
+        <details class="fold" id="fold-i23d">
+          <summary>图片转 3D（可选：一张图生成三维模型）</summary>
+          <div style="margin-top:10px">
+            <p class="hintline" style="margin:0 0 10px">
+              用 <b>TripoSR</b> 把一张图片重建成带顶点色的三维网格，生成后自动加入
+              「外观 → 更换形象」的模型列表，可以直接选中查看。
+              全程在本机跑，图片不会上传到任何地方。
+            </p>
+
+            <div class="badges" id="i23d-badges"></div>
+
+            <div class="field" style="margin-top:10px">
+              <label>输入图片</label>
+              <div class="actions">
+                <button class="btn ghost sm" id="i23d-pick" type="button">🖼️ 选择图片</button>
+                <button class="btn sm" id="i23d-generate" type="button">✨ 生成三维模型</button>
+              </div>
+              <input type="file" id="i23d-file" accept="image/*" hidden>
+              <div class="hintline" id="i23d-preview-hint">还没有选择图片。主体清晰、背景干净的照片效果最好。</div>
+            </div>
+
+            <div class="field">
+              <label>网格分辨率 <b id="i23d-res-label">160</b></label>
+              <input type="range" id="i23d-res" min="96" max="256" step="16" value="160">
+              <div class="hintline">
+                越高越细，也越吃显存。默认 160 是"显卡上还有别的程序在跑"时的稳当档位；
+                显卡空着可以调到 256。想更省显存就把分块也调小。
+              </div>
+            </div>
+            <div class="field">
+              <label>渲染分块 <b id="i23d-chunk-label">2048</b></label>
+              <input type="range" id="i23d-chunk" min="512" max="8192" step="512" value="2048">
+            </div>
+
+            <label class="check"><input type="checkbox" id="i23d-remove-bg" checked> 自动去除背景（需要 rembg；失败会自动改用原图并告知）</label>
+            <label class="check"><input type="checkbox" id="i23d-bake-texture" checked> 烘焙贴图（关掉则用顶点色，文件更小、快约 25 秒）</label>
+
+            <div class="actions" style="margin-top:10px">
+              <button class="btn ghost sm" id="i23d-detect" type="button">检测运行环境</button>
+            </div>
+            <div class="hintline" id="i23d-env-hint">权重约 1.6GB，用 <code>npm run fetch:triposr</code> 下载。</div>
+
+            <div class="field">
+              <label>已生成</label>
+              <div id="i23d-list"></div>
+            </div>
+            <div id="i23d-result"></div>
+          </div>
+        </details>
+
+        <details class="fold" id="fold-pano">
+          <summary>景区全景（可选：把景点变成能环视的三维场景）</summary>
+          <div style="margin-top:10px">
+            <p class="hintline" style="margin:0 0 10px">
+              用一张 <b>360° 等距柱状全景图</b>（宽高比 2:1）搭出可环视的景区场景，
+              再用单目深度模型把画面撑出起伏 —— 近处凸、远处退，是真正的立体浮雕。
+            </p>
+
+            <div class="badges" id="pano-badges"></div>
+
+            <div class="field" style="margin-top:10px">
+              <label>按景点联网查找</label>
+              <div class="inline">
+                <input type="text" id="pano-spot" placeholder="景点名，如 杭州西湖" spellcheck="false">
+                <input type="text" id="pano-city" placeholder="城市（可选）" spellcheck="false">
+              </div>
+              <div class="actions" style="margin-top:8px">
+                <button class="btn sm" id="pano-acquire" type="button">🔎 检索并生成</button>
+              </div>
+              <div class="hintline">
+                需要先开启联网。注意：网上多数景点<b>没有公开可用的等距柱状图</b>
+                （中文全景平台不给直链），找不到时会明确列出试过哪些、为什么不行 ——
+                这时请用下面的「上传」或「程序化生成」。
+              </div>
+            </div>
+
+            <div class="field">
+              <label>本地来源</label>
+              <div class="actions">
+                <button class="btn ghost sm" id="pano-upload" type="button">📤 上传全景图</button>
+                <button class="btn ghost sm" id="pano-procedural" type="button">🎨 程序化生成（离线）</button>
+              </div>
+              <input type="file" id="pano-file" accept="image/*" hidden>
+              <div class="hintline">上传的图会被量宽高比，不是 2:1 左右会明确告诉你（贴上去会变形）。</div>
+            </div>
+
+            <div class="field">
+              <label>深度地形</label>
+              <div class="badges" id="pano-depth-badges"></div>
+              <div class="actions" style="margin-top:8px">
+                <button class="btn ghost sm" id="pano-depth-check" type="button">检测深度环境</button>
+                <button class="btn ghost sm" id="pano-relief" type="button">重建起伏地形</button>
+              </div>
+              <div class="hintline" id="pano-depth-hint">深度模型约 95MB，用 <code>npm run fetch:depth</code> 下载。</div>
+            </div>
+
+            <div class="field">
+              <label>已缓存的全景</label>
+              <div id="pano-list"></div>
+            </div>
+
+            <div class="actions">
+              <button class="btn sm" id="pano-enter" type="button">🧭 进入全景环视</button>
+              <button class="btn ghost sm" id="pano-exit" type="button">返回人物</button>
+            </div>
+            <div id="pano-result"></div>
+          </div>
+        </details>
+
+        <details class="fold" id="fold-geo">
+          <summary>位置（可选：显示你在哪、景点在哪个方向）</summary>
+          <div style="margin-top:10px">
+            <p class="hintline" style="margin:0 0 10px">
+              位置只写进本机的 <code>data/location.json</code>，不上传。
+              浏览器定位需要你在弹窗里点一次授权；「IP 估算」会把请求发给第三方定位服务
+              （精度只到城市级），默认关闭。位置 MCP 服务读的就是同一个文件。
+            </p>
+
+            <div class="badges" id="geo-badges"></div>
+
+            <div class="actions" style="margin-top:10px">
+              <button class="btn ghost sm" id="geo-acquire" type="button">📍 获取我的位置</button>
+              <button class="btn ghost sm" id="geo-ip" type="button">🛰️ 用 IP 估算</button>
+              <button class="btn ghost sm" id="geo-clear" type="button">清除</button>
+            </div>
+
+            <div class="field" style="margin-top:12px">
+              <label>手动坐标</label>
+              <div class="inline">
+                <input type="text" id="geo-lat" placeholder="纬度，如 30.2470" spellcheck="false">
+                <input type="text" id="geo-lng" placeholder="经度，如 120.1490" spellcheck="false">
+              </div>
+              <input type="text" id="geo-label" placeholder="备注（可选），如 杭州市西湖区" style="margin-top:6px">
+              <div class="actions" style="margin-top:8px">
+                <button class="btn ghost sm" id="geo-save-manual" type="button">保存坐标</button>
+              </div>
+              <div class="hintline">演示时手填坐标最省事：不用授权、结果也可复现。</div>
+            </div>
+
+            <label class="check"><input type="checkbox" id="geo-allow-ip"> 允许「IP 估算」（会请求第三方定位服务）</label>
+
+            <div class="field" style="margin-top:12px">
+              <label>算某个景点的距离与方位</label>
+              <div class="inline">
+                <input type="text" id="geo-spot" placeholder="景点名，如 灵隐寺" spellcheck="false">
+                <input type="text" id="geo-city" placeholder="城市（可选）" spellcheck="false">
+              </div>
+              <div class="actions" style="margin-top:8px">
+                <button class="btn sm" id="geo-relation" type="button">算距离并在舞台上标记</button>
+              </div>
+              <div class="hintline">内置坐标覆盖杭州 / 苏州 / 成都 / 丽江 / 西安的主要景点；表外地点需开启联网。</div>
+            </div>
+
+            <div class="field">
+              <label>位置 MCP 服务（给外部 Agent 用）</label>
+              <div class="hintline" id="geo-mcp">—</div>
+            </div>
+          </div>
+        </details>
+
+        <details class="fold" id="fold-web">
+          <summary>联网（可选：让模型能上网查资料）</summary>
+          <div style="margin-top:10px">
+            <p class="hintline" style="margin:0 0 10px">
+              开启后，模型遇到"最新票价 / 开放时间 / 天气 / 最近活动"这类问题时，
+              会主动调用搜索工具查证再回答，而不是凭训练时的旧记忆作答。
+              <b>默认关闭</b>；开启意味着你输入的查询词会被发往搜索引擎、相关网页会被抓取。
+            </p>
+
+            <div class="badges" id="web-badges"></div>
+
+            <label class="check" style="margin-top:10px"><input type="checkbox" id="web-enabled"> 允许模型联网（等同于输入框上方的 🌐 按钮）</label>
+            <label class="check"><input type="checkbox" id="web-allow-fetch"> 允许读取网页正文（web_fetch）</label>
+            <label class="check"><input type="checkbox" id="web-allow-panorama"> 允许检索 360° 全景图（find_panorama）</label>
+
+            <div class="field" style="margin-top:12px">
+              <label>最多查证轮数 <b id="web-steps-label">4</b></label>
+              <input type="range" id="web-steps" min="1" max="8" value="4">
+              <div class="hintline">模型可以"搜索 → 读网页 → 再搜索"地连续查几轮。调大更彻底，但也更慢。</div>
+            </div>
+
+            <div class="field">
+              <label>可用工具</label>
+              <div class="hintline" id="web-tools">—</div>
+            </div>
+
+            <div class="field">
+              <label>安全边界</label>
+              <div class="hintline">
+                只允许 http/https 的公网地址；内网、本机（含 127.0.0.1 与 169.254.169.254 这类云元数据地址）
+                一律拒绝，重定向逐跳复检 —— 因为要抓的网址是<b>模型生成的</b>，属于不可信输入。
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <details class="fold" id="fold-provider">
+          <summary>模型接入（可选：接外部大模型 API）</summary>
+          <div style="margin-top:10px">
+            <p class="hintline" style="margin:0 0 10px">
+              默认全部走本机 Ollama，<b>不出网</b>。想换成云端模型（DeepSeek / 智谱 / 通义千问 /
+              OpenRouter / 任意 OpenAI 兼容端点）时在这里配置。Base URL 与 API Key 只写进本机的
+              <code>data/providers.json</code>，不会上传到任何地方。
+            </p>
+
+            <div class="field">
+              <label>当前接入</label>
+              <div class="badges" id="provider-badges"></div>
+            </div>
+
+            <div class="field">
+              <label>供应商</label>
+              <select id="provider-preset"></select>
+              <div class="hintline" id="provider-note"></div>
+            </div>
+
+            <div class="field">
+              <label>Base URL</label>
+              <input type="text" id="provider-baseurl" placeholder="https://api.deepseek.com/v1" spellcheck="false">
+              <div class="hintline">填「根地址」就行：以 <code>/v1</code> 这类结尾，不要带 <code>/chat/completions</code>。带错了会自动截回。</div>
+            </div>
+
+            <div class="field">
+              <label>API Key <span class="hint-inline" id="provider-key-hint"></span></label>
+              <input type="password" id="provider-apikey" placeholder="sk-…（留空表示不修改已存的密钥）" autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="field">
+              <label>
+                对话模型
+                <span class="lbl-actions">
+                  <button class="mini-btn" id="provider-fetch-models" type="button">⬇️ 拉取模型列表</button>
+                </span>
+              </label>
+              <input type="text" id="provider-chatmodel" list="provider-model-list" placeholder="deepseek-chat" spellcheck="false">
+              <datalist id="provider-model-list"></datalist>
+            </div>
+
+            <div class="field">
+              <label>视觉模型（可选）</label>
+              <input type="text" id="provider-visionmodel" placeholder="留空则继续用本机多模态模型" spellcheck="false">
+              <label class="check" style="margin-top:6px"><input type="checkbox" id="provider-use-vision"> 视觉理解也走这个外部接口</label>
+              <div class="hintline">多数厂商只有对话接口，没有视觉。勾了却没填模型名时会自动回落本机。</div>
+            </div>
+
+            <div class="field">
+              <label>向量模型（可选）</label>
+              <input type="text" id="provider-embedmodel" placeholder="留空则继续用本机向量模型" spellcheck="false">
+              <label class="check" style="margin-top:6px"><input type="checkbox" id="provider-use-embed"> 记忆向量也走这个外部接口</label>
+              <div class="hintline">换向量模型后，旧向量不再参与语义检索（不同模型的向量不可比），关键词召回不受影响。</div>
+            </div>
+
+            <div class="actions">
+              <button class="btn ghost sm" id="provider-test" type="button">🔌 测试连接</button>
+              <button class="btn sm" id="provider-save" type="button">保存并启用</button>
+              <button class="btn ghost sm" id="provider-local" type="button">切回本机 Ollama</button>
+            </div>
+            <div id="provider-result"></div>
+          </div>
+        </details>
+
+        <details class="fold" id="fold-openapi">
+          <summary>对外开放（可选：把本项目当 API 给外部调用）</summary>
+          <div style="margin-top:10px">
+            <p class="hintline" style="margin:0 0 10px">
+              开启后，AIRI 等外部程序可以用标准 <b>OpenAI 兼容接口</b>调用本项目的对话与文旅能力。
+              <b>默认关闭</b>；一旦勾上「记忆 / 角色卡」，就等于把这些数据交给持有令牌的一方，请按需勾选。
+            </p>
+
+            <label class="check"><input type="checkbox" id="openapi-enabled"> 允许外部程序调用本项目</label>
+            <label class="check"><input type="checkbox" id="openapi-require-token"> 必须携带 Bearer 令牌（强烈建议保持勾选）</label>
+
+            <div class="field" style="margin-top:12px">
+              <label>
+                访问令牌
+                <span class="lbl-actions">
+                  <button class="mini-btn" id="openapi-token-regen" type="button">🔄 重新生成</button>
+                </span>
+              </label>
+              <input type="text" id="openapi-token" readonly placeholder="开启后自动生成">
+              <div class="hintline" id="openapi-token-hint">明文只在生成的那一刻显示一次，之后只保留打码版本。</div>
+            </div>
+
+            <div class="field">
+              <label>允许调用的能力</label>
+              <div id="openapi-expose"></div>
+            </div>
+
+            <div class="field">
+              <label>接口一览</label>
+              <div class="hintline" id="openapi-endpoints"></div>
+            </div>
+          </div>
+        </details>
 
         <details class="fold">
           <summary>本地服务状态</summary>
@@ -342,6 +823,28 @@
         <p class="sub">语音合成本地化：直接调用本机 Qwen TTS WebUI。<br>启动方式：在 Qwen TTS WebUI 目录执行 <code>python launch.py --nowebui</code>。</p>
         <div class="badges" id="voice-badges"></div>
 
+        <!-- 听觉（语音输入）：与上面的"说话"是一对 —— 上面让它说，这里让它听。
+             默认关闭，因为要载一个约 1GB 的本地 Whisper 模型。 -->
+        <div class="section">
+          <div class="lbl">听觉（本地 Whisper 语音识别）</div>
+          <p class="sub" style="margin:0 0 8px">
+            打开后，输入框旁边会出现 <strong>🎤</strong>：录一段话，用<strong>本机</strong> Whisper 转成文字填进输入框。
+            全程离线，音频不会发到任何地方。默认关闭，因为要用约 1GB 的模型权重。
+          </p>
+          <label class="check-row" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="stt-enabled">
+            <span>启用听觉（默认关闭）</span>
+          </label>
+          <div class="row" style="margin-top:8px">
+            <button class="mini-btn" id="stt-probe">检测环境</button>
+            <span class="hint-inline" id="stt-status">—</span>
+          </div>
+          <p class="sub" style="margin:8px 0 0">
+            没有权重时先跑 <code>npm run fetch:whisper</code>（约 1GB，走 hf-mirror 镜像）。
+            嫌大可以设 <code>WHISPER_MODEL=openai/whisper-base</code> 换更小的模型。
+          </p>
+        </div>
+
         <div class="section">
           <div class="lbl">音色库</div>
           <div id="voice-list"></div>
@@ -394,6 +897,10 @@
         <button class="icon-btn" id="btn-image" title="上传图片，用本机视觉模型看懂它">🖼️</button>
         <input type="file" id="file-input" accept="image/*" hidden>
         <button class="icon-btn" id="btn-camera" title="调用摄像头拍照识景">📷</button>
+        <button class="icon-btn" id="btn-web" title="联网：让模型能搜索网页、读取正文，用最新信息回答">🌐</button>
+        <!-- 语音输入（听觉）。默认关闭，要现在「声音」页里打开「听觉」才会出现：
+             它要载一个约 1GB 的本地 Whisper 模型，不能让所有人被迫承担。 -->
+        <button class="icon-btn" id="btn-mic" title="按住说话：录一段语音，用本机 Whisper 识别成文字" hidden>🎤</button>
         <div class="spacer"></div>
         <span class="hintline" id="composer-hint"></span>
         <button class="btn ghost sm" id="btn-stop" hidden>■ 停止</button>
@@ -409,7 +916,19 @@
 
 <script src="/js/util.js"></script>
 <script src="/js/backgrounds.js"></script>
+<!-- 导航模式的牌子与风景图（纯 2D 绘制，Live2D 与 3D 两套渲染器共用）。
+     必须排在 live2d.js 之前：live2d.js 会用到 window.WenlvNavVisuals。 -->
+<script src="/js/nav-visuals.js"></script>
+<script src="/js/nav.js"></script>
+<!-- 西湖主题：动态风景 + 程序化绘制的「西湖船娘」形象（内置默认形象，零外部素材） -->
+<script src="/js/lake.js"></script>
 <script src="/js/live2d.js"></script>
+<!-- 语音输入：录音 + 转成 16kHz 单声道 WAV + 调 /api/stt。
+     纯前端能力（MediaRecorder + AudioContext），不依赖任何第三方库。 -->
+<script src="/js/voice.js"></script>
+<!-- 开屏（两套可互相切换的模板：视频主页 / 形象主页）。
+     放在 app.js 之前：app.js 启动时要挂它。 -->
+<script src="/js/boot.js"></script>
 <script src="/js/wordcloud.js"></script>
 <script src="/js/app.js"></script>
 </body>

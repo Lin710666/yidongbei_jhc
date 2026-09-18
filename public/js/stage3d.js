@@ -25,6 +25,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 // three-vrm 用相对路径引，少一条 importmap 映射就少一个出错的地方；
 // 它内部只 import 'three'，那条由 importmap 负责。
 import { VRMLoaderPlugin, VRMUtils } from '../vendor/three/three-vrm.module.js'
+import { PanoramaScene } from './pano.js'
 
 /** 目标身高（米）。VRM 本身按米建模，纯 glb 可能是任意尺度，统一归一到这个高度 */
 const TARGET_HEIGHT = 1.62
@@ -56,6 +57,16 @@ export class ThreeDStage {
     this.blinkTimer = 1.5
     this.blinkPhase = -1                    // <0 表示没在眨
     this.nodUntil = 0
+    // 待机总开关（与 Live2D 那套 startIdle/stopIdle 语义一致）
+    this.idleOn = true
+    this.idleWanted = true
+    this._nextIdleMotionAt = 0
+    this._idleMotionEvery = 14000
+    // 导航模式：手里的牌子 + 身后的风景
+    this.placard = null
+    this._placardMesh = null
+    this._sceneryTex = null
+    this.lastPointerAt = 0
 
     // 用户可调（与 Live2D 那套保持一致的语义）
     this.userScale = 1
@@ -67,6 +78,11 @@ export class ThreeDStage {
 
     this.onReadyCb = null
     this.onTapCb = null
+    this.geoMarker = null                   // 地理标记（指北环 + 方位箭头）
+    // 场景模式：'character' 看人物；'panorama' 站在景区全景里环视
+    this.mode = 'character'
+    this.pano = null                        // PanoramaScene（用到才建）
+    this._panoAdded = false
     this._raf = null
     this._disposed = false
   }
@@ -117,9 +133,31 @@ export class ThreeDStage {
       const r = host.getBoundingClientRect()
       this.pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1
       this.pointer.y = ((e.clientY - r.top) / r.height) * 2 - 1
+      this.markPointer()
     })
     host.addEventListener('mouseleave', () => { this.pointer.x = 0; this.pointer.y = 0 })
-    host.addEventListener('pointerdown', () => { if (this.onTapCb) this.onTapCb() })
+    host.addEventListener('pointerdown', (e) => {
+      // 全景模式下按下是"开始拖动视角"，不该顺手触发角色的小动作
+      if (this.mode === 'panorama') {
+        this._drag = { x: e.clientX, y: e.clientY }
+        try { host.setPointerCapture(e.pointerId) } catch { /* 某些浏览器不支持，忽略 */ }
+        return
+      }
+      if (this.onTapCb) this.onTapCb()
+    })
+    host.addEventListener('pointermove', (e) => {
+      if (this.mode !== 'panorama' || !this._drag || !this.pano) return
+      const dx = e.clientX - this._drag.x
+      const dy = e.clientY - this._drag.y
+      this._drag.x = e.clientX
+      this._drag.y = e.clientY
+      // 0.18 度/像素：转过 360° 需要约 2000px，正好是"拖动两三屏"的手感
+      this.pano.setView(this.pano.yaw + dx * 0.18, this.pano.pitch - dy * 0.18)
+    })
+    const endDrag = () => { this._drag = null }
+    host.addEventListener('pointerup', endDrag)
+    host.addEventListener('pointercancel', endDrag)
+    host.addEventListener('pointerleave', endDrag)
 
     // 尺寸变化就重新摆相机。和 Live2D 那边一样，光靠 window.resize 不够：
     // 舞台尺寸还会因为侧栏、全屏词云、字体加载等原因变，那些不一定触发 window 的 resize。
@@ -179,6 +217,26 @@ export class ThreeDStage {
     this.model = model
     this.scene.add(model)
 
+    // glTF 自带动画（例如 Blender 导出的行走动画）：建一个 mixer 循环播放。
+    // 之前 this.mixer 只声明了没用过 —— 也就是"能加载 GLB，但里面的动画是静止的"。
+    // 这类问题在界面上表现为"模型不动"，很容易被当成"没做动画"。
+    this.animations = (gltf.animations || []).map(c => ({ name: c.name, duration: c.duration }))
+    // 自己维护 name → action 的映射：three.js 的 mixer._actions 是私有字段，
+    // 直接读它在版本升级时可能突然坏掉，而且坏了不报错、只是动作播不出来。
+    this._actionsByName = new Map()
+    if (gltf.animations && gltf.animations.length) {
+      this.mixer = new THREE.AnimationMixer(model)
+      for (const clip of gltf.animations) {
+        try {
+          const action = this.mixer.clipAction(clip)
+          action.setLoop(THREE.LoopRepeat, Infinity)
+          action.clampWhenFinished = false
+          action.play()
+          this._actionsByName.set(clip.name, action)
+        } catch { /* 单个轨道坏掉不该让整只模型加载失败 */ }
+      }
+    }
+
     // 归一化尺度与落地点：算包围盒 -> 缩到目标身高 -> 脚底贴地 -> 水平居中
     const box = new THREE.Box3().setFromObject(model)
     const size = new THREE.Vector3()
@@ -213,6 +271,8 @@ export class ThreeDStage {
         expressionNames: vrm && vrm.expressionManager
           ? Object.keys(vrm.expressionManager.expressionMap || {})
           : [],
+        // 让界面知道"这个模型带几段动画" —— 否则用户看不出动画到底有没有被加载
+        animations: this.animations || [],
       })
     }
     return model
@@ -246,6 +306,14 @@ export class ThreeDStage {
 
   _unload() {
     if (!this.model) return
+    // mixer 要显式停掉并断开：不清的话切模型后旧动画还在按帧驱动已释放的骨骼，
+    // 表现是切完模型控制台报错、或者新模型诡异地抖。
+    if (this.mixer) {
+      try { this.mixer.stopAllAction() } catch { /* 忽略 */ }
+      try { this.mixer.uncacheRoot(this.model) } catch { /* 忽略 */ }
+      this.mixer = null
+    }
+    this.animations = []
     this.scene.remove(this.model)
     this.model.traverse((obj) => {
       if (obj.geometry) obj.geometry.dispose()
@@ -300,7 +368,9 @@ export class ThreeDStage {
     this.renderer.setPixelRatio(dpr)
     this.renderer.setSize(w, h, false)
     this.camera.aspect = w / h
-    this._frameCamera()
+    // 全景模式下相机的 fov 与位置由全景场景自己管，不能被 _frameCamera 覆盖掉
+    if (this.mode === 'panorama') this.camera.updateProjectionMatrix()
+    else this._frameCamera()
   }
 
   /** 打开/关闭某类表情（模型没有该表情时静默跳过） */
@@ -337,11 +407,184 @@ export class ThreeDStage {
   }
 
   /** 点一下：点个头 + 随机一个情绪表情 */
-  playMotion() {
+  /**
+   * 播放动作。
+   *
+   * 与 Live2D 舞台保持同一套签名（`playMotion(group?, index?)` / `playMotionByName` /
+   * `listMotions`），否则"让大模型指定动作"这件事在 3D 形象上会静默失效 ——
+   * 调用方按 Liv2D 的用法传参，3D 这边收不到、也不报错，只是动作不对。
+   *
+   * 3D 这边分两种情况：
+   *   · GLB 自带 AnimationClip（例如 Blender 导出的行走动画）→ 按名字/序号播那一整段
+   *   · 只有 VRM 骨骼、没有 clip → 退化成"点头 + 换一个情绪表情"（原有行为）
+   */
+  playMotion(group, index) {
+    const clips = (this.animations || [])
+
+    // 有明确指定就在 clip 里找
+    if (clips.length && this.mixer && (group !== undefined)) {
+      const want = String(group || '').toLowerCase()
+      let target = null
+      if (Number.isInteger(index)) {
+        target = clips[index] || clips.find(c => c.name.toLowerCase() === want) || null
+      } else {
+        target = clips.find(c => c.name.toLowerCase() === want)
+          || clips.find(c => c.name.toLowerCase().includes(want))
+          || null
+      }
+      const action = target ? (this._actionsByName || new Map()).get(target.name) : null
+      if (action) {
+        try {
+          // 把其它段静音、只留这一段，避免多段叠在一起看起来像抽搐
+          this.mixer.stopAllAction()
+          action.reset()
+          action.setLoop(THREE.LoopRepeat, Infinity)
+          action.play()
+          return { name: target.name }
+        } catch { /* 落到下面的兜底 */ }
+      }
+    }
+
+    // 没指定（或没有 clip）→ 保持原来的"点头 + 随机情绪"
     this.nodUntil = performance.now() + 900
     const list = this.expressionNames().filter(n => ['happy', 'relaxed', 'surprised', 'joy', 'fun'].includes(n))
     if (list.length) this.setExpression(list[Math.floor(Math.random() * list.length)])
+    return { name: 'nod' }
+  }
+
+  /** 在已建的 mixer 里按 clip 名找 action（用自己维护的映射，不碰 three.js 的私有字段） */
+  _clipByName(name) {
+    return (this._actionsByName || new Map()).get(name) || null
+  }
+
+  async playMotionByName(name) {
+    return this.playMotion(name)
+  }
+
+  /** 这个模型能播什么：GLB 动画段 + 可用的情绪表情 */
+  listMotions() {
+    const out = (this.animations || []).map((c, i) => ({ group: 'clip', index: i, name: c.name, file: '', duration: c.duration }))
+    for (const n of this.expressionNames()) out.push({ group: 'expression', index: out.length, name: n, file: '', expression: true })
+    return out
+  }
+
+  /* ========================================================================
+   * ③ 程序化待机 与 ④ 导航模式：与 Live2D 舞台同名同语义
+   *
+   * 两套渲染器必须暴露同一组方法，app.js 是通过 activeStage() 盲调的。
+   * 少一个方法，用户一切到 3D 形象就会报 "xxx is not a function"，
+   * 而 3D 在项目里是二等公民，很容易漏测到这个路径。
+   * ======================================================================*/
+
+  markPointer() { this.lastPointerAt = Date.now() }
+
+  startIdle(opts = {}) {
+    this.idleWanted = true
+    this.idleOn = true
+    this._idleMotionEvery = Math.max(4000, Number(opts.motionEveryMs) || 14000)
+    this._nextIdleMotionAt = performance.now() + (opts.firstMotionMs != null ? opts.firstMotionMs : 6000)
+  }
+
+  stopIdle() {
+    this.idleWanted = false
+    this.idleOn = false
+    // 把待机写进去的位移/旋转收回来，否则模型会僵在半空或歪着
+    if (this.model) {
+      this.model.position.y = this.modelBaseY
+      this.model.rotation.z = 0
+    }
+  }
+
+  idleRunning() { return !!this.idleOn }
+
+  /**
+   * 设置背景风景。与 Live2D 那套共用 nav-visuals.js 的绘制，
+   * 区别只是这里贴成 three 的 CanvasTexture 并挂到 scene.background。
+   */
+  async setScenery(src) {
+    if (!this.scene) return false
+    this.scenery = src || null
+    if (!src) { this.scene.background = null; return true }
+
+    if (src.kind === 'url') {
+      try {
+        const tex = await new Promise((resolve, reject) => {
+          new THREE.TextureLoader().load(src.url, resolve, undefined, reject)
+        })
+        tex.colorSpace = THREE.SRGBColorSpace
+        if (this._sceneryTex) { try { this._sceneryTex.dispose() } catch { /* 忽略 */ } }
+        this._sceneryTex = tex
+        this.scene.background = tex
+        return true
+      } catch {
+        // 图挂了就退回程序化背景 —— 留一块纯色也比留个破图好看
+        console.warn('[stage3d] 风景图加载失败，退回程序化背景：', src.url)
+        this.scenery = { kind: 'procedural', spot: src.spot, city: src.city }
+        return this.setScenery(this.scenery)
+      }
+    }
+
+    const NV = window.WenlvNavVisuals
+    if (!NV) return false
+    const host = this.canvas.parentElement
+    const rect = host.getBoundingClientRect()
+    const cv = NV.drawScenery(src.spot, src.city, Math.max(2, rect.width), Math.max(2, rect.height))
+    const tex = new THREE.CanvasTexture(cv)
+    tex.colorSpace = THREE.SRGBColorSpace
+    if (this._sceneryTex) { try { this._sceneryTex.dispose() } catch { /* 忽略 */ } }
+    this._sceneryTex = tex
+    this.scene.background = tex
     return true
+  }
+
+  /**
+   * 举牌。3D 这边贴一块带 canvas 纹理的平面到模型旁边。
+   * 平面始终朝向相机（billboard），否则从侧面看就成一条线了。
+   */
+  setPlacard(text, opts = {}) {
+    if (!this.scene) return false
+    this.clearPlacard()
+    const label = String(text || '').trim()
+    if (!label) return false
+    const NV = window.WenlvNavVisuals
+    if (!NV) return false
+
+    const cv = NV.drawPlacard(label, opts)
+    const tex = new THREE.CanvasTexture(cv)
+    tex.colorSpace = THREE.SRGBColorSpace
+    // 300×170 的牌面 + 130 的杆，平面按同样的比例，字才不变形
+    const W = 0.55
+    const H = W * (cv.height / cv.width)
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(W, H),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }),
+    )
+    mesh.renderOrder = 20
+    // 贴在模型右上方。模型是高矮不一的，所以按 targetHeight 换算，别写死绝对坐标
+    mesh.position.set(0.62, this.modelBaseY + TARGET_HEIGHT * 0.86, 0.35)
+    this.scene.add(mesh)
+    this._placardMesh = mesh
+    this.placard = { mesh, text: label, tex, w: cv.width, h: cv.height }
+    return true
+  }
+
+  clearPlacard() {
+    if (this._placardMesh && this.scene) {
+      try {
+        this.scene.remove(this._placardMesh)
+        this._placardMesh.geometry.dispose()
+        if (this._placardMesh.material.map) this._placardMesh.material.map.dispose()
+        this._placardMesh.material.dispose()
+      } catch { /* 忽略 */ }
+    }
+    this._placardMesh = null
+    this.placard = null
+  }
+
+  /** 牌子朝向相机：3D 里不这么做，视角一转牌子就成了一条线 */
+  _facePlacardToCamera() {
+    if (!this._placardMesh || !this.camera) return
+    this._placardMesh.quaternion.copy(this.camera.quaternion)
   }
 
   /** 用音频驱动口型：读实时频谱能量 -> aa 表情 */
@@ -397,6 +640,13 @@ export class ThreeDStage {
       const dt = Math.min(this.clock.getDelta(), 0.05)
       const now = performance.now()
 
+      // ---- 全景模式：相机固定在球心、只改朝向，人物那套逻辑整段跳过 ----
+      if (this.mode === 'panorama' && this.pano) {
+        this.pano.applyToCamera(this.camera)
+        this.renderer.render(this.scene, this.camera)
+        return
+      }
+
       if (this.model) {
         // ---- 视线跟随：把目标点挪到鼠标方位 ----
         if (this.lookTarget) {
@@ -410,11 +660,25 @@ export class ThreeDStage {
         }
 
         // ---- 待机呼吸：整体轻微上下 + 侧向摆动（不依赖外部动画文件）----
-        this.idlePhase += dt * 1.15
-        const breath = Math.sin(this.idlePhase) * 0.006
-        const sway = Math.sin(this.idlePhase * 0.5) * 0.012
-        this.model.position.y = this.modelBaseY + breath
-        this.model.rotation.z = sway
+        // 关掉待机时要把之前写进去的偏移归零，否则模型会停在半空中歪着
+        if (this.idleOn) {
+          this.idlePhase += dt * 1.15
+          this.model.position.y = this.modelBaseY + Math.sin(this.idlePhase) * 0.006
+          this.model.rotation.z = Math.sin(this.idlePhase * 0.5) * 0.012
+
+          // 「待机时的动作」：隔一阵自己抽一个动画播，别一直杵着
+          if (now >= this._nextIdleMotionAt) {
+            this._nextIdleMotionAt = now + this._idleMotionEvery * (0.7 + Math.random() * 0.6)
+            const clips = this.animations || []
+            if (clips.length && !this.analyser) {
+              this.playMotion('clip', Math.floor(Math.random() * clips.length))
+            }
+          }
+        } else {
+          this.model.position.y = this.modelBaseY
+          this.model.rotation.z = 0
+        }
+
         // 点头：在 nodUntil 内做一个阻尼正弦，结束后归零
         if (now < this.nodUntil) {
           const p = 1 - (this.nodUntil - now) / 900
@@ -456,12 +720,171 @@ export class ThreeDStage {
         }
       }
 
+      // 播放 glTF 动画（Blender 导出的移动动画走这条）
+      if (this.mixer) {
+        try { this.mixer.update(dt) } catch { /* 动画异常不该打断渲染 */ }
+      }
+
       if (this.vrm && this.vrm.update) {
         try { this.vrm.update(dt) } catch { /* 单个模型的骨骼异常不该打断整帧 */ }
       }
+      // 牌子每帧转向相机，否则视角一动它就成一条线了
+      if (this._placardMesh) this._facePlacardToCamera()
       this.renderer.render(this.scene, this.camera)
     }
     step()
+  }
+
+  /**
+   * 地理标记：在角色脚下的地面上画一个指北环 + 指向景点的箭头。
+   *
+   * 为什么贴地画、而不是在角色旁边竖一个图钉：
+   *   ① 相机是按身高取景的，往旁边放很容易出画（尤其窄屏）；
+   *   ② "往哪个方向走"本来就是地面上的信息，贴在脚下最直观。
+   * 距离与景点名由页面上的 HUD 文字承担 —— three.js 里画中文要加载字体，
+   * 为一行字多下几百 KB 不值得。
+   *
+   * 方位角约定：0° 正北 = -Z，90° 正东 = +X，与地理方位一致。
+   *
+   * @param {{bearingDeg:number,label:string,distanceText:string}|null} info 传 null 清除标记
+   */
+  setGeoMarker(info) {
+    if (!this.scene) return
+
+    // 清除
+    if (!info || !Number.isFinite(info.bearingDeg)) {
+      if (this.geoMarker) {
+        this.scene.remove(this.geoMarker)
+        this._disposeObject(this.geoMarker)
+        this.geoMarker = null
+      }
+      return
+    }
+
+    if (!this.geoMarker) {
+      const g = new THREE.Group()
+      g.name = 'geo-marker'
+
+      // 指北环：贴地的细圆环，给箭头一个"参照系"
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.55, 0.008, 8, 64),
+        new THREE.MeshBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.55 }),
+      )
+      ring.rotation.x = -Math.PI / 2
+      ring.position.y = 0.004
+      g.add(ring)
+
+      // 方位箭头：一个朝 -Z 的小圆锥，整体绕 Y 旋转到目标方位
+      const arrow = new THREE.Mesh(
+        new THREE.ConeGeometry(0.055, 0.16, 12),
+        new THREE.MeshBasicMaterial({ color: 0xffcf70 }),
+      )
+      // 圆锥默认朝 +Y，先转成朝 -Z（即"北"），再由外层 group 旋转到实际方位
+      arrow.rotation.x = -Math.PI / 2
+      arrow.position.set(0, 0.02, -0.55)
+      g.add(arrow)
+
+      // 四个正方向的小刻度，让人能看出环的朝向
+      const tickMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 })
+      for (let i = 0; i < 4; i++) {
+        const tick = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.004, i === 0 ? 0.09 : 0.05), tickMat)
+        const a = (i * Math.PI) / 2
+        tick.position.set(Math.sin(a) * 0.55, 0.004, -Math.cos(a) * 0.55)
+        tick.rotation.y = -a
+        g.add(tick)
+      }
+
+      this.geoMarker = g
+      this.scene.add(g)
+    }
+
+    // bearing 0°(北) → -Z：绕 Y 转 -θ 即可（three.js 绕 Y 正转会把 -Z 转向 -X 方向）
+    this.geoMarker.rotation.y = -(info.bearingDeg * Math.PI) / 180
+  }
+
+  /** 递归释放几何体与材质，避免反复切形象时显存泄漏 */
+  _disposeObject(obj) {
+    obj.traverse((o) => {
+      if (o.geometry) { try { o.geometry.dispose() } catch { /* 忽略 */ } }
+      if (o.material) {
+        const mats = Array.isArray(o.material) ? o.material : [o.material]
+        for (const m of mats) { try { m.dispose() } catch { /* 忽略 */ } }
+      }
+    })
+  }
+
+  /* ========================================================================
+   * 景区全景模式
+   * ======================================================================*/
+
+  /**
+   * 用一张等距柱状全景图构建景区场景。
+   *
+   * @param {object} o
+   * @param {string} [o.url]      全景图地址（走 /api/pano/image/:id）
+   * @param {string} [o.depthUrl] 深度高度图地址；给了就做起伏浮雕，没给就是普通环境球
+   * @param {HTMLCanvasElement} [o.canvas] 也可以是现成的画布（程序化生成的全景走这条）
+   */
+  async buildPanorama({ url, depthUrl, canvas, label = '', sourceKind = 'unknown' } = {}) {
+    if (!this.scene) await this.init()
+    if (!this.pano) this.pano = new PanoramaScene()
+
+    if (url) await this.pano.setPanoramaUrl(url, { label, sourceKind })
+    else if (canvas) await this.pano.setPanoramaSource(canvas, { label, sourceKind })
+    else throw new Error('buildPanorama 需要 url 或 canvas')
+
+    let depthError = null
+    if (depthUrl) {
+      try {
+        await this.pano.setDepthUrl(depthUrl)
+      } catch (e) {
+        // 深度拿不到不该让整个场景失败：退化成普通环境球，并把原因带回去给界面
+        this.pano.clearDepth()
+        depthError = e.message
+      }
+    } else {
+      this.pano.clearDepth()
+    }
+
+    if (!this._panoAdded) {
+      this.scene.add(this.pano.group)
+      this._panoAdded = true
+    }
+    this.enterPanorama()
+    return { ...(this.pano.report || {}), depthError, label, sourceKind }
+  }
+
+  enterPanorama() {
+    if (!this.pano || !this.pano.ready) return false
+    this.mode = 'panorama'
+    if (this.model) this.model.visible = false
+    if (this.geoMarker) this.geoMarker.visible = false
+    if (this.camera) {
+      // 人物像是 30° 的窄视场（把人拍满），环视要用 70° 的宽视场，
+      // 否则站在球心里看什么都像望远镜。
+      this.camera.fov = 70
+      this.camera.near = 0.1
+      this.camera.far = 300
+      this.camera.updateProjectionMatrix()
+    }
+    return true
+  }
+
+  exitPanorama() {
+    this.mode = 'character'
+    if (this.model) this.model.visible = true
+    if (this.geoMarker) this.geoMarker.visible = true
+    this._frameCamera()
+    return true
+  }
+
+  disposePanorama() {
+    if (this.pano) {
+      if (this._panoAdded) { this.scene.remove(this.pano.group); this._panoAdded = false }
+      this.pano.dispose()
+      this.pano = null
+    }
+    this.exitPanorama()
   }
 
   destroy() {
@@ -470,6 +893,10 @@ export class ThreeDStage {
     if (this.resizeRaf) cancelAnimationFrame(this.resizeRaf)
     if (this.ro) { try { this.ro.disconnect() } catch { /* 忽略 */ } }
     clearTimeout(this._exprTimer)
+    if (this.geoMarker) { this._disposeObject(this.geoMarker); this.geoMarker = null }
+    this.clearPlacard()
+    if (this._sceneryTex) { try { this._sceneryTex.dispose() } catch { /* 忽略 */ } }
+    this._sceneryTex = null
     this._unload()
     if (this.renderer) { try { this.renderer.dispose() } catch { /* 忽略 */ } }
     this.ready = false

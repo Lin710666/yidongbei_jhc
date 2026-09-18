@@ -31,9 +31,15 @@
   }
 
   class BackgroundManager {
-    constructor({ imageEl, canvasEl }) {
+    constructor({ imageEl, canvasEl, videoEl }) {
       this.imageEl = imageEl;
       this.canvasEl = canvasEl;
+      // 视频背景：西湖美景那类实拍素材。
+      // 用真正的 <video>（而不是把视频画进 canvas）有三个好处：
+      //   · 交给浏览器的硬解码器，4K 视频也不吃主线程
+      //   · 不需要把整段视频解进内存，长视频也能用
+      //   · `object-fit: cover` 直接就把"铺满且不变形"做掉了
+      this.videoEl = videoEl || null;
       this.ctx = canvasEl.getContext('2d', { alpha: true });
       this.current = null;
       this.raf = null;
@@ -72,8 +78,15 @@
       }
       document.addEventListener('visibilitychange', () => {
         this.paused = document.hidden;
-        if (this.paused) this._stop();
-        else if (this.current && this.current.kind === 'procedural') this._start();
+        if (this.paused) {
+          this._stop();
+          this._stopVideo();
+        } else if (this.current && this.current.kind === 'video') {
+          // 回到前台要接着播 —— video 元素被 pause 之后不会自己恢复
+          this._setVideo(this.current.url);
+        } else if (this.current && this.current.kind === 'procedural') {
+          this._start();
+        }
       });
     }
 
@@ -103,6 +116,18 @@
       this._stop();
       this.ctx.clearRect(0, 0, this.w, this.h);
 
+      if (this.current.kind === 'video' && this.videoEl) {
+        // 视频铺：canvas 与 <img> 都让开
+        this.canvasEl.style.opacity = '0';
+        this.imageEl.style.opacity = '0';
+        this.imageEl.removeAttribute('src');
+        this._setVideo(this.current.url);
+        return;
+      }
+      // 从视频切走时要把视频停掉 —— 只把 opacity 设成 0 的话，
+      // 它还在后台解码播放，白烧 CPU/GPU（大屏上尤其明显）
+      this._stopVideo();
+
       if (this.current.kind === 'image') {
         // 图片交给 <img> 铺，canvas 完全让开，省一次绘制
         this.canvasEl.style.opacity = '0';
@@ -117,6 +142,40 @@
       this._seedParticles();
       if (prefersReduced()) { this._drawOnce(0); return; }
       this._start();
+    }
+
+    /* ---------------- 视频背景 ---------------- */
+
+    /** 装载并播放一个视频；同一个地址不重复重载（重载会闪一下黑） */
+    _setVideo(url) {
+      const v = this.videoEl;
+      if (!v || !url) return;
+      if (this._videoUrl !== url) {
+        this._videoUrl = url;
+        v.src = url;
+        try { v.load(); } catch { /* 个别浏览器对空 src 会抛，忽略 */ }
+      }
+      v.style.opacity = '1';
+      // 尊重"减少动态效果"：把首帧停在那儿当静态背景用，而不是让它在旁边转
+      if (prefersReduced()) {
+        try { v.pause(); v.currentTime = 0; } catch { /* 忽略 */ }
+        return;
+      }
+      // 自动播放策略：必须 muted（已在 HTML 上设好），否则浏览器会拒绝 play()
+      const p = v.play();
+      if (p && p.catch) {
+        p.catch((e) => {
+          // 真被拒了也别让用户对着一片黑：报一声，并回落到当前已有的画面
+          console.warn('[backgrounds] 视频背景自动播放被拒绝：', e && e.message);
+        });
+      }
+    }
+
+    _stopVideo() {
+      const v = this.videoEl;
+      if (!v) return;
+      try { v.pause(); } catch { /* 忽略 */ }
+      v.style.opacity = '0';
     }
 
     /** 跟随角色卡主色：只换调色板，不换形状 */
@@ -199,6 +258,21 @@
     }
 
     /* ---------------- 各个程序化背景 ---------------- */
+
+    /**
+     * 西湖美景（本项目默认背景）。
+     *
+     * 绘制逻辑放在 public/js/lake.js 里，因为它和「西湖船娘」形象是同一条主题线上
+     * 的东西（同一套配色、同一份对西湖的理解），分成两处迟早会漂移。
+     *
+     * 这一条的存在意义：用户手上还没有西湖宣传片时，背景不能是一片黑 ——
+     * 程序化画出来的西湖动态画面就是这个位置上的兜底，而且它完全离线、不吃素材。
+     */
+    _lake(ctx, w, h, _palette, t) {
+      if (window.WenlvLake && window.WenlvLake.drawLakeScene) {
+        window.WenlvLake.drawLakeScene(ctx, w, h, t, '西湖');
+      }
+    }
 
     /** 极光渐变：几个大色斑缓慢漂移 + 叠加发光（对应 AIRI 的默认色相流动） */
     _aurora(ctx, w, h, p, t) {
@@ -458,6 +532,12 @@
 
     destroy() {
       this._stop();
+      this._stopVideo();
+      if (this.videoEl) {
+        // 清 src 并重新 load，才能真正把解码器与网络请求放掉。
+        // 只 pause 的话，某些浏览器会一直攥着这段视频的缓冲。
+        try { this.videoEl.removeAttribute('src'); this.videoEl.load(); } catch { /* 忽略 */ }
+      }
       window.removeEventListener('resize', this._onResize);
       clearTimeout(this._resizeTimer);
       if (this._ro) { this._ro.disconnect(); this._ro = null; }

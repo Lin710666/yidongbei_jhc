@@ -1,0 +1,55 @@
+# ============================================================================
+# 文旅智能辅助 · Python 侧依赖
+# ============================================================================
+#
+# **Node 侧是零第三方依赖的**（package.json 的 dependencies 是空的，
+# 整个服务只用 Node 内置模块）—— 这是本项目的核心设计，不是疏忽。
+# 所以这份文件只列"可选功能"需要的 Python 包。
+#
+# 安装（国内建议用镜像，直接走 pypi.org 常常很慢）：
+#     tools\py\Scripts\python.exe -m pip install -r requirements.txt ^
+#         -i https://pypi.tuna.tsinghua.edu.cn/simple
+#
+# Android/无 GPU 机器上也装得上，只是这些功能会很慢。
+# 一个都不装也能跑：对话、角色卡、记忆、TTS、导航、形象展示全部照常，
+# 只是「深度估计 / 图片转 3D / 本地听觉」三个折叠区会提示缺包。
+#
+# 不想手动敲命令的话，直接双击根目录的「一键部署.bat」。
+# ============================================================================
+
+# ---- 所有 Python 功能都要的基础 ----
+numpy>=1.24,<3
+Pillow>=10.0
+
+# ---- 深度估计（外观 → 全景/深度，tools/depth-worker.py）----
+# Depth-Anything-V2-Small，约 95MB 权重，用 npm run fetch:depth 下载
+torch>=2.0
+transformers>=4.37
+
+# ---- 图片转 3D（外观 → 图片转 3D，tools/triposr-worker.py）----
+# TripoSR 权重约 1.6GB，用 npm run fetch:triposr 下载
+# rembg 会拉 onnxruntime，装完第一次跑要下 u2net 模型（约 170MB）
+rembg>=2.0
+trimesh>=4.0
+mcubes>=0.1.4
+# torchmcubes 在 PyPI 上没有预编译包（Windows 下 pip install torchmcubes 会报
+# No matching distribution），需要自己编译（要 MSVC）。
+# 所以它**故意不列在这里** —— 见 README「已知限制」。
+# 没有它时，图片转 3D 会走降级路径（不平滑），仍能出模型。
+
+# ---- 本地听觉（声音 → 听觉，tools/stt-worker.py）----
+# Whisper 权重约 926MB，用 npm run fetch:whisper 下载
+# **默认关闭**，需要在「🔊 声音」页手动打开（隐私决定权交给用户）
+librosa>=0.10
+soundfile>=0.12
+
+# ---- 从 B 站下载开屏背景视频（tools/fetch-bili-video.js）----
+# 高清是音视频分离的，合并必须要 ffmpeg。
+# imageio-ffmpeg 自带一份静态二进制（约 83MB），省得用户自己配环境变量。
+yt-dlp>=2024.0
+imageio-ffmpeg>=0.4
+
+# ---- 注意：bpy 不在这个列表里 ----
+# Blender 动画功能（tools/blender-anim.py）用的 bpy 由 Blender 自带，
+# 不通过 pip 安装。它由 tools/start-blender.js 通过 MCP 插件驱动，
+# 前提是本机装了 Blender 并启用「MCP for Blender」插件。

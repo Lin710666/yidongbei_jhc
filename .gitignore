@@ -16,6 +16,17 @@ public/models/*
 public/models3d/*
 !public/models3d/README.md
 
+# 深度模型权重（约 95MB）：由 tools/fetch-depth-model.js 下载，不入库
+models/depth-anything-v2-small/
+models/
+!models/README.md
+
+# 图片转 3D 的 TripoSR 权重（约 1.6GB）：由 tools/fetch-triposr.js 下载
+models/triposr/
+
+# 项目内的 Python venv（跑深度与图生 3D 用）：体积大、平台绑定，不入库
+tools/py/
+
 # 技能包打包产物
 *.skill
 
@@ -25,3 +36,15 @@ public/models3d/*
 .DS_Store
 Thumbs.db
 *.log
+
+# Python 字节码缓存：每次跑 worker 都会重新生成，属于产物不属于源码
+__pycache__/
+*.pyc
+*.pyo
+
+# 调试用的临时脚本（约定以 .dbg- 开头），不属于交付物
+tools/.dbg-*
+.dbg-*
+
+# 本机 TTS 的路径记录（由 tools/find-tts.ps1 生成）
+qwen-tts-home.txt

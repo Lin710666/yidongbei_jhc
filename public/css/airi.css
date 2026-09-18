@@ -63,6 +63,28 @@
 }
 
 * { box-sizing: border-box; }
+
+/**
+ * `[hidden]` 必须能压住任何作者样式。
+ *
+ * 项目里这个坑已经踩了**四次**：.stage-empty、.wc-word、.result-card，
+ * 以及后来的 .boot。规律是一样的：
+ *
+ *   给元素写了 `display: grid/flex/block` 之后，UA 样式表里的
+ *   `[hidden] { display: none }` 就被顶掉了（作者样式优先于 UA 样式），
+ *   于是 JS 里 `el.hidden = true` 只是改了个属性，元素**照样显示**。
+ *
+ * 表现极具迷惑性：
+ *   · 开屏关不掉，一直盖在 z-index 2000 上 —— 用户"进不去功能页"
+ *   · 或者一块空的结果卡浮在中间
+ * 而且用 `el.hidden` 去断言是**测不出来**的（属性确实是 true），
+ * 必须查 getComputedStyle 或做命中测试（见 test/verify-cdp.js）。
+ *
+ * 所以这里统一兜住：与其每加一个浮层就记得补一条 `xxx[hidden]`，
+ * 不如让 `[hidden]` 成为一条不可覆盖的硬规则。
+ */
+[hidden] { display: none !important; }
+
 html, body { height: 100%; }
 body {
   margin: 0;
@@ -209,6 +231,23 @@ body::before {
 }
 /* 背景层：图片与 canvas 同时存在，靠 opacity 切换，避免换背景时闪白 */
 .stage-bg { position: absolute; inset: 0; z-index: 0; overflow: hidden; }
+
+/* ---- 主界面背景视频：与开屏共用同一套「画面模式」----
+ *
+ * 开屏和主界面的片源常常是同一个文件，画面比例问题也一模一样，
+ * 所以两边用同一个设置、同一套公式（body 上的 data-vfit 由 app.js 同步）。
+ * 公式细节见下面开屏那段注释：三种模式分别是"铺满裁剪 / 完整显示 / 逆时针转 90°"，
+ * 旋转模式的宽高公式是反的（转完宽高互换）。 */
+#bg-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+body[data-vfit="auto"] #bg-video { object-fit: contain; }
+body[data-vfit="rotate"] #bg-video {
+  inset: auto; top: 50%; left: 50%;
+  width: max(100vh, calc(100vw * 9 / 16));
+  height: max(100vw, calc(100vh * 16 / 9));
+  transform: translate(-50%, -50%) rotate(-90deg);
+  object-fit: cover;
+}
+
 .stage-bg::after {
   /* 压一层极淡的暗角 + 底部渐变，让词云与字幕在任何背景上都读得清 */
   content: ""; position: absolute; inset: 0; pointer-events: none;
@@ -216,16 +255,23 @@ body::before {
     radial-gradient(70% 70% at 50% 45%, transparent 40%, rgb(0 0 0 / 0.28) 100%),
     linear-gradient(180deg, rgb(0 0 0 / 0.22) 0%, transparent 18%, transparent 74%, rgb(0 0 0 / 0.38) 100%);
 }
-.stage-bg img, .stage-bg canvas {
+.stage-bg img, .stage-bg canvas, .stage-bg video {
   position: absolute; inset: 0; width: 100%; height: 100%;
   object-fit: cover; display: block;
   transition: opacity 420ms var(--ease);
 }
 #bg-image { opacity: 0; }
 #bg-canvas { opacity: 1; }
+/* 视频背景默认透明且不吃指针事件（它是纯背景，不该拦住舞台上的点击） */
+#bg-video { opacity: 0; pointer-events: none; background: #000; }
 
-#live2d-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; z-index: 1; }
-/* 3D 舞台与 Live2D 画布互斥显示：谁来渲染就显示谁。默认隐藏，由 JS 切 */
+/* 舞台三块画布互斥显示：谁来渲染就显示谁，其余 none。
+   #live2d-canvas 与 #lake-canvas 初始都给 none，由 showCanvas() 按当前形象决定 ——
+   默认形象是西湖船娘，所以真正显示的是 #lake-canvas。 */
+#live2d-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: none; z-index: 1; }
+/* 西湖船娘（2D 绘制）。与 Live2D 分开是因为一块 canvas 只能有一种绘图上下文 */
+#lake-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; z-index: 1; }
+/* 3D 舞台与上面两块互斥显示，默认隐藏 */
 #stage3d-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: none; z-index: 1; }
 #wordcloud-layer { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
 #wordcloud-layer .wc-word { pointer-events: auto; }
@@ -352,6 +398,115 @@ body::before {
 .subtitle-close:hover { background: var(--surface-hover); color: var(--text); }
 /* 打字机光标：字幕正在流式增长时显示 */
 .subtitle-text.typing::after { content: "▍"; color: var(--primary); animation: blink 1s step-end infinite; }
+
+/* ---------- 位置 HUD（② 位置功能）----------
+   放在舞台左上角：右下角是输入区与结果卡，底部是字幕条，左上只有顶栏，
+   这个位置最不容易和既有浮层打架（那是踩过坑的地方，见 README 的"三层浮层"说明）。 */
+.geo-hud {
+  position: absolute; left: 14px; top: 58px;
+  z-index: 6;
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: rgb(14 16 18 / 0.78);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: var(--shadow);
+  max-width: min(320px, 52%);
+  animation: geo-in 260ms var(--ease);
+}
+@keyframes geo-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+/* 罗盘：外圈固定，内圈箭头按方位角旋转（角度由 JS 写进 --bearing） */
+.geo-compass {
+  flex: none; position: relative;
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: rgb(255 255 255 / 0.04);
+}
+.geo-compass::after {
+  /* 正北刻度：一个小三角，给旋转的箭头提供参照 */
+  content: ""; position: absolute; left: 50%; top: 2px;
+  width: 0; height: 0; transform: translateX(-50%);
+  border-left: 3px solid transparent; border-right: 3px solid transparent;
+  border-top: 5px solid var(--complementary);
+}
+.geo-arrow {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%) rotate(var(--bearing, 0deg));
+  transform-origin: 50% 50%;
+  font-size: 13px; line-height: 1; color: var(--tertiary);
+  transition: transform 420ms var(--ease);
+}
+.geo-text { min-width: 0; }
+.geo-title { font-size: 12.5px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.geo-sub { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+.geo-close {
+  flex: none; width: 20px; height: 20px; border-radius: 50%;
+  border: none; background: transparent; color: var(--text-dim);
+  cursor: pointer; font-size: 10px; line-height: 1; align-self: flex-start;
+}
+.geo-close:hover { background: var(--surface-hover); color: var(--text); }
+
+/* ---------- 导航模式操作条 ----------
+   放在左下角，避开顶部工具条与左上角的位置 HUD —— 三者会同时出现
+   （位置 HUD 显示"你在哪"，这一条显示"要去哪"）。 */
+.nav-bar {
+  position: absolute; left: 14px; bottom: 88px;
+  z-index: 6;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: rgb(14 16 18 / 0.82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: var(--shadow);
+  max-width: min(400px, 62%);
+  animation: geo-in 260ms var(--ease);
+}
+.nav-row { display: flex; align-items: center; gap: 8px; }
+.nav-label { flex: none; font-size: 11.5px; color: var(--text-dim); }
+.nav-input, .nav-select {
+  flex: 1 1 auto; min-width: 0;
+  padding: 5px 9px;
+  font: inherit; font-size: 12px;
+  color: var(--text);
+  background: rgb(255 255 255 / 0.05);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  outline: none;
+}
+.nav-input:focus, .nav-select:focus { border-color: var(--tertiary); }
+.nav-hint { font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+.nav-hint.warn { color: var(--tertiary); }
+
+/* ---------- 全景环视模式提示 ---------- */
+.pano-hint {
+  position: absolute; left: 50%; top: 58px; transform: translateX(-50%);
+  z-index: 7;
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: rgb(14 16 18 / 0.82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: var(--shadow);
+  font-size: 12px; color: var(--text-dim);
+  cursor: pointer;
+  animation: geo-in 260ms var(--ease);
+}
+.pano-hint b { color: var(--primary); font-weight: 600; }
+.pano-hint:hover { background: rgb(20 24 28 / 0.92); }
+
+/* 窄屏下把 HUD 收到字幕条上方，避免和顶栏挤在一起 */
+@media (max-width: 720px) {
+  .geo-hud { left: 8px; top: 52px; max-width: 66%; padding: 6px 8px 6px 10px; }
+  .geo-compass { width: 28px; height: 28px; }
+  .pano-hint { top: 52px; font-size: 11px; padding: 6px 10px; }
+}
 
 /* 原来的 .bubble 浮动气泡与 .wc-bar 词云工具条已移除：
    气泡改成底部字幕条 .subtitle，工具条并进顶部 .stage-top，
@@ -878,6 +1033,28 @@ body.wc-result #wordcloud-layer { opacity: 0; pointer-events: none; }
 }
 .pick-card:hover .pick-del { opacity: 1; }
 .pick-card .pick-del:hover { background: var(--err); }
+
+/* ---- 视频卡片：真缩略图 + 两个"设为背景"的动作 ----
+ *
+ * 缩略图直接用 <video> 取第 1.2 秒那一帧（preload=metadata 只拉头部，不下整片）。
+ * 原来每张卡只是一枚 🎬 图标，而用户是在几张宣传片里挑 —— 看不到画面等于盲选。
+ * 卡片本体不再是 <button>：里面还有按钮，按钮套按钮在 HTML 里是非法的。 */
+.pick-card-video { display: flex; flex-direction: column; }
+.pick-card-video .pick-img {
+  aspect-ratio: 16 / 9; overflow: hidden;
+  display: block; padding: 0; background: #0d1418;
+}
+.pick-video-thumb {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.pick-card-video .pick-name,
+.pick-card-video .pick-note { padding: 0 8px; }
+.pick-card-video .pick-name { margin-top: 7px; }
+.pick-video-actions {
+  display: flex; gap: 5px; padding: 7px 8px 9px; margin-top: auto;
+  border-top: 1px solid rgb(255 255 255 / 0.07);
+}
+.pick-video-actions .mini-btn { flex: 1; min-width: 0; padding: 5px 4px; font-size: 11.5px; }
 .pick-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
 .pick-hint { font-size: 11.5px; color: var(--text-dim); line-height: 1.6; margin-bottom: 14px; }
 .pick-hint code { font-family: var(--font-mono); font-size: 11px; background: rgb(0 0 0 / 0.35); padding: 1px 5px; border-radius: 4px; }
@@ -1185,8 +1362,561 @@ body.wc-full .side { visibility: hidden; }
   .brand-sub, .status-pill span.lbl { display: none; }
 }
 
+/* ============================================================================
+ * 开屏（两套模板：视频主页 / 形象主页）
+ *
+ * 单独一段放在文件末尾，因为它是一套**并列的完整界面**，跟主界面没有共享的
+ * 布局关系 —— 插在中间只会打断主界面那部分的阅读。
+ * ==========================================================================*/
+
+.boot {
+  position: fixed; inset: 0; z-index: 2000;
+  display: grid; place-items: center;
+  /* 模板 B 要让底下的真实舞台露出来，所以底色由各模板自己决定 */
+  background: transparent;
+}
+/* 必须显式写这一条：上面那句 `display: grid` 会**顶掉** UA 样式表里
+   `[hidden] { display: none }`（作者样式优先级更高），于是 JS 里设了
+   `root.hidden = true` 也只是改了个属性，元素照样盖在最上层 ——
+   表现就是"跳转后开屏不消失、界面叠在一起"。
+   项目里 .stage-empty / .wc-word / .result-card 都踩过同一个坑，
+   各写了同样的一行，这里补上。 */
+.boot[hidden] { display: none !important; }
+
+/* ---------------- 背景媒体 ---------------- */
+
+.boot-media { position: absolute; inset: 0; overflow: hidden; background: #0a0f12; }
+.boot-media video, .boot-media canvas {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; display: block;
+  transition: opacity 520ms var(--ease);
+}
+
+/* 注意：上面那条 `.boot-media video` 的优先级是 (0,1,1)，比单纯的 `.boot-video`(0,1,0) 高。
+ * 所以下面覆盖 object-fit 时必须也带上 `.boot-media` 这一层，否则写了不生效 ——
+ * 实际踩过：竖屏片源被 cover 放大裁切，整屏只剩一团模糊漩涡。 */
+.boot-media .boot-video { object-fit: contain; }
+.boot-video { opacity: 1; }
+/* ==========================================================================
+ * 定位导航：舞台小卡片 + 整页导航
+ *
+ * 原来是让形象举一块大木牌来表示"当前目标景点"。实测太抢戏：牌子比人物还显眼、
+ * 挡住风景，而且人物的手并没有真的抬起来托住它，看着像贴上去的。
+ * 现在分成两层：
+ *   .nav-mini  —— 舞台右下角一张小卡片，只留"去哪 / 多远 / 往哪走"
+ *   .navpage   —— 点开之后的整页导航（地图 + 附近景点 + 方位 + 跳转真导航）
+ * ========================================================================*/
+
+.nav-mini {
+  position: absolute; right: 18px; bottom: 74px; z-index: 7;
+  display: flex; align-items: stretch; gap: 0;
+  max-width: 340px;
+  background: rgb(12 18 22 / 0.86);
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.4);
+  overflow: hidden;
+}
+.nav-mini-open {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; cursor: pointer; text-align: left;
+  background: none; border: 0; color: var(--text); font: inherit;
+  flex: 1; min-width: 0;
+}
+.nav-mini-open:hover { background: rgb(255 255 255 / 0.06); }
+.nav-mini-dir {
+  flex: none; width: 28px; height: 28px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 15px;
+  background: rgb(232 176 74 / 0.18); color: #e8b04a;
+  transition: transform 300ms var(--ease);
+}
+.nav-mini-text { display: flex; flex-direction: column; min-width: 0; }
+.nav-mini-text b { font-size: 13px; font-weight: 600; }
+.nav-mini-text i {
+  font-style: normal; font-size: 11.5px; color: var(--text-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.nav-mini-go { flex: none; font-size: 11.5px; color: var(--accent); }
+.nav-mini-x {
+  flex: none; width: 30px; background: none; border: 0; cursor: pointer;
+  color: var(--text-dim); font-size: 12px;
+}
+.nav-mini-x:hover { color: var(--text); background: rgb(255 255 255 / 0.06); }
+
+/* ---------------- 整页导航 ---------------- */
+
+.navpage {
+  position: fixed; inset: 0; z-index: 2400;
+  display: flex; flex-direction: column;
+  background: #0a1014;
+  animation: navpageIn 260ms var(--ease);
+}
+@keyframes navpageIn { from { opacity: 0; transform: scale(0.99); } to { opacity: 1; transform: none; } }
+body.navpage-open { overflow: hidden; }
+
+.navpage-head {
+  flex: none; display: flex; align-items: center; justify-content: space-between;
+  gap: 14px; padding: 14px 20px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.09);
+  background: rgb(10 16 20 / 0.9);
+}
+.navpage-kicker { font-size: 11.5px; color: var(--text-dim); letter-spacing: .12em; }
+.navpage-title h2 { margin: 2px 0 0; font-size: 19px; font-weight: 650; }
+.navpage-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.navpage-body { flex: 1; display: grid; grid-template-columns: 1fr 360px; min-height: 0; }
+
+.navpage-map-wrap { position: relative; min-width: 0; background: #0d1418; }
+.navpage-map { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+.navpage-map:active { cursor: grabbing; }
+.navpage-zoom {
+  position: absolute; right: 14px; top: 14px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.navpage-zoom button {
+  width: 34px; height: 34px; border-radius: 9px; cursor: pointer;
+  background: rgb(12 18 22 / 0.9); color: var(--text);
+  border: 1px solid rgb(255 255 255 / 0.16); font-size: 16px; line-height: 1;
+}
+.navpage-zoom button:hover { background: rgb(30 42 50 / 0.95); }
+.navpage-status {
+  position: absolute; left: 14px; bottom: 14px; right: 70px;
+  padding: 9px 12px; border-radius: 9px; font-size: 12.5px;
+  background: rgb(10 16 20 / 0.88); border: 1px solid rgb(255 255 255 / 0.12);
+}
+
+.navpage-side {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 14px; overflow-y: auto;
+  border-left: 1px solid rgb(255 255 255 / 0.09);
+  background: #0c1317;
+}
+.nphere, .npnav {
+  padding: 12px; border-radius: 11px;
+  background: rgb(255 255 255 / 0.045);
+  border: 1px solid rgb(255 255 255 / 0.09);
+}
+.nphere-label { font-size: 11.5px; color: var(--text-dim); }
+.nphere-value { font-size: 14px; font-weight: 600; margin-top: 3px; word-break: break-all; }
+.nphere-src { font-size: 11.5px; color: var(--text-dim); margin-top: 3px; }
+
+.npnav { display: grid; grid-template-columns: 54px 1fr; gap: 10px; align-items: start; }
+.npnav-arrow {
+  grid-row: span 2;
+  width: 48px; height: 48px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 24px;
+  background: rgb(232 176 74 / 0.16); color: #e8b04a;
+  transition: transform 420ms var(--ease);
+}
+.npnav-name { font-size: 15px; font-weight: 650; }
+.npnav-meta { font-size: 12.5px; color: var(--text-dim); line-height: 1.65; margin-top: 3px; }
+.npdeg { color: var(--text); }
+.npwarn { color: #e8a04a; }
+.npnav-links { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.npbtn {
+  padding: 6px 11px; border-radius: 8px; font-size: 12.5px; text-decoration: none;
+  color: var(--text); background: rgb(255 255 255 / 0.07);
+  border: 1px solid rgb(255 255 255 / 0.14);
+}
+.npbtn:hover { background: rgb(255 255 255 / 0.14); }
+
+.nplist-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 12.5px; color: var(--text-dim);
+}
+.nplist { display: flex; flex-direction: column; gap: 6px; }
+.npitem {
+  display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; align-items: center;
+  padding: 9px 11px; border-radius: 9px; cursor: pointer; text-align: left;
+  background: rgb(255 255 255 / 0.04); border: 1px solid rgb(255 255 255 / 0.08);
+  color: var(--text); font: inherit;
+}
+.npitem:hover { background: rgb(255 255 255 / 0.09); }
+.npitem.active { border-color: rgb(232 176 74 / 0.6); background: rgb(232 176 74 / 0.12); }
+.npitem-name { font-size: 13px; font-weight: 600; }
+.npitem-city { font-size: 11px; color: var(--text-dim); }
+.npitem-dist { font-size: 12.5px; color: var(--accent); }
+.npitem-dir { font-size: 11.5px; color: var(--text-dim); min-width: 3.4em; text-align: right; }
+.np-empty { padding: 10px; font-size: 12.5px; color: var(--text-dim); }
+
+.nppreset { margin-top: auto; padding-top: 10px; border-top: 1px solid rgb(255 255 255 / 0.08); }
+.nppreset-btns { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+.np-note { font-size: 11.5px; color: var(--text-dim); line-height: 1.7; }
+.np-note code { background: rgb(255 255 255 / 0.08); padding: 1px 5px; border-radius: 4px; }
+
+@media (max-width: 1100px) {
+  .navpage-body { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+  .navpage-side { max-height: 46vh; border-left: 0; border-top: 1px solid rgb(255 255 255 / 0.09); }
+}
+/* ---- 开屏背景视频 ----
+ *
+ * 片源常常是**竖屏**（B 站下的片子多为 9:16），而开屏窗口是横屏。
+ * 三种画面模式就是针对这件事的：
+ *   rotate（默认）  逆时针转 90° 后按 16:9 铺满 —— 片源本来是横拍、
+ *                   只是被封装成了竖屏文件时用这个
+ *   cover          宽高比不变，放大裁切铺满 —— 竖屏 MV 想填满屏幕时用
+ *   auto           模糊铺底 + 原比例完整显示 —— 不裁任何内容
+ */
+.boot-video-bg,
+.boot-video { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+.boot-video-bg {
+  object-fit: cover;
+  filter: blur(28px) saturate(1.25) brightness(0.55);
+  transform: scale(1.18);            /* 放大一点，避免模糊后边缘露白 */
+}
+
+/* 模式二：铺满裁剪（不要黑边、接受裁掉画面）
+ * 选择器写全 `.boot[data-fit] .boot-video`（0,3,0），才压得住上面那条 `.boot-media video`。 */
+.boot[data-fit="cover"] .boot-video { object-fit: cover; }
+.boot[data-fit="cover"] .boot-video-bg { display: none; }
+
+/* 模式三：旋转。
+ * **逆时针 90°**（CSS 里正角度是顺时针，所以要写 -90deg）。
+ * 用途：片源本身是横拍、却被封装成竖屏的文件 —— 转回来正好铺满横屏。
+ * 注意内容是跟着转的，正常的竖屏 MV 转了会侧着，所以这条要用户自己选。
+ *
+ * ★ 尺寸公式和另外两种模式**是反的**：元素旋转 90° 之后宽高互换，
+ *   旋转后的宽 = 元素的高，旋转后的高 = 元素的宽。
+ *   所以要"转完能盖住视口"，就得让**元素的高**至少等于视口宽、
+ *   **元素的宽**至少等于视口高。
+ *   这里踩过坑：一开始照抄了未旋转时的公式，实测视口 1576×761 时
+ *   转完只有 887 宽，左右露出黑边。 */
+.boot[data-fit="rotate"] .boot-video {
+  /* 注意声明顺序：基准规则里是 `inset: 0`，这里必须**先**把它清成 auto，
+     再设 top/left。反过来写（top/left 之后又 inset:auto）会把定位一起重置掉，
+     元素就按静态位置摆放、再被 translate 推出画面 —— 实测表现是整屏全黑。 */
+  inset: auto;
+  top: 50%; left: 50%;
+  width: max(100vh, calc(100vw * 9 / 16));    /* 转完是"高" */
+  height: max(100vw, calc(100vh * 16 / 9));   /* 转完是"宽" */
+  transform: translate(-50%, -50%) rotate(-90deg);
+  object-fit: cover;
+}
+.boot[data-fit="rotate"] .boot-video-bg { display: none; }
+
+/* 静音开关：开屏右下角那排控件里的第一个 */
+.boot-mute {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 999px; cursor: pointer;
+  font: inherit; font-size: 12.5px; color: var(--text);
+  background: rgb(255 255 255 / 0.08);
+  border: 1px solid rgb(255 255 255 / 0.16);
+  transition: background 200ms var(--ease), border-color 200ms var(--ease);
+}
+.boot-mute:hover { background: rgb(255 255 255 / 0.15); }
+.boot-mute.on {                       /* "有声"状态给一点强调，让人知道现在是有声音的 */
+  background: rgb(126 200 169 / 0.20);
+  border-color: rgb(126 200 169 / 0.5);
+}
+
+/* ---- 模板 B：只留舞台，收起主界面的操作界面 ----
+ *
+ * 模板 B 靠"透明开屏 + 露出主界面真实舞台"来展示形象，可主界面上还叠着
+ * 词云、顶栏、侧栏 —— 不藏起来，开屏就是"角色 + 一堆控件"糊在一起。
+ * 藏掉之后剩下的正好是：西湖背景 + 形象，这才是"角色展示页"。
+ * 标记由 boot.js 在显示/隐藏时成对地加上和去掉。 */
+body.boot-character .side,
+body.boot-character .topbar,
+body.boot-character .stage-top,
+body.boot-character .subtitle,
+body.boot-character .geo-hud,
+body.boot-character .nav-bar,
+body.boot-character #wordcloud-layer,
+body.boot-character .stage-empty { display: none !important; }
+body.boot-character .app {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+  grid-template-areas: "stage";
+  gap: 0; padding: 0;
+}
+/* 顶栏是靠 hover 才浮出来的（kiosk 那套），这里直接不给它留位置 */
+
+/* 压暗层：保证标题与菜单在任何画面上都读得清 */
+.boot-scrim {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(80% 70% at 50% 40%, transparent 34%, rgb(0 0 0 / 0.62) 100%),
+    linear-gradient(180deg, rgb(0 0 0 / 0.55) 0%, transparent 26%, transparent 58%, rgb(0 0 0 / 0.78) 100%);
+}
+
+/* ---------------- 主体 ---------------- */
+
+.boot-body {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center;
+  gap: clamp(16px, 2.4vh, 30px);
+  width: min(1180px, 92vw);
+  padding: clamp(18px, 3vh, 40px);
+  text-align: center;
+}
+
+.boot-head { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.boot-mark {
+  font-size: clamp(11px, 1.1vw, 14px); letter-spacing: .34em;
+  color: rgb(255 255 255 / 0.62); text-transform: uppercase;
+}
+.boot-title {
+  margin: 0;
+  font-size: clamp(38px, 6.4vw, 104px);
+  font-weight: 800; letter-spacing: .1em;
+  color: #fff;
+  text-shadow: 0 6px 34px rgb(0 0 0 / 0.6);
+}
+.boot-sub {
+  margin: 0;
+  font-size: clamp(12px, 1.35vw, 19px);
+  letter-spacing: .22em;
+  color: rgb(255 255 255 / 0.72);
+}
+
+/* ---------------- 三个入口 ---------------- */
+
+.boot-menu {
+  display: flex; flex-wrap: wrap; justify-content: center;
+  gap: clamp(10px, 1.4vw, 22px);
+  margin-top: clamp(4px, 1vh, 14px);
+}
+
+.boot-entry {
+  --i: 0;
+  display: flex; align-items: center; gap: 12px;
+  min-width: clamp(180px, 20vw, 268px);
+  padding: clamp(12px, 1.5vh, 18px) clamp(14px, 1.6vw, 22px);
+  text-align: left;
+  font: inherit; color: var(--text); cursor: pointer;
+  border: 1px solid rgb(255 255 255 / 0.20);
+  border-radius: 16px;
+  background: rgb(12 16 20 / 0.52);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: transform 220ms var(--ease), background 220ms var(--ease),
+              border-color 220ms var(--ease), box-shadow 220ms var(--ease);
+}
+.boot-entry:hover, .boot-entry:focus-visible {
+  transform: translateY(-4px);
+  background: rgb(20 28 34 / 0.76);
+  border-color: rgb(255 255 255 / 0.42);
+  box-shadow: 0 18px 44px rgb(0 0 0 / 0.5);
+  outline: none;
+}
+.boot-entry-ico { font-size: clamp(20px, 2vw, 28px); line-height: 1; }
+.boot-entry-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.boot-entry-txt b { font-size: clamp(14px, 1.25vw, 18px); font-weight: 700; }
+.boot-entry-txt i {
+  font-style: normal; font-size: clamp(11px, 1vw, 13px);
+  color: rgb(255 255 255 / 0.58);
+}
+.boot-entry-arrow {
+  margin-left: auto; font-size: 20px; color: rgb(255 255 255 / 0.4);
+  transition: transform 220ms var(--ease), color 220ms var(--ease);
+}
+.boot-entry:hover .boot-entry-arrow { transform: translateX(4px); color: #fff; }
+
+/* 落地页标签：让用户点之前就知道会去哪个页面 */
+.boot-entry-go {
+  margin-left: auto; flex: none;
+  font-size: 11.5px; letter-spacing: .04em;
+  color: rgb(255 255 255 / 0.42);
+  padding: 3px 9px; border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  white-space: nowrap;
+  transition: color 220ms var(--ease), border-color 220ms var(--ease), background 220ms var(--ease);
+}
+.boot-entry:hover .boot-entry-go {
+  color: #fff; border-color: rgb(255 255 255 / 0.38);
+  background: rgb(255 255 255 / 0.10);
+}
+
+/* ---------------- 页脚：提示 + 模板切换 ---------------- */
+
+.boot-foot {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  margin-top: clamp(2px, 1vh, 12px);
+}
+.boot-foot-row {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  gap: clamp(10px, 1.6vw, 26px);
+}
+.boot-auto {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12px; color: rgb(255 255 255 / 0.52); cursor: pointer;
+  user-select: none;
+}
+.boot-auto input { accent-color: var(--primary); cursor: pointer; }
+.boot-auto:hover { color: rgb(255 255 255 / 0.8); }
+.boot-hint {
+  min-height: 1.4em;
+  font-size: clamp(11px, 1.05vw, 14px);
+  color: rgb(255 255 255 / 0.62);
+}
+.boot-switch { display: flex; align-items: center; gap: 10px; }
+.boot-switch-label { font-size: 12px; color: rgb(255 255 255 / 0.45); }
+.boot-switch-btns {
+  display: flex; gap: 4px; padding: 3px;
+  border: 1px solid rgb(255 255 255 / 0.18);
+  border-radius: 999px;
+  background: rgb(12 16 20 / 0.5);
+}
+.boot-switch-btn {
+  font: inherit; font-size: 12px; cursor: pointer;
+  padding: 5px 14px; border: none; border-radius: 999px;
+  background: transparent; color: rgb(255 255 255 / 0.62);
+  transition: background 200ms var(--ease), color 200ms var(--ease);
+}
+.boot-switch-btn.on { background: rgb(255 255 255 / 0.16); color: #fff; }
+.boot-switch-btn:hover { color: #fff; }
+
+/* ============================ 模板 A：视频主页（默认） ============================ */
+
+.boot[data-tpl="video"] .boot-scrim { opacity: 1; }
+.boot[data-tpl="video"] .boot-body { justify-content: center; }
+
+/* ============================ 模板 B：形象主页 ============================
+ *
+ * 关键差别：**背景是透明的**，让底下真实舞台上的形象露出来。
+ * 左侧压一层渐变作为菜单的底，右侧留空给角色 —— 这是"角色展示型"开屏的常见布局。
+ * 这里没有复制任何第三方游戏的素材，只是采用了同一种排版思路。
+ * ==========================================================================*/
+
+.boot[data-tpl="character"] .boot-media { background: transparent; }
+.boot[data-tpl="character"] .boot-video,
+.boot[data-tpl="character"] .boot-canvas { opacity: 0; }
+.boot[data-tpl="character"] .boot-scrim {
+  background:
+    /* 左侧暗、右侧透：菜单要能读，角色要能看 */
+    linear-gradient(100deg, rgb(4 8 12 / 0.94) 0%, rgb(4 8 12 / 0.82) 34%, rgb(4 8 12 / 0.30) 58%, rgb(4 8 12 / 0.10) 100%),
+    radial-gradient(60% 60% at 74% 52%, transparent 40%, rgb(0 0 0 / 0.42) 100%);
+}
+.boot[data-tpl="character"] .boot-body {
+  align-items: flex-start; text-align: left;
+  width: min(1320px, 94vw);
+  padding-left: clamp(20px, 6vw, 110px);
+}
+.boot[data-tpl="character"] .boot-head { align-items: flex-start; }
+.boot[data-tpl="character"] .boot-title { letter-spacing: .06em; }
+.boot[data-tpl="character"] .boot-menu {
+  flex-direction: column; flex-wrap: nowrap;
+  align-items: stretch; justify-content: flex-start;
+}
+.boot[data-tpl="character"] .boot-entry {
+  min-width: clamp(230px, 26vw, 340px);
+  /* 竖排菜单：从左侧滑入的错位感 */
+  opacity: 0; transform: translateX(-18px);
+}
+.boot[data-tpl="character"] .boot-foot { align-items: flex-start; }
+/* 模板 B 的底部提示与切换器靠左 */
+.boot[data-tpl="character"] .boot-hint { text-align: left; }
+
+/* ---------------- 入场动画 ---------------- */
+
+@keyframes bootFadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes bootZoom {
+  from { transform: scale(1.06); }
+  to { transform: scale(1); }
+}
+@keyframes bootSlideIn {
+  from { opacity: 0; transform: translateX(-22px); }
+  to { opacity: 1; transform: none; }
+}
+
+.boot.boot-in .boot-head > * { animation: bootFadeUp 700ms var(--ease) both; }
+.boot.boot-in .boot-head > *:nth-child(2) { animation-delay: 80ms; }
+.boot.boot-in .boot-head > *:nth-child(3) { animation-delay: 160ms; }
+.boot.boot-in .boot-media { animation: bootZoom 1600ms var(--ease) both; }
+.boot.boot-in .boot-entry {
+  animation: bootFadeUp 560ms var(--ease) both;
+  animation-delay: calc(220ms + var(--i) * 90ms);
+}
+.boot[data-tpl="character"].boot-in .boot-entry { animation-name: bootSlideIn; }
+.boot.boot-in .boot-foot { animation: bootFadeUp 620ms var(--ease) 520ms both; }
+
+/* 无障碍：尊重"减少动态效果" */
+@media (prefers-reduced-motion: reduce) {
+  .boot.boot-in .boot-head > *, .boot.boot-in .boot-media,
+  .boot.boot-in .boot-entry, .boot.boot-in .boot-foot {
+    animation: none !important;
+    opacity: 1 !important; transform: none !important;
+  }
+}
+
+/* 窄屏：开屏也不能崩 */
+@media (max-width: 860px) {
+  .boot-menu { flex-direction: column; align-items: stretch; }
+  .boot-entry { min-width: 0; }
+  .boot[data-tpl="character"] .boot-body,
+  .boot[data-tpl="video"] .boot-body { padding: 18px; align-items: stretch; text-align: left; }
+}
+
+/* ============================================================================
+ * 大屏适配（展厅大屏 / 2K / 4K / Kiosk 全屏宣传）
+ *
+ * 为什么原来的"响应式"不够用：原来只有 max-width 断点（1180 / 1080 / 720 / 620），
+ * 也就是**只管窄屏**。而在 1920 以上的屏幕上：
+ *   · 字号、按钮、间距全是按 14px 基准写的，4K 上看起来像缩了一圈
+ *   · 侧栏被 minmax(360px, 460px) 钉死，大屏上有大片空白却不肯多给舞台
+ *   · 开屏标题的相对字号（vw 基准）在超宽屏上会大得离谱
+ * 这一段补的是 **min-width** 那半边。放在文件最后，确保不受窄屏规则影响。
+ * ==========================================================================*/
+
+/* ---- 基准字号随屏幕放大：所有用 rem/em 的地方一起变大 ---- */
+@media (min-width: 1600px) {
+  body { font-size: 16px; }
+  .app {
+    grid-template-columns: 1fr minmax(400px, 520px);
+    gap: 18px;
+    padding: 18px;
+    grid-template-rows: 64px 1fr;
+  }
+}
+@media (min-width: 2200px) {          /* 2K / 2560 宽 */
+  body { font-size: 18px; }
+  .app {
+    grid-template-columns: 1fr minmax(460px, 620px);
+    gap: 22px;
+    padding: 22px;
+    grid-template-rows: 74px 1fr;
+  }
+  /* 顶栏与侧栏的字号再抬一档：大屏上离得远，14px 是看不清的 */
+  .tool-btn { font-size: 15px; padding: 0 14px; }
+  .tab span { font-size: 13px; }
+}
+@media (min-width: 3200px) {          /* 4K */
+  body { font-size: 21px; }
+  .app {
+    grid-template-columns: 1fr minmax(560px, 780px);
+    gap: 28px;
+    padding: 28px;
+    grid-template-rows: 88px 1fr;
+  }
+  .tool-btn { font-size: 18px; padding: 0 18px; }
+  .tool-btn .ico { font-size: 20px; }
+  /* 词云的密度与字号也要跟着上，否则 4K 上只剩几个孤零零的词 */
+  .subtitle { font-size: 17px; }
+}
+
+/* ---- Kiosk（展厅全屏宣传）：藏掉所有"操作界面"，只留舞台与字幕 ----
+   进入方式：点顶栏的「全屏展示」，或在设置里打开。用 body.kiosk 一个开关控制，
+   因为大屏场景下用户要的是一块"会说话的展板"，不是一堆可点的设置项。 */
+body.kiosk .side { display: none; }
+body.kiosk .app {
+  grid-template-columns: 1fr;
+  grid-template-areas: "topbar" "stage";
+}
+body.kiosk .topbar { opacity: 0; transition: opacity 260ms var(--ease); }
+/* 鼠标移到顶部才浮出来，方便退出全屏展示 */
+body.kiosk:hover .topbar { opacity: 1; }
+body.kiosk .stage-tools { opacity: 0; transition: opacity 260ms var(--ease); }
+body.kiosk .stage:hover .stage-tools { opacity: 1; }
+
 /* 无障碍：尊重系统的"减少动态效果" */
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   body::before { animation: none; }
 }
+

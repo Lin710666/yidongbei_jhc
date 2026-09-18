@@ -31,10 +31,24 @@
     busy: false,
     currentStream: null,
     lastResult: '',
+    // 听觉（本地 Whisper 语音输入）。enabled 取自服务端偏好，默认关闭。
+    stt: { enabled: false, modelPresent: false, language: 'zh' },
+    // 导航模式：形象举牌显示目标景点、背景跟着换。
+    // 这里给一份默认值是为了让 loadNav() 读到的脏数据不会让后续代码拿到 undefined。
+    nav: { on: false, spot: '', city: '', scenery: 'builtin', lastItem: '' },
+    // 视频背景（大屏宣传片）。dir/count 由服务端给，recommended 是"名字里带西湖"的那个。
+    videos: { items: [], recommended: null, dir: '', count: 0, maxMB: 0 },
+    // 联网（工具调用）开关。默认关闭 —— 与后端 prefs 的默认值一致，
+    // 页面加载后会从 /api/prefs 同步一次，避免两边说法不一致。
+    webEnabled: false,
+    // 位置：status 是"我在哪"，relation 是"到某景点的距离与方位"
+    geo: { status: null, relation: null },
+    // 景区全景：缓存的等值柱状图列表与深度环境状态
+    pano: { items: [], enabled: true, depthModelPresent: false },
     // 当前展示的人物形象。kind 决定用哪套渲染器：
     //   'live2d' -> Live2DStage（PixiJS + Cubism）
     //   '3d'     -> ThreeDStage（three.js + three-vrm，按需懒加载）
-    display: { kind: 'live2d', id: 'nahida' },
+    display: { kind: 'lake', id: 'lake-boatwoman' },
     settings: {
       autospeak: false,
       memory: true,
@@ -49,7 +63,19 @@
       l2dX: 0,
       l2dY: 0,
       expression: '',
-      backgroundId: 'proc-aurora',   // 默认跟随主题的极光渐变
+      backgroundId: 'proc-lake',     // 默认就是西湖美景（程序化；有宣传片时会自动换成视频）
+
+      // 程序化待机：不依赖模型自带的 Idle 动作，持续给形象一点细微信号
+      // （呼吸、微摆、视线游移，隔一阵自己抽一个小动作）。默认开。
+      idleMotion: true,
+      idleEveryMs: 14000,            // 每隔多久自动抽一个小动作
+
+      // 开屏背景视频：用 data/videos/ 里的**本机文件**（空则自动挑，见 initBoot 的 getVideo）。
+      // 需要新的片子：npm run fetch:bili -- <BV号> 名字
+      bootVideo: '',
+      bootMuted: false,              // 是否静音。默认**不静音**，但受浏览器自动播放策略限制，
+                                     // 实际是"先静音起播、用户点 🔊 后出声"
+      bootFit: 'rotate',             // rotate(逆时针90°) | cover(铺满裁剪) | auto(模糊铺底+完整显示)
     },
   };
 
@@ -59,6 +85,8 @@
 
   let stage = null;        // Live2DStage 实例（用到才创建）
   let stage3d = null;      // ThreeDStage 实例（选了 3D 形象才懒加载）
+  let lake = null;         // LakeAvatar 实例（西湖船娘，内置默认形象）
+  let bootScreen = null;    // 开屏实例（两套模板，见 public/js/boot.js）
   let cloud = null;
   let bg = null;
 
@@ -90,6 +118,7 @@
   async function boot() {
     loadSettings();
     loadHistory();
+    loadNav();
     applySettingsToUI();
     bindTabs();
     bindTopbar();
@@ -99,7 +128,28 @@
     bindCards();
     bindVoice();
     bindLook();
+    bindVideos();
+    bindProviders();
+    bindWebPanel();
+    bindGeoPanel();
+    bindPanoPanel();
+    bindI23DPanel();
+    bindBlenderPanel();
     bindStage();
+    initNavUI();
+    bindStt();
+    initBoot();
+
+    // ★ 开屏要**立刻**出现，不能等到下面那一串 await 跑完。
+    //
+    // 原来这一句放在 boot() 的最末尾（等 refreshStatus / loadCapabilities /
+    // loadWindows… 全部 await 完才弹），结果是：用户先看到主界面、舞台空空、
+    // 过一两秒才"啪"地盖上开屏 —— 既像卡了一下，也不像"开场"。
+    //
+    // 现在放在所有异步动作之前同步执行：HTML 一解析完就盖上开屏，
+    // 底下的主界面在开屏背后慢慢加载。开屏本身的背景（程序化西湖/视频）
+    // 不依赖任何网络请求，所以这一步是瞬时且必然成功的。
+    if (bootScreen) bootScreen.autoShow();
 
     cloud = new window.WordCloud($('#wordcloud-layer'), { onAction: handleWordAction, onStep: handleDaysStep });
     cloud.setAnimate(S.settings.wcGlow);
@@ -109,21 +159,78 @@
 
     // 背景管理器：图片与程序化背景都由它渲染。放在词云之后创建，
     // 这样它就是最早的一层，后面所有东西都叠在背景之上。
-    bg = new window.BackgroundManager({ imageEl: $('#bg-image'), canvasEl: $('#bg-canvas') });
+    bg = new window.BackgroundManager({ imageEl: $('#bg-image'), canvasEl: $('#bg-canvas'), videoEl: $('#bg-video') });
     bg.resize();
 
+    // ---- 逐项加载，**每一项都自己吞异常** ----
+    //
+    // 为什么不能像原来那样一串 await 排下去：中间任何一项抛异常，
+    // 后面所有 await 就都不执行了 —— 包括最后的 initStage()。
+    // 用户看到的是"页面在、界面也在，但舞台上什么都没有"，
+    // 而真正的报错发生在几千行之外的一个渲染函数里，极难对上号。
+    // （实测踩过：renderLookPreview 读西湖船娘没有的字段抛 TypeError，
+    //   导致 initStage() 被跳过，画布停在 300×150 一个像素都没画。）
+    //
+    // refreshStatus 不算在内：它是状态灯的数据源，失败时本身就会降级显示。
     await refreshStatus();
-    await loadCapabilities();
+
+    const optionalLoads = [
+      ['能力清单', loadCapabilities],
+      ['模型接入配置', loadProviderConfig],
+      ['对外开放配置', loadOpenAPIConfig],
+      ['应用偏好', loadPrefs],
+      ['位置', loadGeo],
+      ['全景', loadPano],
+      ['图片转 3D', loadI23D],
+      ['Blender', loadBlender],
+      ['听觉', loadStt],
+      // 视频清单要给开屏用：模板 A 的第一帧就要决定播视频还是程序化兜底，
+      // 拿晚了会先闪一下兜底画面再切到视频。
+      ['视频背景', loadVideos],
+    ];
+    for (const [label, fn] of optionalLoads) {
+      try {
+        await fn();
+      } catch (e) {
+        // 只记一条，继续往下 —— 少一个面板能用，好过整个形象不出现
+        console.error(`[boot] ${label} 加载失败（不影响其它功能）：`, e && e.message ? e.message : e);
+      }
+    }
+    try { renderVideos(); } catch { /* 外观页还没渲染也没关系 */ }
+    // 视频清单到位后通知开屏：模板 A 若是先用了程序化西湖兜底，这时换成真视频
+    if (bootScreen) { try { bootScreen.notifyVideosReady(); } catch { /* 忽略 */ } }
 
     // 背景要在拿到能力清单之后再恢复：那张清单里才有 palette 等信息
+    //
+    // 西湖优先：用户的诉求是"背景换成杭州文旅展示西湖美景的视频"。
+    //   · data/videos/ 里有片子（尤其名字带西湖的）→ 直接用视频
+    //   · 没有片子 → 用程序化绘制的西湖动态画面（proc-lake）
+    // 只在用户**没有主动选过**别的背景时才自动套用视频，
+    // 否则会出现"我明明选了樱花，一刷新又变成西湖"这种抢用户选择的行为。
+    const userPickedBg = S.settings.backgroundId && !['proc-lake', 'proc-aurora'].includes(S.settings.backgroundId);
+    const lakeVideo = S.videos.recommended;
+    // 服务端偏好里指定的主界面背景视频优先 —— 那是"配置一次、多块屏共用"的选择，
+    // 比浏览器本地的 backgroundId 更权威（展厅换台机器打开也该是同一个片子）。
+    const mainVideo = S.settings.mainVideo;
+    const mainHit = mainVideo ? (S.videos.items || []).find(v => v.name === mainVideo) : null;
+    if (mainHit) {
+      S.settings.backgroundId = `video-${mainHit.id}`;
+    } else if (!userPickedBg && lakeVideo) {
+      S.settings.backgroundId = `video-${lakeVideo.id}`;
+    }
     applyBackground(S.settings.backgroundId, { silent: true });
 
     initStage();
     renderHistory();
+    // 形象加载好之后通知开屏：模板 B 下补一个迎宾动作
+    // （开屏是页面一加载就盖上的，那时 stage 还没建出来）
+    if (bootScreen) { try { bootScreen.notifyStageReady(); } catch { /* 忽略 */ } }
+
     if (!S.history.length) {
       // 首次进入：让角色主动打个招呼，而不是空白一片
       setTimeout(() => say(S.card ? S.card.greeting : '你好，我是你的文旅向导。', true), 900);
     }
+    // 开屏已经在 boot() 开头就播了（原因见那里的注释），这里不再重复调用。
   }
 
   /* ========================================================================
@@ -254,9 +361,19 @@
     renderLookPreview();
   }
 
-  /** 所有可选形象的统一清单：Live2D 与 3D 混在一起，用 kind 区分 */
+  /**
+   * 所有可选形象的统一清单：西湖船娘（内置）、Live2D、3D 混在一起，用 kind 区分。
+   *
+   * 西湖船娘排在最前面 —— 它是**默认形象**。这个项目的默认场景就是西湖文旅宣传，
+   * 让用户一进来看到的是一个跟西湖无关的日系角色，与"宣传西湖"这件事是拧着的。
+   * 而且它零外部素材：不需要先跑「获取示例模型」就能看到人，首次体验好很多。
+   */
   function allDisplayModels() {
+    const lake = (window.WenlvLake && window.WenlvLake.LAKE_AVATAR)
+      ? [{ ...window.WenlvLake.LAKE_AVATAR }]
+      : [];
     return [
+      ...lake,
       ...(S.l2dModels || []).map(m => ({ ...m, kind: 'live2d' })),
       ...((S.models3d && S.models3d.bundled) || []),
       ...((S.models3d && S.models3d.custom) || []),
@@ -1039,14 +1156,29 @@
     };
     const stopStream = () => { if (streamTimer) { clearTimeout(streamTimer); streamTimer = 0; } };
 
-    const stream = sse('/api/chat', {
+    // 走带工具的那条管线，条件是"联网开了 **或** 有形象可以指挥"。
+    // 之前只看 S.webEnabled，于是关掉联网时模型根本拿不到 avatar_action，
+    // 而形象动作压根不联网 —— 那种"想让它笑一个，它却说做不到"就是这么来的。
+    const avatarCaps = currentAvatarCaps();
+    const useAgent = S.webEnabled || !!avatarCaps;
+
+    const stream = sse(useAgent ? '/api/agent' : '/api/chat', {
       message: text,
       image,
       cardId: S.card && S.card.id,
       history: S.history.slice(-13, -1).filter(m => !m.image).map(m => ({ role: m.role, content: m.content })),
+      // 把"这只形象会哪些动作"报给服务端，它才能校验名字并写进系统提示
+      avatar: avatarCaps || undefined,
     }, (ev) => {
       if (ev.type === 'start') {
         setPill('#pill-model', 'busy', ev.model || '生成中');
+        if (ev.agent) {
+          const names = (ev.tools || []).join(' / ') || '（无工具）';
+          // 别一律写"联网已开启"：现在带了形象控制工具，联网关着也会走这条管线，
+          // 那样提示就成了假话（用户明明关了联网，却看到"联网已开启"）。
+          const webOn = (ev.tools || []).some(n => n === 'web_search' || n === 'web_fetch' || n === 'find_panorama');
+          appendMsg('system', `${webOn ? '🌐 联网已开启' : '🧰 工具模式'}，可用工具：${names}`, { kind: 'sys', raw: true });
+        }
       } else if (ev.type === 'stage') {
         $('#composer-hint').textContent = ev.text || '';
       } else if (ev.type === 'vision') {
@@ -1056,6 +1188,37 @@
       } else if (ev.type === 'memory') {
         if (ev.hits && ev.hits.length) {
           appendMsg('system', `🧠 召回了 ${ev.hits.length} 条相关记忆（最高相关度 ${ev.hits[0].score}）`, { kind: 'sys', raw: true });
+        }
+      } else if (ev.type === 'agent_round') {
+        // 只在真的要调工具（轮数 > 1）时才提示轮次，否则每次提问都多一行噪音
+        if (ev.round > 1) {
+          appendMsg('system', `↻ 第 ${ev.round}/${ev.maxSteps} 轮：把工具结果交给模型继续作答`, { kind: 'sys', raw: true });
+        }
+        $('#composer-hint').textContent = '模型正在判断要不要联网查证…';
+      } else if (ev.type === 'tool_start') {
+        const a = ev.args || {};
+        const arg = a.query || a.url || a.spot || a.motion || a.placard || '';
+        const ico = ev.name === 'avatar_action' ? '🎭' : '🔍';
+        appendMsg('system', `${ico} 调用 ${ev.name}${arg ? `：${arg}` : ''}`, { kind: 'sys', raw: true, id: `tool-${ev.name}-${Date.now()}` });
+        const doing = ev.name === 'web_search' ? '联网搜索'
+          : ev.name === 'web_fetch' ? '读取网页'
+            : ev.name === 'find_panorama' ? '查找全景'
+              : '安排形象动作';
+        $('#composer-hint').textContent = `正在${doing}…`;
+      } else if (ev.type === 'tool_result') {
+        appendMsg('system', `${ev.ok ? '✅' : '❌'} ${ev.name} ${ev.ok ? '完成' : '失败'}：${ev.summary}${ev.ms ? `（${ev.ms}ms）` : ''}`, { kind: 'sys', raw: true });
+        // 形象动作：服务端只负责把"要做什么"传下来，真正的播放只能在浏览器做 ——
+        // 模型有哪些动作、表情叫什么，只有这里加载完模型才知道。
+        if (ev.ok && ev.data && ev.data.avatar) runAvatarDirective(ev.data.avatar);
+      } else if (ev.type === 'round_discard') {
+        // 这段文字是模型调工具前的"过程话"，不是答案。已经从 delta 流进气泡里了，
+        // 必须把它从答案区撤走，否则用户看到的结论开头会是一句没头没尾的自言自语。
+        stopStream();
+        acc = '';
+        bd.classList.add('typing');
+        bd.innerHTML = '';
+        if (ev.text && ev.text.trim()) {
+          appendMsg('system', `💭 模型的判断过程（非结论）：${ev.text.trim()}`, { kind: 'sys', raw: true });
         }
       } else if (ev.type === 'delta') {
         acc += ev.text;
@@ -1454,41 +1617,76 @@
   }
 
   /* ========================================================================
-   * 十、人物形象（Live2D 与 3D 两套渲染器，按所选形象切换）
+   * 十、人物形象（西湖船娘 / Live2D / 3D 三套渲染器，按所选形象切换）
    *
-   * 为什么不把所有东西合到一个类里：Live2D 用 PixiJS + Cubism、3D 用 three.js +
-   * three-vrm，两套依赖完全不同。硬合会变成一个谁都不像的抽象层，还让
-   * "只用 Live2D 的用户"被迫下载 2.2MB 的 three.js。
-   * 所以：两个类，各自实现同一组方法（init/load/setScale/setPosition/
-   * setExpression/playMotion/speak/resize/destroy），调用方通过 activeStage() 取。
+   * 为什么不把所有东西合到一个类里：西湖船娘是纯 Canvas 2D，Live2D 用 PixiJS +
+   * Cubism，3D 用 three.js + three-vrm，三套依赖完全不同。硬合会变成一个谁都不像
+   * 的抽象层，还让"只用其中一套的用户"被迫下载另外两套的运行库
+   * （three.js 就有 2.2MB）。
+   * 所以：三个类，各自实现同一组方法（init/load/setScale/setPosition/
+   * setExpression/playMotion/speak/resize/destroy，外加 startIdle/setPlacard/
+   * setScenery），调用方通过 activeStage() 取。
+   *
+   * **新增一套舞台时最容易漏的是"同名接口"**：少一个方法，用户一切过去就会
+   * 报 "xxx is not a function"。所以 test/avatar.js 里专门有一条交叉校验，
+   * 逐个确认三套舞台都实现了这组方法。
    * ======================================================================*/
 
   /** 当前生效的渲染器实例 */
   function activeStage() {
-    return S.display.kind === '3d' ? stage3d : stage;
+    if (S.display.kind === '3d') return stage3d;
+    if (S.display.kind === 'lake') return lake;
+    return stage;
   }
 
   /**
-   * 两个画布互斥显示：谁来渲染就显示谁，另一个藏起来省 GPU。
+   * 三个画布互斥显示：谁来渲染就显示谁，其余藏起来省 GPU。
    *
    * 注意这里必须写**显式的 'block' / 'none'**，不能写空串。
    * CSS 里给 #stage3d-canvas 定了 `display: none` 作为默认值（避免首屏闪一下），
    * 如果这里设成空串，等于把内联样式删掉，CSS 的 none 又赢回来 —— 3D 画布永远不显示。
    * 这个坑实测踩过：画布其实已经渲染好了（能采样到像素），但用户看不到。
+   *
+   * **西湖船娘必须有自己的画布**（#lake-canvas），不能和 Live2D 共用 ——
+   * 这是我一开始想省事犯的错：一块 canvas **只能有一种绘图上下文**。
+   * PIXI 要 WebGL（`getContext('webgl')`），西湖船娘要 2D（`getContext('2d')`），
+   * 谁先拿到，另一个就直接返回 null：
+   *   · 默认是西湖船娘 → 画布被占成 2D → 切到 Live2D 时 PIXI 拿不到 WebGL，画不出来
+   *   · 先切过 Live2D → 画布被占成 WebGL → 再切回西湖船娘时 ctx 是 null，
+   *     第一次 clearRect 就抛异常，整块空白
+   * 表现就是"新加的虚拟形象不显示"。多一块画布的开销可以忽略（同一时刻只显示一块）。
    */
   function showCanvas(kind) {
     const l2d = $('#live2d-canvas');
+    const lakeCv = $('#lake-canvas');
     const c3d = $('#stage3d-canvas');
-    if (l2d) l2d.style.display = kind === '3d' ? 'none' : 'block';
+    if (l2d) l2d.style.display = kind === 'live2d' ? 'block' : 'none';
+    if (lakeCv) lakeCv.style.display = kind === 'lake' ? 'block' : 'none';
     if (c3d) c3d.style.display = kind === '3d' ? 'block' : 'none';
   }
 
+  /**
+   * 舞台上的提示层（"正在加载…" / "还没有可用的模型，请去下载"）。
+   *
+   * **必须用 `hidden` 属性，不能用 `classList` 的 `hidden` 类。**
+   * 原来这里写的是 `classList.remove('hidden')` / `classList.add('hidden')`，
+   * 但项目里压根没有 `.hidden` 这个 CSS 类 —— 显隐是靠 HTML 上的 `hidden` **属性**
+   * 和 CSS 的 `.stage-empty[hidden] { display: none }` 控制的。
+   * 于是两个函数全是空操作，元素带着初始的 `hidden` 属性一直藏着：
+   *   · stageProblem() 设了文案却永远不显示 —— 加载中、加载失败、
+   *     "还没有模型请双击获取示例模型.bat"这些提示用户一次都看不到
+   *   · 舞台长时间空白，看起来像卡死了
+   * 这类 bug 用肉眼极难发现（页面不报错，只是"少了一句话"）。
+   */
   function stageProblem(msg) {
-    $('#stage-empty-msg').textContent = msg;
-    $('#stage-empty').classList.remove('hidden');
+    const box = $('#stage-empty-msg');
+    if (box) box.textContent = msg;
+    const el = $('#stage-empty');
+    if (el) el.hidden = false;          // 去掉 hidden 属性 → 显示
   }
   function stageOk() {
-    $('#stage-empty').classList.add('hidden');
+    const el = $('#stage-empty');
+    if (el) el.hidden = true;           // 加上 hidden 属性 → 隐藏
   }
 
   /** 创建 Live2D 渲染器（只在真的要用时才建） */
@@ -1507,8 +1705,7 @@
    * 这样默认用 Live2D 的用户根本不会下这两个包。
    */
   async function ensure3D() {
-    if (stage3d) return stage3d;
-    stageProblem('正在加载 3D 渲染器（three.js + three-vrm，约 2.2MB，只需加载一次）…');
+    if (stage3d) return stage3d;    stageProblem('正在加载 3D 渲染器（three.js + three-vrm，约 2.2MB，只需加载一次）…');
     let mod;
     try {
       mod = await import('/js/stage3d.js');
@@ -1525,7 +1722,25 @@
     return stage3d;
   }
 
-  /** 点人物：两套渲染器共用的反馈 */
+  /**
+   * 创建西湖船娘渲染器。
+   *
+   * 它是**唯一一套不需要任何外部运行时**的舞台：没有 PixiJS、没有 three.js，
+   * 只有一个 canvas 2D 上下文。所以它能在"什么都没装"的机器上立刻可用 ——
+   * 这正是把它设为默认形象的实际好处（首屏不至于是一片空白）。
+   */
+  async function ensureLake() {
+    if (lake) return lake;
+    if (!window.WenlvLake) {
+      throw new Error('西湖船娘渲染器没加载（public/js/lake.js）。请确认 index.html 里的 script 标签没被改动。');
+    }
+    lake = new window.WenlvLake.LakeAvatar($('#lake-canvas'));
+    lake.onTapCb = onCharacterTap;
+    await lake.init();
+    return lake;
+  }
+
+  /** 点人物：三套渲染器共用的反馈 */
   function onCharacterTap() {
     hideSubtitle();
     const st = activeStage();
@@ -1538,14 +1753,883 @@
     ]), true);
   }
 
+  /* ========================================================================
+   * 十一、形象能力清单 与 服务端下发的动作指令
+   *
+   * 大模型看得到"这只形象会哪些动作"，才能真的指挥得动它。可那份清单只在
+   * 浏览器里 —— 模型文件是前端加载的，服务端根本没解析过。所以每次提问都把
+   * 清单随请求上报，服务端据此校验名字并把它写进系统提示（见 server.js 的
+   * runAgentPipeline）。少了这一环，模型只能照训练数据里的 wave、smile 猜，
+   * 而真实动作名是 00_idle、tap_body_01 这类，猜不中的表现就是"它说挥手了，
+   * 可形象一动不动"。
+   * ======================================================================*/
+
+  /** 当前形象的可用动作/表情。拿不到就返回 null（服务端会跳过校验） */
+  function currentAvatarCaps() {
+    const st = activeStage();
+    if (!st || !st.model) return null;
+    let motions = [];
+    let expressions = [];
+    try { motions = (st.listMotions && st.listMotions()) || []; } catch { /* 忽略 */ }
+    try {
+      expressions = st.expressions && st.expressions.length ? st.expressions : (st.expressionNames ? st.expressionNames() : []);
+    } catch { /* 忽略 */ }
+    return {
+      label: (S.display && S.display.id) || '',
+      kind: S.display && S.display.kind,
+      motions: motions.map(m => ({ name: m.name, group: m.group })),
+      expressions,
+    };
+  }
+
+  /**
+   * 执行服务端下发的形象指令（avatar_action 工具的产物）。
+   *
+   * 服务端只把意图传下来（"播 tap_body_01""举牌 杭州西湖"），真正的解析与
+   * 播放在这里做：动作名允许模糊匹配、找不到就退化，牌子是现画的。
+   * 这里任何一步失败都只记一条提示，绝不抛出去打断正在进行的对话流。
+   */
+  async function runAvatarDirective(d) {
+    if (!d || typeof d !== 'object') return;
+    const st = activeStage();
+    if (!st) return;
+
+    if (d.expression) {
+      try { await st.setExpression(d.expression); } catch { /* 忽略 */ }
+    }
+    if (d.motion) {
+      try {
+        // 优先按名字精确/模糊匹配；匹配不到再当成组名随机播
+        const byName = st.playMotionByName ? await st.playMotionByName(d.motion) : false;
+        if (!byName) await st.playMotion(d.motion);
+      } catch { /* 忽略 */ }
+    }
+    if ('placard' in d) {
+      try {
+        if (d.placard) {
+          const ok = await st.setPlacard(d.placard);
+          if (ok) {
+            S.nav.lastItem = d.placard;
+            saveNav();
+            // 举牌的内容就是"上次对话里出现的导航项目"，顺手同步到导航条
+            const el = $('#nav-spot');
+            if (el && !el.value) el.value = d.placard;
+          }
+        } else {
+          st.clearPlacard();
+        }
+      } catch { /* 忽略 */ }
+    }
+  }
+
+  /* ========================================================================
+   * 十三、听觉（本地 Whisper 语音输入）   *
+   * 与"声音"页那套 TTS 是一对：那边让它说，这边让它听。
+   *
+   * 默认关闭，而且是**服务端偏好**（不是本地 localStorage）—— 因为"载不载那个
+   * 1GB 的模型"是服务端的事。开关关着时 /api/stt 会被 lib/stt.js 直接挡回去，
+   * 前端连麦克风按钮都不显示，所以用户不会点了才发现没反应。
+   *
+   * 音频链路：MediaRecorder 录 webm/opus → 前端解码并重采样成 16kHz 单声道
+   * 16-bit WAV → base64 交 /api/stt。之所以在前端转格式，是为了让后端不必依赖
+   * ffmpeg（这台机器上不一定有），后端只要能读 WAV 就够了。
+   * ======================================================================*/
+
+  function sttHint(text, warn) {
+    const el = $('#stt-status');
+    if (el) { el.textContent = text; el.style.color = warn ? 'var(--tertiary)' : ''; }
+  }
+
+  /** 刷新按钮可见性：开关开着 **且** 浏览器支持录音才显示 */
+  function syncMicButton() {
+    const btn = $('#btn-mic');
+    if (!btn) return;
+    const supported = !!(window.WenlvVoice && window.WenlvVoice.isSupported());
+    btn.hidden = !(S.stt.enabled && supported);
+  }
+
+  async function loadStt() {
+    if (!$('#stt-enabled')) return;
+    try {
+      const r = await api('/api/stt');
+      const s = r.status || {};
+      S.stt.enabled = !!s.enabled;
+      // 注意字段名：quickStatus() 给的是 modelPresent（权重在不在磁盘上），
+      // 不是 modelReady/available —— 后两个要起 Python 探测才知道，那是「检测环境」
+      // 按钮的活儿。这里读错字段会让界面永远显示"环境不完整"。
+      S.stt.modelPresent = !!s.modelPresent;
+      S.stt.language = s.language || 'zh';
+      const cb = $('#stt-enabled');
+      if (cb) cb.checked = S.stt.enabled;
+      if (S.stt.enabled) {
+        sttHint(S.stt.modelPresent
+          ? '已启用，权重已就绪（Python 环境可点「检测环境」确认）。'
+          : `已启用，但还没有 Whisper 权重：${s.modelDir || ''} —— 先跑 npm run fetch:whisper`, !S.stt.modelPresent);
+      } else {
+        sttHint('未启用（默认关闭）。');
+      }
+    } catch (e) {
+      sttHint(`读取状态失败：${String(e.message || e).split('\n')[0]}`, true);
+    }
+    syncMicButton();
+  }
+
+  function bindStt() {
+    if (!$('#stt-enabled')) return;
+
+    const cb = $('#stt-enabled');
+    cb.addEventListener('change', async () => {
+      try {
+        await api('/api/prefs', { method: 'PUT', body: { stt: { enabled: cb.checked } } });
+        S.stt.enabled = cb.checked;
+        await loadStt();
+        toast(cb.checked ? '听觉已开启。输入框旁边的 🎤 可以录话了。' : '听觉已关闭。', 'ok', 4000);
+      } catch (e) {
+        cb.checked = !cb.checked;      // 写失败就把勾选状态退回去，别让界面说谎
+        toast(`保存失败：${String(e.message || e).split('\n')[0]}`, 'err', 8000);
+      }
+    });
+
+    const probe = $('#stt-probe');
+    if (probe) {
+      probe.addEventListener('click', async () => {
+        const old = probe.textContent;
+        probe.disabled = true;
+        probe.textContent = '检测中…';
+        sttHint('正在起一次 Python 探测环境（import torch 要十几秒，请稍候）…');
+        try {
+          // 真探测要起 Python，所以做成显式按钮而不是自动跑
+          const r = await api('/api/stt/status', { method: 'POST', body: {} });
+          const env = r.env || {};
+          S.stt.envReady = !!env.available;
+          sttHint(env.available
+            ? `环境可用：${env.python}`
+            : `环境不完整：${env.reason || '原因未知'}`, !env.available);
+        } catch (e) {
+          sttHint(`检测失败：${String(e.message || e).split('\n')[0]}`, true);
+        } finally {
+          probe.disabled = false;
+          probe.textContent = old;
+          syncMicButton();
+        }
+      });
+    }
+
+    // 麦克风按钮：点一下开始录，再点一下结束并识别（不用"按住说话"，
+    // 因为按住这种交互在触屏和键鼠上都不好做无障碍）
+    const mic = $('#btn-mic');
+    if (mic) {
+      mic.addEventListener('click', async () => {
+        const V = window.WenlvVoice;
+        if (!V) return;
+        const state = V.getState();
+
+        if (state === 'recording') {
+          mic.classList.remove('rec');
+          mic.textContent = '🎤';
+          $('#composer-hint').textContent = '正在识别…';
+          try {
+            const blob = await V.stop();
+            const r = await V.transcribe(blob, { language: (S.stt.language || 'zh') });
+            const input = $('#chat-input');
+            if (input) {
+              // 追加而不是覆盖：用户可能已经打了一半字
+              input.value = (input.value ? `${input.value} ` : '') + r.text;
+              input.focus();
+            }
+            $('#composer-hint').textContent = r.text ? '识别完成，确认后发送。' : '没听清（可能是静音或太短）。';
+          } catch (e) {
+            const code = e && e.code;
+            $('#composer-hint').textContent = code === 'STT_DISABLED'
+              ? '听觉没打开，请到「声音」页启用。'
+              : `识别失败：${String((e && e.message) || e).split('\n')[0]}`;
+          }
+          return;
+        }
+
+        try {
+          await V.start();
+          mic.classList.add('rec');
+          mic.textContent = '⏹';
+          $('#composer-hint').textContent = '正在录音…再点一下结束。';
+        } catch (e) {
+          // 最常见的是用户拒绝了麦克风权限，说清楚该去哪改
+          const msg = String((e && e.message) || e);
+          $('#composer-hint').textContent = /permission|denied|NotAllowed/i.test(msg)
+            ? '麦克风权限被拒绝。请在浏览器地址栏的权限设置里允许后重试。'
+            : `无法开始录音：${msg.split('\n')[0]}`;
+        }
+      });
+
+      // Esc 取消录音：录错了不用等它转完
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        const V = window.WenlvVoice;
+        if (!V || V.getState() !== 'recording') return;
+        try { V.cancel(); } catch { /* 忽略 */ }
+        mic.classList.remove('rec');
+        mic.textContent = '🎤';
+        $('#composer-hint').textContent = '已取消录音。';
+      });
+    }
+  }
+
+
+  /**
+   * 拉取视频背景清单。
+   *
+   * 失败不抛错：视频是**加分项**，没有它照样能用（背景会退回程序化西湖动态画面）。
+   * 让它把启动流程搞挂是本末倒置。
+   */
+  async function loadVideos() {
+    try {
+      const r = await api('/api/videos');
+      S.videos = {
+        items: r.items || [],
+        recommended: (r.status && r.status.recommended) || null,
+        dir: (r.status && r.status.dir) || '',
+        count: (r.status && r.status.count) || 0,
+        maxMB: (r.status && r.status.maxMB) || 0,
+      };
+    } catch {
+      S.videos = { items: [], recommended: null, dir: '', count: 0, maxMB: 0 };
+    }
+    return S.videos;
+  }
+
+
+  /* ========================================================================
+   * 十五、视频背景与开屏模板的设置面板
+   *
+   * 两件事放在一起，因为它们都属于"这台机器是拿来做大屏宣传的"这个场景：
+   * 换片子、换开屏样式，是展厅现场最常被要求的两个改动。
+   * ======================================================================*/
+
+  function videoHint(text, warn) {
+    const el = $('#video-hint');
+    if (el) { el.textContent = text; el.style.color = warn ? 'var(--tertiary)' : ''; }
+  }
+
+  function renderVideos() {
+    const box = $('#video-list');
+    const dir = $('#video-dir');
+    if (dir) dir.textContent = S.videos.dir || 'data/videos/';
+    const maxEl = $('#video-maxmb');
+    if (maxEl) maxEl.textContent = `${S.videos.maxMB || 300}MB`;
+    // 开屏那个下拉的选项来源就是这个列表：上传/删除之后要跟着刷新，
+    // 否则新片子在开屏设置里选不到（要刷新整页才行，很别扭）。
+    if (typeof S._fillBootVideoSel === 'function') { try { S._fillBootVideoSel(); } catch { /* 忽略 */ } }
+    if (!box) return;
+    box.innerHTML = '';
+
+    const items = S.videos.items || [];
+    if (!items.length) {
+      box.appendChild(el('div', {
+        class: 'pick-hint',
+        text: `还没有视频。把宣传片放进 ${S.videos.dir || 'data/videos/'}，或点上面的「上传视频」。`,
+      }));
+    }
+    const current = S.settings.videoUrl || '';
+    items.forEach(v => {
+      const active = current === v.url || (!current && S.videos.recommended && S.videos.recommended.id === v.id);
+      const isBoot = S.settings.bootVideo === v.name;
+
+      // 缩略图：直接拿 <video> 当封面（preload=metadata 只拉头部，不下载整片）。
+      // 比放一枚 🎬 图标强得多 —— 用户是在几张宣传片里挑，看不到画面等于盲选。
+      const thumb = el('video', {
+        class: 'pick-video-thumb',
+        src: `${v.url}#t=1.2`,        // 定位到 1.2 秒取一帧，避免首帧黑场
+        preload: 'metadata',
+        muted: true,
+        playsinline: true,
+      });
+      thumb.addEventListener('loadeddata', () => { try { thumb.currentTime = 1.2; } catch { /* 忽略 */ } });
+
+      const card = el('div', {
+        class: `pick-card pick-card-video${active ? ' active' : ''}`,
+        title: v.id,
+      }, [
+        el('div', { class: 'pick-img' }, [thumb]),
+        el('div', { class: 'pick-name', text: v.name || v.id }),
+        el('div', {
+          class: 'pick-note',
+          text: `${(v.bytes / 1024 / 1024).toFixed(1)} MB`
+            + `${v.recommended ? ' · 名字含西湖' : ''}`
+            + `${active ? ' · 主界面背景' : ''}${isBoot ? ' · 开屏背景' : ''}`,
+        }),
+        el('div', { class: 'pick-video-actions' }, [
+          el('button', {
+            class: 'mini-btn', type: 'button', text: '🖥 主界面',
+            title: '设为主界面舞台的背景',
+            onclick: (e) => {
+              e.stopPropagation();
+              S.settings.videoUrl = v.url;
+              saveSettings();
+              // 立刻切过去，让用户马上看到效果 —— 大屏场景下"点完没反应"最让人慌
+              applyBackground(`video-${v.id}`, { silent: true });
+              api('/api/prefs', { method: 'PUT', body: { video: { main: v.name } } }).catch(() => { /* 忽略 */ });
+              renderVideos();
+              toast(`主界面背景已设为「${v.name || v.id}」`, 'ok');
+            },
+          }),
+          el('button', {
+            class: 'mini-btn', type: 'button', text: '🎬 开屏',
+            title: '设为开屏背景',
+            onclick: (e) => {
+              e.stopPropagation();
+              S.settings.bootVideo = v.name;
+              saveSettings();
+              api('/api/prefs', { method: 'PUT', body: { boot: { video: v.name } } }).catch(() => { /* 忽略 */ });
+              if (typeof S._fillBootVideoSel === 'function') { try { S._fillBootVideoSel(); } catch { /* 忽略 */ } }
+              renderVideos();
+              toast(`开屏背景已设为「${v.name || v.id}」`, 'ok');
+            },
+          }),
+          el('button', {
+            class: 'mini-btn', type: 'button', text: '✕',
+            title: '删除这个视频',
+            onclick: async (e) => {
+              e.stopPropagation();
+              if (!confirm(`删除视频「${v.name || v.id}」？文件会从本机移除。`)) return;
+              try {
+                await api(`/api/videos/${encodeURIComponent(v.id)}`, { method: 'DELETE' });
+                if (S.settings.videoUrl === v.url) { S.settings.videoUrl = ''; saveSettings(); }
+                if (S.settings.bootVideo === v.name) { S.settings.bootVideo = ''; saveSettings(); }
+                await loadVideos();
+                renderVideos();
+                toast('已删除', 'ok');
+              } catch (err) { toast(err.message, 'err'); }
+            },
+          }),
+        ]),
+      ]);
+      // 点卡片本身 = 设为主界面背景（和以前一致）
+      card.addEventListener('click', () => {
+        S.settings.videoUrl = v.url;
+        saveSettings();
+        applyBackground(`video-${v.id}`, { silent: true });
+        api('/api/prefs', { method: 'PUT', body: { video: { main: v.name } } }).catch(() => { /* 忽略 */ });
+        renderVideos();
+        toast(`已切换为「${v.name || v.id}」`, 'ok');
+      });
+      box.appendChild(card);
+    });
+
+    if (items.length) {
+      videoHint(`共 ${items.length} 个视频，单个上限 ${S.videos.maxMB}MB。点一个即可设为背景。`);
+    } else {
+      videoHint(`目录：${S.videos.dir || 'data/videos/'}（为空时用程序化西湖动态画面兜底）`);
+    }
+  }
+
+  function bindVideos() {
+    if (!$('#video-list')) return;
+
+    const refresh = $('#video-refresh');
+    if (refresh) {
+      refresh.addEventListener('click', async () => {
+        await loadVideos();
+        renderVideos();
+        toast(`已刷新，共 ${S.videos.count} 个视频`, 'ok');
+      });
+    }
+
+    const upload = $('#video-upload');
+    const fileInput = el('input', { type: 'file', accept: 'video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.m4v,.ogv', hidden: true });
+    document.body.appendChild(fileInput);
+    if (upload) {
+      upload.addEventListener('click', () => fileInput.click());
+    }
+    fileInput.addEventListener('change', async () => {
+      const f = fileInput.files && fileInput.files[0];
+      fileInput.value = '';
+      if (!f) return;
+      const limit = (S.videos.maxMB || 300) * 1024 * 1024;
+      if (f.size > limit) {
+        toast(`视频过大（${(f.size / 1024 / 1024).toFixed(0)}MB，上限 ${S.videos.maxMB}MB），请先压缩`, 'err', 9000);
+        return;
+      }
+      videoHint(`正在上传并保存「${f.name}」（${(f.size / 1024 / 1024).toFixed(1)}MB）…`);
+      try {
+        const dataUrl = await new Promise((resolve, reject) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(String(fr.result || ''));
+          fr.onerror = () => reject(new Error('读取文件失败'));
+          fr.readAsDataURL(f);
+        });
+        const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+        await api('/api/videos', { method: 'POST', body: { video: base64, name: f.name } });
+        await loadVideos();
+        renderVideos();
+        toast('视频已保存到本机 data/videos/', 'ok', 5000);
+      } catch (e) {
+        videoHint(`上传失败：${String(e.message || e).split('\n')[0]}`, true);
+        toast(String(e.message || e).split('\n')[0], 'err', 9000);
+      }
+    });
+
+    // ---- 开屏模板 ----
+    const syncSeg = () => {
+      const cur = bootScreen ? bootScreen.template : 'video';
+      $$('#boot-tpl-seg .seg-item').forEach(b => b.classList.toggle('on', b.dataset.bootTpl === cur));
+      const el2 = $('#boot-tpl-hint');
+      if (el2 && window.WenlvBoot) {
+        const t = window.WenlvBoot.TEMPLATES.find(x => x.id === cur);
+        el2.textContent = t ? `${t.name}：${t.hint}` : '';
+      }
+    };
+    $$('#boot-tpl-seg .seg-item').forEach(b => {
+      b.addEventListener('click', () => {
+        if (!bootScreen) return;
+        bootScreen.setTemplate(b.dataset.bootTpl, { animate: false });
+        syncSeg();
+        toast(`开屏模板已切换为「${b.textContent.trim()}」`, 'ok');
+      });
+    });
+    const replay = $('#boot-replay');
+    if (replay) replay.addEventListener('click', () => { if (bootScreen) bootScreen.show(); });
+    syncSeg();
+
+    // ---- 视频画面模式：开屏与主界面**共用** ----
+    //
+    // 为什么共用一个设置：两处常常播的是同一个片源，画面比例问题一模一样
+    // （竖屏进横屏），分别设两个开关只会让人来回切两遍。
+    // 主界面那边靠 body 上的 data-vfit 生效（见 airi.css 里 #bg-video 那段）。
+    const videoFitSeg = $('#video-fit-seg');
+    const applyVideoFit = (mode) => {
+      const m = ['auto', 'cover', 'rotate'].includes(mode) ? mode : 'rotate';
+      S.settings.bootFit = m;
+      document.body.dataset.vfit = m;
+      $$('#video-fit-seg .seg-item').forEach(b => b.classList.toggle('on', b.dataset.vfit === m));
+      // 开屏那一路要重新走一遍 syncVideos（它还管着模糊底衬要不要加载）
+      if (bootScreen && bootScreen.refreshFit) bootScreen.refreshFit();
+      return m;
+    };
+    if (videoFitSeg) {
+      applyVideoFit(S.settings.bootFit || 'rotate');
+      videoFitSeg.addEventListener('click', (e) => {
+        const b = e.target.closest('.seg-item');
+        if (!b) return;
+        const m = applyVideoFit(b.dataset.vfit);
+        saveSettings();
+        api('/api/prefs', { method: 'PUT', body: { boot: { fit: m } } }).catch(() => { /* 忽略 */ });
+        toast(`视频画面模式：${b.textContent.trim()}（开屏与主界面都已生效）`, 'ok');
+      });
+    } else {
+      // 没有这块 UI（比如老页面缓存）也要让主界面用上模式
+      document.body.dataset.vfit = S.settings.bootFit || 'rotate';
+    }
+
+    // ---- 开屏背景：本机视频 ----
+    // 这里的选项全部来自 data/videos/ 的**本机文件**（离线可用）。
+    // 早先支持过"填 B 站链接内嵌官方播放器"，后来去掉了：播放器自带界面压不住、
+    // 必须联网、竖屏片源还会被摆成中间一条。现在统一走下载到本机的路子。
+    const videoSel = $('#boot-video-sel');
+    if (videoSel) {
+      const fill = () => {
+        const list = (S.videos && (S.videos.items || S.videos.list)) || [];
+        const keep = videoSel.value;
+        videoSel.innerHTML = '';
+        videoSel.appendChild(el('option', { value: '', text: '（自动：优先名字带「西湖」的，否则用第一个）' }));
+        for (const v of list) videoSel.appendChild(el('option', { value: v.name, text: v.name }));
+        videoSel.value = list.some(v => v.name === S.settings.bootVideo) ? S.settings.bootVideo : (keep || '');
+      };
+      fill();
+      S._fillBootVideoSel = fill;      // 视频列表刷新后要重新填一遍
+      videoSel.addEventListener('change', () => {
+        S.settings.bootVideo = videoSel.value;
+        saveSettings();
+        api('/api/prefs', { method: 'PUT', body: { boot: { video: videoSel.value } } }).catch(() => { /* 忽略 */ });
+        toast(videoSel.value ? `开屏背景已设为 ${videoSel.value}` : '开屏背景改回自动挑选', 'ok');
+      });
+    }
+  }
+
+
+  /* ========================================================================
+   * 十四、开屏与大屏展示
+   *
+   * 开屏本身实现在 public/js/boot.js（两套模板：视频主页 / 形象主页），
+   * 这里只做三件事：启动时按状态决定要不要弹、把三个入口接到主界面、
+   * 以及"重新播放开屏"的按钮。
+   *
+   * 为什么不把开屏的 DOM 与样式写在这里：它是一整套并列的界面，跟主界面唯一的
+   * 耦合就是"选了个入口之后去哪"。放在这个 4700 行的文件里只会更难读。
+   * ======================================================================*/
+
+  /**
+   * 开屏入口 → 主界面动作。
+   *
+   * 跳转规则现在是**数据驱动**的（见 boot.js 的 ENTRIES[].target），这里只负责执行，
+   * 不再写死三个 if 分支 —— 之前"设置"和"API 接入"都跳到外观页，用户点完设置再点
+   * API 接入会以为没跳转。把目标抽成表之后，改跳转只改 boot.js 一行。
+   *
+   * 为什么不用 `$('#tabs .tab[data-pane=...]').click()` 去间接触发：
+   * 点 DOM 会绕开一些状态同步（懒加载、滚动位置），表现是"进了设置页但列表是空的"。
+   * 所以直接调 `switchTab`。
+   */
+  async function onBootEnter(entryId) {
+    try {
+      const def = (window.WenlvBoot && window.WenlvBoot.ENTRIES || []).find(e => e.id === entryId);
+      const t = (def && def.target) || { pane: 'chat' };
+
+      switchTab(t.pane || 'chat');
+
+      // 展开折叠区 / 滚动 / 聚焦都要等面板切完再动，否则量到的位置是旧的
+      // （切页签会改布局，元素位置会变）
+      setTimeout(() => {
+        try {
+          for (const sel of (t.folds || [])) {
+            const d = $(sel);
+            if (d) d.open = true;
+          }
+          const anchor = t.scrollTo ? $(t.scrollTo) : null;
+          if (anchor && anchor.scrollIntoView) {
+            anchor.scrollIntoView({ block: anchor.tagName === 'DETAILS' ? 'center' : 'start', behavior: 'smooth' });
+          }
+          if (t.focus) {
+            const f = $(t.focus);
+            if (f) f.focus();
+          }
+        } catch { /* 单个目标元素缺失不该影响已经切好的页签 */ }
+      }, 240);
+    } catch (e) {
+      // 开屏入口出错不该把用户困在开屏里：至少把界面切过去
+      console.warn('[boot] 入口处理失败：', e && e.message);
+    }
+  }
+
+  function initBoot() {
+    if (!window.WenlvBoot) return;
+    bootScreen = window.WenlvBoot.createBoot({
+      onEnter: onBootEnter,
+      getStage: () => activeStage(),
+      // 模板 A 的背景：优先用用户在外观页选定的那个本机视频；
+      // 没选就挑名字里带"西湖"的，再不行用列表第一个。
+      // 全部来自 data/videos/ 的**本机文件** —— 离线可用。
+      getVideo: () => {
+        // 注意字段名是 items（不是 list）—— 写错会静默取不到，开屏就悄悄回落到
+        // 程序化画面，看起来像"视频没配好"。这里两种都认，免得以后再踩。
+        const list = (S.videos && (S.videos.items || S.videos.list)) || [];
+        if (!list.length) return null;
+        if (S.settings.bootVideo) {
+          const hit = list.find(v => v.name === S.settings.bootVideo || (v.url || '').endsWith(S.settings.bootVideo));
+          if (hit) return hit.url;
+        }
+        const rec = (S.videos && S.videos.recommended) || null;
+        return (rec && rec.url) || list[0].url;
+      },
+      getMuted: () => Boolean(S.settings.bootMuted),
+      getFit: () => S.settings.bootFit || 'auto',
+      // 用户在开屏上点了静音开关 → 存到服务端偏好（下次进来、换设备都一致）
+      onMutedChange: (muted) => {
+        S.settings.bootMuted = Boolean(muted);
+        saveSettings();
+        api('/api/prefs', { method: 'PUT', body: { boot: { muted: Boolean(muted) } } })
+          .catch(() => { /* 存不上不影响本次播放 */ });
+      },
+    });
+
+    const replay = $('#btn-boot');
+    if (replay) replay.addEventListener('click', () => bootScreen.show());
+
+    const kiosk = $('#btn-kiosk');
+    if (kiosk) {
+      kiosk.addEventListener('click', () => setKiosk(!document.body.classList.contains('kiosk')));
+    }
+    // Kiosk 下用 Esc 退出（大屏上操作界面是藏起来的，不给个退路就出不来了）
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && document.body.classList.contains('kiosk')) setKiosk(false);
+    });
+  }
+
+  /**
+   * 大屏展示模式。
+   *
+   * 除了切 CSS，还要处理一件容易被忽略的事：**请求浏览器全屏**。
+   * 展厅场景下没人会去按 F11，而 `.kiosk` 只是把界面元素藏起来，
+   * 浏览器自己的地址栏、标签页还在，投影出去很难看。
+   * 全屏请求必须由用户手势触发，所以放在按钮点击里（这里就是）。
+   */
+  function setKiosk(on) {
+    const want = Boolean(on);
+    document.body.classList.toggle('kiosk', want);
+    try {
+      if (want && document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => { /* 用户拒绝或不允许，忽略 */ });
+      } else if (!want && document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(() => { /* 忽略 */ });
+      }
+    } catch { /* 忽略 */ }
+    const btn = $('#btn-kiosk');
+    if (btn) btn.classList.toggle('on', want);
+    // 切了布局要通知舞台重算尺寸，否则人物还按旧画布尺寸摆着
+    setTimeout(() => { const st = activeStage(); if (st && st.resize) st.resize(); }, 120);
+    toast(want ? '已进入大屏展示模式（Esc 或再点一次退出）' : '已退出大屏展示模式', 'ok', 4000);
+  }
+
+
+  /* ========================================================================
+   * 十二、导航模式
+   *
+   * 用户要的是："导航模式下形象举一块牌子，牌上是上次对话里的导航项目，
+   * 背景按所在景点自动换成对应的风景图。"
+   *
+   * 项目里原本**没有任何导航功能**，所以这一块是全新加的，定位是：
+   * 把已有的景点资料（lib/wenlv 的实体库）与位置信息，收束成"我要去哪儿"
+   * 这一个当前目标，并让形象与舞台把它表达出来。
+   *
+   * 风景图三种来源（对应设置里的三档）：
+   *   builtin —— 内置程序化，现画一张，完全离线
+   *   folder  —— 用户自己放进 data/scenery/ 的图
+   *   web     —— 联网搜图，**默认关闭**，必须手动点「应用」才真的去搜
+   * ======================================================================*/
+
+  function saveNav() {
+    try { localStorage.setItem('wenlv.nav', JSON.stringify(S.nav)); } catch { /* 隐私模式下写不了，忽略 */ }
+  }
+
+  function loadNav() {
+    S.nav = { on: false, spot: '', city: '', scenery: 'builtin', lastItem: '' };
+    try {
+      const raw = localStorage.getItem('wenlv.nav');
+      if (raw) Object.assign(S.nav, JSON.parse(raw) || {});
+    } catch { /* 坏了就用默认值，不要让一条脏数据挡住启动 */ }
+  }
+
+  function navHint(text, warn) {
+    const el = $('#nav-hint');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle('warn', !!warn);
+  }
+
+  /** 打开/关闭导航模式 */
+  /**
+   * 舞台右下角的**小**导航卡片。
+   *
+   * 取代原来"让形象举一块大木牌"的做法：那块牌子比人物还显眼，还挡住风景，
+   * 用户明确说太突兀。改成一张角落小卡片，只留"去哪、多远、往哪走"，
+   * 想看细节就点开整页导航。
+   */
+  let navPage = null;
+
+  function initNavPage() {
+    if (!window.WenlvNav || navPage) return navPage;
+    navPage = window.WenlvNav.createNavPage({
+      cities: (S.geoCities && Object.keys(S.geoCities).length) ? S.geoCities : null,
+      onToast: (msg) => toast(msg, 'ok'),
+    });
+    return navPage;
+  }
+
+  function updateNavMini(spot) {
+    const box = $('#nav-mini');
+    if (!box) return;
+    if (!spot) { box.hidden = true; return; }
+    box.hidden = false;
+    const nameEl = $('#nav-mini-name');
+    const metaEl = $('#nav-mini-meta');
+    const dirEl = $('#nav-mini-dir');
+    if (nameEl) nameEl.textContent = spot;
+    // 已经定位过就能直接给出距离和方位；没定位就如实说"点开看距离"
+    const page = navPage || initNavPage();
+    const info = page && page.infoForSpot ? page.infoForSpot(spot) : null;
+    if (info) {
+      if (metaEl) metaEl.textContent = `${info.distance} · 正${info.compass}方向 · 步行约 ${info.walk} 分`;
+      if (dirEl) dirEl.style.transform = `rotate(${info.bearing}deg)`;
+    } else {
+      if (metaEl) metaEl.textContent = '点开看它离你多远、在哪个方向';
+      if (dirEl) dirEl.style.transform = '';
+    }
+  }
+
+  function bindNavMini() {
+    const open = $('#nav-mini-open');
+    if (open) open.addEventListener('click', () => { const p = initNavPage(); if (p) p.show(); });
+    const x = $('#nav-mini-close');
+    if (x) x.addEventListener('click', () => { const b = $('#nav-mini'); if (b) b.hidden = true; });
+  }
+
+  async function setNavMode(on) {
+    S.nav.on = !!on;
+    saveNav();
+    const bar = $('#nav-bar');
+    if (bar) bar.hidden = !S.nav.on;
+    // 注意：#btn-nav（顶栏那个）现在负责**打开整页导航**，不再兼任"导航模式开关"。
+    // 导航模式本身（风景图来源那一组设置）从「文旅」页里进。
+
+    if (!S.nav.on) {
+      // 退出导航模式要把牌子收掉、背景交还给原来的背景设置，
+      // 否则用户会看到"关了导航，风景图还赖在那儿"
+      const st = activeStage();
+      if (st && st.clearPlacard) { try { st.clearPlacard(); } catch { /* 忽略 */ } }
+      if (st && st.setScenery) { try { await st.setScenery(null); } catch { /* 忽略 */ } }
+      navHint('选一个景点，形象会举牌显示它，背景也会换成它的风景。');
+      return;
+    }
+    const el = $('#nav-spot');
+    if (el && !el.value) el.value = S.nav.spot || S.nav.lastItem || '';
+    navHint(S.nav.spot
+      ? `当前目标：${S.nav.spot}。形象举的牌子上就是它。`
+      : '先设一个目标景点，形象就会举牌显示它，背景也跟着换。');
+  }
+
+  /**
+   * 设定导航目标：形象举牌 + 背景按该景点更换。
+   *
+   * 牌子上的字取景点名本身 —— 用户要的是"上次对话的导航项目"，
+   * 一个名字比一句话更适合写在牌子上。
+   */
+  async function setNavTarget(spotRaw, city) {
+    const spot = String(spotRaw || '').trim();
+    if (!spot) { navHint('景点名不能为空。', true); return false; }
+    S.nav.spot = spot;
+    if (city) S.nav.city = String(city).trim();
+    S.nav.lastItem = spot;
+    saveNav();
+
+    const st = activeStage();
+    if (!st) { navHint('还没有加载形象，先选一个形象再开导航。', true); return false; }
+
+    // 牌子
+    if (st.setPlacard) { try { await st.setPlacard(spot); } catch { /* 忽略 */ } }
+
+    // 风景图
+    const ok = await applyNavScenery(spot);
+    // 舞台角落的小卡片（替代原来让形象举的大木牌）
+    updateNavMini(spot);
+    navHint(ok
+      ? `当前目标：${spot}。背景已换成对应的风景，右下角卡片可以打开导航页。`
+      : `当前目标：${spot}。风景图没取到（详见提示），但导航卡片仍然可用。`, !ok);
+    return true;
+  }
+
+  /**
+   * 按当前选择的来源给舞台换背景。
+   *
+   * 三种来源的处理刻意不一样：内置是即时且必然成功的；自备目录要问服务端
+   * 有没有这张图；联网必须**手动触发**，不在这里偷偷发请求 —— 项目的一条
+   * 基本原则是"不联网也能用，联网要用户自己点"。
+   */
+  async function applyNavScenery(spot) {
+    const st = activeStage();
+    if (!st || !st.setScenery) return false;
+    const name = spot || S.nav.spot;
+    if (!name) return false;
+    const src = S.nav.scenery || 'builtin';
+
+    try {
+      if (src === 'builtin') {
+        await st.setScenery({ kind: 'procedural', spot: name, city: S.nav.city });
+        return true;
+      }
+      if (src === 'folder') {
+        const r = await fetch(`/api/scenery/local?spot=${encodeURIComponent(name)}`);
+        const j = await r.json().catch(() => ({}));
+        if (j && j.ok && j.url) { await st.setScenery({ kind: 'url', url: j.url, spot: name, city: S.nav.city }); return true; }
+        // 目录里没有就退回程序化，别让用户对着一片空白
+        navHint(`自备目录里没有「${name}」的图（${(j && j.error) || '未找到'}），已改用内置程序化风景。`, true);
+        await st.setScenery({ kind: 'procedural', spot: name, city: S.nav.city });
+        return false;
+      }
+      if (src === 'web') {
+        navHint(`正在联网搜索「${name}」的风景图…`);
+        const r = await fetch(`/api/scenery/search?spot=${encodeURIComponent(name)}${S.nav.city ? `&city=${encodeURIComponent(S.nav.city)}` : ''}`);
+        const j = await r.json().catch(() => ({}));
+        if (j && j.ok && j.url) { await st.setScenery({ kind: 'url', url: j.url, spot: name, city: S.nav.city }); return true; }
+        navHint(`联网没取到「${name}」的风景图（${(j && j.error) || '未知原因'}），已改用内置程序化风景。`, true);
+        await st.setScenery({ kind: 'procedural', spot: name, city: S.nav.city });
+        return false;
+      }
+    } catch (e) {
+      navHint(`换背景失败：${String(e.message || e).split('\n')[0]}。已改用内置程序化风景。`, true);
+      try { await st.setScenery({ kind: 'procedural', spot: name, city: S.nav.city }); } catch { /* 忽略 */ }
+      return false;
+    }
+    return false;
+  }
+
+  /** 待机开关（默认开）。读设置，写到当前舞台 */
+  function applyIdleSetting() {
+    const st = activeStage();
+    if (!st) return;
+    const on = S.settings.idleMotion !== false;      // 默认开
+    try {
+      if (on) st.startIdle({ motionEveryMs: Number(S.settings.idleEveryMs) || 14000 });
+      else st.stopIdle();
+    } catch { /* 老渲染器没有这套接口，忽略 */ }
+  }
+
+  function initNavUI() {
+    // 顶栏「🧭 导航」= 打开**整页定位导航**（看我在哪、附近景点、怎么过去）。
+    // 原来的"导航模式开关"（风景图来源那一组设置）改由下面的按钮进入，
+    // 因为用户要的是一个"页面"，而不是在顶栏上切一个模式。
+    const nav = $('#btn-nav');
+    if (nav) nav.addEventListener('click', () => { const p = initNavPage(); if (p) p.toggle(); });
+
+    // 导航页入口（也放在导航设置条里，方便从"风景图"那边顺手打开）
+    const openPage = $('#nav-open-page');
+    if (openPage) openPage.addEventListener('click', () => { const p = initNavPage(); if (p) p.show(); });
+
+    // 导航模式的开关保留在「文旅」页 —— 它是设置，不是主功能
+    const modeBtn = $('#nav-mode-toggle');
+    if (modeBtn) modeBtn.addEventListener('click', () => setNavMode(!S.nav.on));
+
+    bindNavMini();
+
+    const go = $('#nav-go');
+    if (go) {
+      go.addEventListener('click', () => {
+        const v = ($('#nav-spot') || {}).value || '';
+        setNavTarget(v);
+      });
+    }
+    const spotInput = $('#nav-spot');
+    if (spotInput) {
+      spotInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); setNavTarget(spotInput.value); }
+      });
+    }
+
+    const sel = $('#nav-scenery-source');
+    if (sel) {
+      sel.value = S.nav.scenery || 'builtin';
+      sel.addEventListener('change', () => {
+        S.nav.scenery = sel.value;
+        saveNav();
+        if (S.nav.scenery === 'web') {
+          navHint('联网搜图默认关闭。选好景点后点「应用」才会真的联网搜索；搜不到会退回内置风景。', true);
+        } else if (S.nav.scenery === 'folder') {
+          navHint('自备图片放在项目根目录的 data/scenery/ 下，文件名里带上景点名即可被匹配到。');
+        } else {
+          navHint('使用内置程序化风景：按景点名现画一张，完全离线、不需要素材。');
+        }
+      });
+    }
+
+    const apply = $('#nav-scenery-apply');
+    if (apply) apply.addEventListener('click', () => { if (S.nav.spot) applyNavScenery(S.nav.spot); else navHint('先设一个目标景点。', true); });
+
+    // 「放下牌子」那个按钮已经删掉了 —— 形象不再举牌，
+    // 目标景点改由舞台右下角的小卡片呈现（见 updateNavMini / bindNavMini）。
+
+    // 初始状态：开关关着，条子藏着
+    const bar = $('#nav-bar');
+    if (bar) bar.hidden = !S.nav.on;
+    if (nav) nav.classList.toggle('on', !!S.nav.on);
+  }
+
   /**
    * 切换当前展示的形象。
-   * @param {'live2d'|'3d'} kind
+   * @param {'lake'|'live2d'|'3d'} kind
    * @param {string} id
    */
   async function switchDisplay(kind, id, { silent } = {}) {
     const item = findDisplayModel(kind, id)
-      || (kind === '3d' ? allDisplayModels().find(m => m.kind === '3d') : S.l2dModels[0]);
+      || (kind === '3d' ? allDisplayModels().find(m => m.kind === '3d')
+        : kind === 'lake' ? allDisplayModels().find(m => m.kind === 'lake')
+          : S.l2dModels[0]);
     if (!item) {
       stageProblem(kind === '3d'
         ? '还没有可用的 3D 形象。\n\n两种办法：\n1. 双击仓库根目录的「获取示例模型.bat」下载内置的 VRM 示例模型\n2. 点外观页的「更换形象」→「上传 VRM / GLB」，用你自己的模型'
@@ -1565,12 +2649,30 @@
         stageOk();
         // 没有预览图的模型，等它站稳之后自动截一帧存下来（只截一次）
         if (!item.preview) captureModelPreview(item);
+        // 舞台是新建的，之前画在地面上的方位标记要重新贴上去，
+        // 否则"切一下形象，箭头就没了"（而 HUD 还在，看起来像功能坏了）
+        applyGeoMarkerToStage(S.geo.relation);
       } catch (e) {
         stageProblem(e.message);
         toast(String(e.message).split('\n')[0], 'err', 9000);
       }
-    } else {
-      stageProblem(`正在加载 ${item.label}…`);
+    } else if (item.kind === 'lake') {
+      // 西湖船娘是纯代码画的，加载不会失败（没有外部文件），所以这里不需要
+      // "加载失败怎么办"的分支 —— 唯一的失败可能是脚本没加载进来。
+      try {
+        const st = await ensureLake();
+        await st.load(item.url, { label: item.label });
+        st.setScale(S.settings.l2dScale);
+        st.setPosition(S.settings.l2dX, S.settings.l2dY);
+        if (S.settings.expression && (st.expressions || []).includes(S.settings.expression)) {
+          await st.setExpression(S.settings.expression);
+        }
+        stageOk();
+      } catch (e) {
+        stageProblem(e.message);
+        toast(String(e.message).split('\n')[0], 'err', 9000);
+      }
+    } else {      stageProblem(`正在加载 ${item.label}…`);
       try {
         const st = await ensureLive2D();
         await st.load(item.entry, { label: item.label });
@@ -1584,6 +2686,16 @@
         stageProblem(e.message);
         toast(String(e.message).split('\n')[0], 'err', 9000);
       }
+    }
+
+    // 换完形象要把两件"跟着形象走"的状态重新贴上去：
+    //   ① 程序化待机 —— 新渲染器实例默认没开，不重开会莫名其妙不动了
+    //   ② 导航模式的牌子与风景 —— 牌子挂在旧模型的舞台上，换形象就没了
+    applyIdleSetting();
+    if (S.nav.on && S.nav.spot) {
+      const st = activeStage();
+      if (st && st.setPlacard) { try { await st.setPlacard(S.nav.spot); } catch { /* 忽略 */ } }
+      await applyNavScenery(S.nav.spot);
     }
 
     renderExpressions();
@@ -1644,10 +2756,13 @@
     renderLookPreview();
   }
 
-  /** 列出当前渲染器支持的表情（两套渲染器的取法不同，这里抹平） */
+  /** 列出当前渲染器支持的表情（三套渲染器的取法不同，这里抹平） */
   function currentExpressions() {
     if (S.display.kind === '3d') {
       return stage3d && stage3d.expressionNames ? stage3d.expressionNames() : [];
+    }
+    if (S.display.kind === 'lake') {
+      return (lake && lake.expressions) || [];
     }
     return (stage && stage.expressions) || [];
   }
@@ -1662,7 +2777,9 @@
     if (hint) {
       hint.textContent = S.display.kind === '3d'
         ? '3D 形象的表情由 VRM 定义，不同模型差别很大'
-        : '来自模型的 .exp3.json';
+        : S.display.kind === 'lake'
+          ? '西湖船娘的表情是内置的（程序化绘制）'
+          : '来自模型的 .exp3.json';
     }
 
     if (!names.length) {
@@ -1670,7 +2787,9 @@
         class: 'mini',
         text: S.display.kind === '3d'
           ? (stage3d ? '该 3D 模型没有可切换的表情（或不是 VRM）' : '3D 渲染器还没加载')
-          : '该模型没有表情文件（.exp3.json）',
+          : S.display.kind === 'lake'
+            ? '西湖船娘还没加载'
+            : '该模型没有表情文件（.exp3.json）',
       }));
       return;
     }
@@ -1702,7 +2821,1207 @@
   const pickRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
   /* ========================================================================
-   * 十一、界面绑定
+   * 十一、模型接入与对外开放（外部 API 双向）
+   *
+   * 出向：配置一个 OpenAI 兼容的云端端点，让对话/视觉/向量可以走外部。
+   * 入向：把本项目按 OpenAI 兼容接口开放出去，供 AIRI 等外部 Agent 调用。
+   *
+   * 两块的共同原则是"默认不出网、默认不开放"，界面上必须一眼看出当前状态，
+   * 而不是让人猜自己现在到底在用本地还是云端。
+   * ======================================================================*/
+  let providerPresets = [];
+  let providerCfg = null;
+  let openapiCfg = null;
+
+  // 对外开放的能力清单：value 与服务端 lib/openapi.js 的 expose 键一一对应
+  const EXPOSE_LABELS = {
+    chat: '对话 · /v1/chat/completions',
+    models: '模型列表 · /v1/models',
+    embeddings: '向量 · /v1/embeddings',
+    speech: '语音 · /v1/audio/speech（走本机 Qwen TTS）',
+    wenlv: '文旅生成 · /wenlv/generate（方案 / 文案）',
+    memory: '记忆 · /memory/*（含你的对话记录，谨慎勾选）',
+    cards: '角色卡 · /cards/*',
+  };
+
+  function renderProviderBadges() {
+    const box = $('#provider-badges');
+    if (!box || !providerCfg) return;
+    box.innerHTML = '';
+    const e = providerCfg.external || {};
+    if (providerCfg.active) {
+      box.appendChild(el('span', { class: 'mini', html: `<i class="dot ok"></i> 外部：${escapeHtml((providerCfg.preset && providerCfg.preset.label) || '自定义')}` }));
+      if (e.chatModel) box.appendChild(el('span', { class: 'mini', text: `对话 ${e.chatModel}` }));
+      if (e.hasApiKey) box.appendChild(el('span', { class: 'mini', text: `Key ${e.apiKeyMasked}` }));
+      else box.appendChild(el('span', { class: 'mini', html: '<i class="dot warn"></i> 未填 Key' }));
+      if (e.visionModel && providerCfg.useFor.vision) box.appendChild(el('span', { class: 'mini', text: `视觉 ${e.visionModel}` }));
+      if (e.embedModel && providerCfg.useFor.embed) box.appendChild(el('span', { class: 'mini', text: `向量 ${e.embedModel}` }));
+    } else {
+      box.appendChild(el('span', { class: 'mini', html: '<i class="dot ok"></i> 本机 Ollama（不出网）' }));
+    }
+    // 勾了外部却没填模型名：服务端会安全回落本地，但必须在这里说清楚，
+    // 否则用户以为在用云端、实际在用本机，排查起来毫无头绪。
+    const st = S.status && S.status.ollama;
+    if (st && st.misconfigured) {
+      const bad = Object.keys(st.misconfigured).filter(k => st.misconfigured[k]);
+      for (const k of bad) {
+        box.appendChild(el('span', { class: 'mini', html: `<i class="dot warn"></i> ${k === 'vision' ? '视觉' : '向量'}选了外部但没填模型名，暂用本机` }));
+      }
+    }
+  }
+
+  function fillProviderForm() {
+    if (!providerCfg) return;
+    const e = providerCfg.external || {};
+    const sel = $('#provider-preset');
+    if (sel && sel.options.length === 0) {
+      for (const p of providerPresets) sel.appendChild(el('option', { value: p.id, text: p.label }));
+    }
+    if (sel) sel.value = e.presetId || 'custom';
+    $('#provider-baseurl').value = e.baseUrl || '';
+    $('#provider-chatmodel').value = e.chatModel || '';
+    $('#provider-visionmodel').value = e.visionModel || '';
+    $('#provider-embedmodel').value = e.embedModel || '';
+    $('#provider-use-vision').checked = Boolean(providerCfg.useFor && providerCfg.useFor.vision);
+    $('#provider-use-embed').checked = Boolean(providerCfg.useFor && providerCfg.useFor.embed);
+    // 明文密钥拿不回来（服务端只回打码版），所以这里只提示"已存了一个"
+    $('#provider-apikey').value = '';
+    $('#provider-key-hint').textContent = e.hasApiKey ? `已保存 ${e.apiKeyMasked}，留空表示不修改` : '尚未保存密钥';
+    renderProviderNote();
+    renderProviderBadges();
+  }
+
+  function renderProviderNote() {
+    const note = $('#provider-note');
+    if (!note) return;
+    const id = $('#provider-preset').value;
+    const p = providerPresets.find(x => x.id === id);
+    if (!p) { note.textContent = ''; return; }
+    const bits = [];
+    if (p.note) bits.push(p.note);
+    if (p.keyUrl) bits.push(`申请密钥：${p.keyUrl}`);
+    if (p.caps && !p.caps.vision) bits.push('这家没有视觉接口');
+    if (p.caps && !p.caps.embed) bits.push('这家没有向量接口');
+    if (p.local) bits.push('本机服务，通常不需要密钥');
+    note.textContent = bits.join(' · ');
+  }
+
+  function showProviderResult(lines) {
+    const box = $('#provider-result');
+    if (!box) return;
+    box.innerHTML = '';
+    for (const [okState, name, detail] of lines) {
+      const icon = okState === 'ok' ? '✅' : okState === 'warn' ? '⚠️' : '❌';
+      box.appendChild(el('div', { class: 'mem-item' }, [
+        el('div', { class: 'txt' }, [
+          el('div', { text: `${icon} ${name}`, style: { fontWeight: '600' } }),
+          detail ? el('div', { class: 'meta', text: String(detail) }) : null,
+        ]),
+      ]));
+    }
+  }
+
+  /** 把表单里当前填的东西读出来，供"测试连接"和"保存"共用 */
+  function readProviderForm() {
+    return {
+      presetId: $('#provider-preset').value,
+      baseUrl: $('#provider-baseurl').value.trim(),
+      apiKey: $('#provider-apikey').value.trim(),
+      chatModel: $('#provider-chatmodel').value.trim(),
+      visionModel: $('#provider-visionmodel').value.trim(),
+      embedModel: $('#provider-embedmodel').value.trim(),
+      useFor: {
+        vision: $('#provider-use-vision').checked,
+        embed: $('#provider-use-embed').checked,
+      },
+    };
+  }
+
+  async function loadProviderConfig() {
+    if (!$('#fold-provider')) return;
+    try {
+      const r = await api('/api/providers');
+      providerPresets = r.presets || [];
+      providerCfg = r.config;
+      fillProviderForm();
+    } catch (e) {
+      toast(`读取模型接入配置失败：${e.message}`, 'err', 5000);
+    }
+  }
+
+  async function loadOpenAPIConfig() {
+    if (!$('#fold-openapi')) return;
+    try {
+      const r = await api('/api/openapi');
+      openapiCfg = r.config;
+      renderOpenAPI();
+    } catch (e) {
+      toast(`读取对外开放配置失败：${e.message}`, 'err', 5000);
+    }
+  }
+
+  function renderOpenAPI() {
+    if (!openapiCfg) return;
+    $('#openapi-enabled').checked = Boolean(openapiCfg.enabled);
+    $('#openapi-require-token').checked = Boolean(openapiCfg.requireToken);
+
+    const tok = $('#openapi-token');
+    // 明文只有"刚生成"那一次在手上；刷新页面后只能显示打码版
+    if (!tok.dataset.plain) tok.value = openapiCfg.tokenMasked || '';
+
+    const box = $('#openapi-expose');
+    box.innerHTML = '';
+    for (const [key, label] of Object.entries(EXPOSE_LABELS)) {
+      const id = `openapi-expose-${key}`;
+      const cb = el('input', { type: 'checkbox', id });
+      cb.checked = Boolean(openapiCfg.expose && openapiCfg.expose[key]);
+      cb.dataset.key = key;
+      // 记忆与角色卡属于个人数据，单独标红提醒
+      const sensitive = key === 'memory' || key === 'cards';
+      box.appendChild(el('label', { class: 'check', style: sensitive ? { color: 'var(--warn, #ffcf70)' } : null }, [cb, ' ' + label]));
+    }
+
+    const base = `${location.origin}`;
+    const eps = [
+      `POST ${base}/v1/chat/completions　（stream 支持流式，也支持传图片）`,
+      `GET  ${base}/v1/models`,
+      `POST ${base}/v1/embeddings`,
+      `POST ${base}/v1/audio/speech　（返回 audio/wav）`,
+      `POST ${base}/wenlv/generate　（SSE，方案 / 文案 / 追问）`,
+      `GET/POST ${base}/memory　${base}/cards　（需在下面勾选）`,
+    ];
+    $('#openapi-endpoints').innerHTML = eps.map(x => `<code>${escapeHtml(x)}</code>`).join('<br>');
+
+    $('#openapi-token-hint').textContent = openapiCfg.requireToken
+      ? '外部程序需要带 Authorization: Bearer <令牌>。明文只在生成的那一刻显示一次。'
+      : '⚠️ 已关闭令牌校验：局域网内任何人都能调用（服务默认只监听 127.0.0.1，风险相对可控）。';
+  }
+
+  function bindProviders() {
+    const sel = $('#provider-preset');
+    if (!sel) return;
+
+    sel.addEventListener('change', () => {
+      const p = providerPresets.find(x => x.id === sel.value);
+      if (p) {
+        // 切预设就把该家的端点与默认模型带出来，省得手抄
+        if (p.baseUrl) $('#provider-baseurl').value = p.baseUrl;
+        if (p.chatModel) $('#provider-chatmodel').value = p.chatModel;
+        // 默认模型是免费/通用档，勾选框不自动开：向量和视觉要用户自己想清楚再切
+        if (p.models && p.models.length) fillModelOptions(p.models);
+      }
+      renderProviderNote();
+    });
+
+    $('#provider-fetch-models').addEventListener('click', async () => {
+      const f = readProviderForm();
+      const btn = $('#provider-fetch-models');
+      btn.disabled = true;
+      try {
+        const r = await api('/api/providers/models', { method: 'POST', body: { baseUrl: f.baseUrl, apiKey: f.apiKey } });
+        fillModelOptions(r.models || []);
+        showProviderResult([['ok', '模型列表', `拉到 ${(r.models || []).length} 个，已填入下拉候选`]]);
+        toast(`拉到 ${(r.models || []).length} 个模型`, 'ok');
+      } catch (e) {
+        showProviderResult([['err', '模型列表', e.message]]);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    $('#provider-test').addEventListener('click', async () => {
+      const f = readProviderForm();
+      const btn = $('#provider-test');
+      btn.disabled = true;
+      showProviderResult([['warn', '测试连接', '正在请求…']]);
+      try {
+        const r = await api('/api/providers/test', {
+          method: 'POST',
+          body: { baseUrl: f.baseUrl, apiKey: f.apiKey, chatModel: f.chatModel },
+        });
+        showProviderResult((r.steps || []).map(s => [s.ok ? (s.warn ? 'warn' : 'ok') : 'err', s.name, s.detail]));
+      } catch (e) {
+        showProviderResult([['err', '测试连接', e.message]]);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    $('#provider-save').addEventListener('click', async () => {
+      const f = readProviderForm();
+      if (!f.baseUrl) { toast('请先填 Base URL', 'err'); return; }
+      if (!f.chatModel) { toast('请先填对话模型名', 'err'); return; }
+      try {
+        const r = await api('/api/providers', {
+          method: 'PUT',
+          body: { mode: 'external', external: f, useFor: f.useFor },
+        });
+        providerCfg = r.config;
+        fillProviderForm();
+        await refreshStatus();
+        toast('已启用外部模型接入', 'ok');
+      } catch (e) {
+        toast(`保存失败：${e.message}`, 'err', 5000);
+      }
+    });
+
+    $('#provider-local').addEventListener('click', async () => {
+      try {
+        const r = await api('/api/providers', { method: 'PUT', body: { mode: 'local' } });
+        providerCfg = r.config;
+        fillProviderForm();
+        await refreshStatus();
+        toast('已切回本机 Ollama', 'ok');
+      } catch (e) {
+        toast(`切换失败：${e.message}`, 'err', 5000);
+      }
+    });
+
+    // ---- 对外开放 ----
+    $('#openapi-enabled').addEventListener('change', async (ev) => {
+      try {
+        const r = await api('/api/openapi', { method: 'PUT', body: { enabled: ev.target.checked } });
+        openapiCfg = r.config;
+        if (r.tokenPlain) {
+          $('#openapi-token').dataset.plain = '1';
+          $('#openapi-token').value = r.tokenPlain;
+          toast('已开启，令牌已生成（请立刻复制保存）', 'ok', 6000);
+        }
+        renderOpenAPI();
+        await refreshStatus();
+      } catch (e) {
+        ev.target.checked = !ev.target.checked;
+        toast(`操作失败：${e.message}`, 'err', 5000);
+      }
+    });
+
+    $('#openapi-require-token').addEventListener('change', async (ev) => {
+      try {
+        const r = await api('/api/openapi', { method: 'PUT', body: { requireToken: ev.target.checked } });
+        openapiCfg = r.config;
+        renderOpenAPI();
+      } catch (e) {
+        ev.target.checked = !ev.target.checked;
+        toast(`操作失败：${e.message}`, 'err', 5000);
+      }
+    });
+
+    $('#openapi-token-regen').addEventListener('click', async () => {
+      try {
+        const r = await api('/api/openapi', { method: 'PUT', body: { enabled: true, regenerateToken: true } });
+        openapiCfg = r.config;
+        // 明文只在这一次回传里出现，标个记号避免被后续 renderOpenAPI 覆盖成打码版
+        const tok = $('#openapi-token');
+        tok.dataset.plain = '1';
+        tok.value = r.tokenPlain || '';
+        toast('已生成新令牌，旧令牌立即失效', 'ok', 5000);
+      } catch (e) {
+        toast(`生成失败：${e.message}`, 'err', 5000);
+      }
+    });
+
+    // 能力勾选框是动态生成的，用事件委托省得逐个绑
+    $('#openapi-expose').addEventListener('change', async (ev) => {
+      const cb = ev.target;
+      if (!cb || cb.type !== 'checkbox' || !cb.dataset.key) return;
+      const expose = {};
+      $$('#openapi-expose input[type=checkbox]').forEach(x => { expose[x.dataset.key] = x.checked; });
+      try {
+        const r = await api('/api/openapi', { method: 'PUT', body: { expose } });
+        openapiCfg = r.config;
+        await refreshStatus();
+      } catch (e) {
+        cb.checked = !cb.checked;
+        toast(`操作失败：${e.message}`, 'err', 5000);
+      }
+    });
+  }
+
+  /** 把模型名塞进 datalist：既是候选，也不阻止手输 */
+  function fillModelOptions(models) {
+    const dl = $('#provider-model-list');
+    if (!dl) return;
+    dl.innerHTML = '';
+    for (const m of models) dl.appendChild(el('option', { value: m }));
+  }
+
+  /* ---------- 联网（工具调用）---------- */
+
+  function applyWebUI() {
+    const b = $('#btn-web');
+    if (!b) return;
+    b.classList.toggle('on', S.webEnabled);
+    b.title = S.webEnabled
+      ? '联网已开启：模型遇到"最新"类问题会主动搜索网页核实（点击关闭）'
+      : '联网已关闭：模型只凭本地知识回答（点击开启）';
+  }
+
+  async function loadPrefs() {
+    if (!$('#btn-web')) return;
+    try {
+      const r = await api('/api/prefs');
+      const w = (r.config && r.config.web) || {};
+      S.webEnabled = Boolean(w.enabled);
+      S.webPrefs = {
+        enabled: Boolean(w.enabled),
+        maxSteps: Number(w.maxSteps) || 4,
+        allowFetch: w.allowFetch !== false,
+        allowPanorama: w.allowPanorama !== false,
+      };
+      S.webTools = r.tools || [];
+
+      // 开屏背景视频来自**服务端偏好**（不是 localStorage）：
+      // 展厅是"配一次、多块屏都用"，存在浏览器里的话每台机器都要重新粘一遍。
+      const b = (r.config && r.config.boot) || {};
+      S.settings.bootVideo = String(b.video || '');
+      S.settings.bootMuted = Boolean(b.muted);
+      S.settings.bootFit = ['auto', 'cover', 'rotate'].includes(b.fit) ? b.fit : 'rotate';
+
+      // 主界面背景视频：与开屏共用片源与画面模式，但选择分开存
+      // （有时开屏想用一段 30 秒短loop，主界面想用长片）。
+      const vd = (r.config && r.config.video) || {};
+      S.settings.mainVideo = String(vd.main || '');
+    } catch {
+      // 读不到就按"关闭"处理。宁可不联网，也不能在状态不明时擅自出网。
+      S.webEnabled = false;
+    }
+    applyWebUI();
+    renderWebPanel();
+  }
+
+  function renderWebPanel() {
+    if (!$('#fold-web')) return;
+    const w = S.webPrefs || { enabled: false, maxSteps: 4, allowFetch: true, allowPanorama: true };
+    $('#web-enabled').checked = w.enabled;
+    $('#web-allow-fetch').checked = w.allowFetch;
+    $('#web-allow-panorama').checked = w.allowPanorama;
+    $('#web-steps').value = w.maxSteps;
+    $('#web-steps-label').textContent = w.maxSteps;
+
+    const box = $('#web-badges');
+    box.innerHTML = '';
+    box.appendChild(el('span', {
+      class: 'mini',
+      html: `<i class="dot ${w.enabled ? 'ok' : 'warn'}"></i> ${w.enabled ? '联网已开启' : '联网已关闭（不出网）'}`,
+    }));
+    if (w.enabled) box.appendChild(el('span', { class: 'mini', text: `最多 ${w.maxSteps} 轮查证` }));
+
+    const tools = (S.webTools || []).map(n => ({
+      web_search: '联网搜索',
+      web_fetch: '读取网页正文',
+      find_panorama: '检索 360° 全景图',
+    }[n] || n));
+    $('#web-tools').textContent = tools.length ? tools.join(' · ') : '—';
+  }
+
+  /** 统一的保存入口：改完任一项就回写 /api/prefs 并同步界面 */
+  async function saveWebPrefs(patch) {
+    try {
+      const r = await api('/api/prefs', { method: 'PUT', body: { web: patch } });
+      const w = r.config.web;
+      S.webEnabled = Boolean(w.enabled);
+      S.webPrefs = {
+        enabled: Boolean(w.enabled),
+        maxSteps: Number(w.maxSteps) || 4,
+        allowFetch: w.allowFetch !== false,
+        allowPanorama: w.allowPanorama !== false,
+      };
+      applyWebUI();
+      renderWebPanel();
+      return true;
+    } catch (e) {
+      toast(`保存失败：${e.message}`, 'err', 5000);
+      renderWebPanel();   // 回滚界面上的勾选状态
+      return false;
+    }
+  }
+
+  function bindWebPanel() {
+    if (!$('#fold-web')) return;
+    $('#web-enabled').addEventListener('change', (e) => saveWebPrefs({ enabled: e.target.checked }));
+    $('#web-allow-fetch').addEventListener('change', (e) => saveWebPrefs({ allowFetch: e.target.checked }));
+    $('#web-allow-panorama').addEventListener('change', (e) => saveWebPrefs({ allowPanorama: e.target.checked }));
+    $('#web-steps').addEventListener('input', (e) => { $('#web-steps-label').textContent = e.target.value; });
+    $('#web-steps').addEventListener('change', (e) => saveWebPrefs({ maxSteps: Number(e.target.value) }));
+  }
+
+  /* ========================================================================
+   * 十二、位置（浏览器定位 / 手填 / IP 估算 + 舞台上标记方位）
+   * ======================================================================*/
+
+  /**
+   * 取浏览器定位。
+   *
+   * 注意 `127.0.0.1` 与 `localhost` 属于"安全上下文"，浏览器会放行定位 API；
+   * 但如果把服务挂到局域网 IP（改 HOST=0.0.0.0）用 http 访问，浏览器会直接
+   * 拒绝定位 —— 这时错误码是 1，容易被误读成"用户点了拒绝"。所以下面按
+   * 错误码给出不同的话，而不是笼统一句"定位失败"。
+   */
+  function getBrowserLocation() {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) return reject(new Error('这个浏览器不支持定位 API'));
+      navigator.geolocation.getCurrentPosition(
+        p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
+        (err) => {
+          const map = {
+            1: '定位被拒绝。如果你确实点了"允许"，检查一下浏览器是否把这个站点设为禁止定位；用局域网 IP（非 127.0.0.1/localhost）以 http 访问时，浏览器也会直接拒绝。',
+            2: '定位不可用（可能没有 GPS，网络定位也失败了）。可以改用下面的手填坐标。',
+            3: '定位超时（12 秒）。换个地方或改用手填坐标再试。',
+          };
+          reject(new Error(map[err.code] || `定位失败：${err.message}`));
+        },
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 },
+      );
+    });
+  }
+
+  async function loadGeo() {
+    if (!$('#fold-geo')) return;
+    try {
+      const r = await api('/api/location');
+      S.geo.status = r.status;
+    } catch { /* 读不到就按"没有位置"处理 */ }
+    renderGeoPanel();
+  }
+
+  function renderGeoPanel() {
+    if (!$('#fold-geo')) return;
+    const st = S.geo.status || { hasLocation: false };
+
+    const box = $('#geo-badges');
+    box.innerHTML = '';
+    if (st.hasLocation) {
+      box.appendChild(el('span', { class: 'mini', html: `<i class="dot ${st.fresh ? 'ok' : 'warn'}"></i> ${escapeHtml(st.label || '已定位')}` }));
+      box.appendChild(el('span', { class: 'mini', text: `${Number(st.lat).toFixed(4)}, ${Number(st.lng).toFixed(4)}` }));
+      box.appendChild(el('span', { class: 'mini', text: st.accuracyNote }));
+      // 时效一定要显示：半小时前的定位对"我现在在哪"没有意义
+      if (!st.fresh) box.appendChild(el('span', { class: 'mini', html: `<i class="dot warn"></i> ${escapeHtml(st.ageText)}取的，可能已不准` }));
+    } else {
+      box.appendChild(el('span', { class: 'mini', html: '<i class="dot warn"></i> 还没有位置' }));
+    }
+
+    if (st.lat != null) { $('#geo-lat').value = Number(st.lat).toFixed(4); $('#geo-lng').value = Number(st.lng).toFixed(4); }
+    $('#geo-label').value = st.label || '';
+
+    const ipAllowed = Boolean(S.status && S.status.location && S.status.location.ipFallbackAllowed);
+    $('#geo-allow-ip').checked = ipAllowed;
+    $('#geo-ip').disabled = !ipAllowed;
+    $('#geo-ip').title = ipAllowed ? '向第三方定位服务查询你的大致位置' : '需要先勾选下面的「允许 IP 估算」';
+
+    $('#geo-mcp').innerHTML = '外部 Agent 可通过 MCP 调用 <code>get_location</code> 与 <code>distance_to_spot</code>：'
+      + '<br><code>node mcp/location-server.js</code>（stdio），注册配置见 <code>mcp/README.md</code>。';
+  }
+
+  /** 把"距离 + 方位"画到 HUD 与 3D 舞台上 */
+  function applyGeoHud(rel) {
+    S.geo.relation = rel;
+    const hud = $('#geo-hud');
+    if (!hud) return;
+
+    if (!rel) { hud.hidden = true; applyGeoMarkerToStage(null); return; }
+
+    hud.hidden = false;
+    $('#geo-title').textContent = `${rel.target.name}　${rel.distanceText}`;
+    // 罗盘箭头：0° 正北 → 0deg，顺时针 → 正好和 CSS rotate 的正方向一致
+    $('#geo-arrow').style.setProperty('--bearing', `${Number(rel.bearing).toFixed(1)}deg`);
+    const extras = [rel.bearingText ? `方向 ${rel.bearingText}` : '',
+      rel.fromAccuracyNote || '',
+      rel.note || ''].filter(Boolean);
+    $('#geo-sub').textContent = extras.join(' · ');
+
+    applyGeoMarkerToStage(rel);
+  }
+
+  /** 3D 舞台支持在角色脚下画指北环与方位箭头；Live2D 舞台没有这个方法，静默跳过 */
+  function applyGeoMarkerToStage(rel) {
+    const st = activeStage();
+    if (st && typeof st.setGeoMarker === 'function') {
+      try { st.setGeoMarker(rel ? { bearingDeg: rel.bearing } : null); } catch { /* 标记出错不该影响舞台 */ }
+    }
+  }
+
+  async function setLocationFromBrowser() {
+    const btn = $('#geo-acquire');
+    btn.disabled = true;
+    try {
+      const pos = await getBrowserLocation();
+      const r = await api('/api/location', { method: 'POST', body: pos });
+      S.geo.status = r.status;
+      renderGeoPanel();
+      toast(`已定位：${r.status.accuracyNote}`, 'ok', 3500);
+    } catch (e) {
+      toast(e.message, 'err', 7000);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function bindGeoPanel() {
+    if (!$('#fold-geo')) return;
+
+    $('#geo-acquire').addEventListener('click', setLocationFromBrowser);
+
+    $('#geo-ip').addEventListener('click', async () => {
+      const btn = $('#geo-ip');
+      btn.disabled = true;
+      try {
+        const r = await api('/api/location/ip', { method: 'POST' });
+        S.geo.status = r.status;
+        renderGeoPanel();
+        toast('已按 IP 估算位置（仅城市级精度）', 'ok', 4000);
+      } catch (e) {
+        toast(e.message, 'err', 7000);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    $('#geo-save-manual').addEventListener('click', async () => {
+      const lat = Number($('#geo-lat').value);
+      const lng = Number($('#geo-lng').value);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return toast('请填写合法的经纬度数字', 'err');
+      try {
+        const r = await api('/api/location/manual', { method: 'POST', body: { lat, lng, label: $('#geo-label').value.trim() } });
+        S.geo.status = r.status;
+        renderGeoPanel();
+        toast('坐标已保存', 'ok');
+      } catch (e) {
+        toast(e.message, 'err', 6000);
+      }
+    });
+
+    $('#geo-clear').addEventListener('click', async () => {
+      try {
+        await api('/api/location', { method: 'DELETE' });
+        S.geo.status = { hasLocation: false };
+        renderGeoPanel();
+        applyGeoHud(null);
+        toast('已清除位置', 'ok');
+      } catch (e) { toast(e.message, 'err'); }
+    });
+
+    $('#geo-allow-ip').addEventListener('change', async (e) => {
+      try {
+        await api('/api/prefs', { method: 'PUT', body: { location: { allowIpFallback: e.target.checked } } });
+        await refreshStatus();
+        renderGeoPanel();
+      } catch (err) {
+        e.target.checked = !e.target.checked;
+        toast(`保存失败：${err.message}`, 'err');
+      }
+    });
+
+    $('#geo-relation').addEventListener('click', async () => {
+      const spot = $('#geo-spot').value.trim();
+      if (!spot) return toast('请填写景点名', 'err');
+      if (!S.geo.status || !S.geo.status.hasLocation) return toast('还不知道你在哪，先点「获取我的位置」或手填坐标', 'err', 5000);
+      const btn = $('#geo-relation');
+      btn.disabled = true;
+      try {
+        const q = new URLSearchParams({ spot, city: $('#geo-city').value.trim() });
+        const rel = await api(`/api/location/relation?${q}`);
+        applyGeoHud(rel);
+        toast(`${rel.target.name}：${rel.distanceText}，在${rel.bearingText}方向`, 'ok', 5000);
+      } catch (e) {
+        toast(e.message, 'err', 7000);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    $('#geo-close').addEventListener('click', () => applyGeoHud(null));
+  }
+
+  /* ========================================================================
+   * 十三、景区全景（检索 / 上传 / 程序化 → 环视场景）
+   *
+   * 三种来源对应三种现实情况，界面要如实区分，不能混着说：
+   *   联网检索  —— 只有在那个景点真的有公开等距柱状图时才成功（多数中文景点没有）
+   *   上传      —— 最可靠，演示时首选
+   *   程序化生成 —— 离线兜底，是画出来的，会明确标注"非实拍"
+   * ======================================================================*/
+
+  let panoBuiltFrom = null;    // 当前场景来自哪条来源，用于界面标注
+
+  async function loadPano() {
+    if (!$('#fold-pano')) return;
+    try {
+      const r = await api('/api/pano');
+      S.pano = {
+        items: r.items || [],
+        enabled: r.enabled,
+        depthModelPresent: r.depthModelPresent,
+        depthModelDir: r.depthModelDir,
+        maxMB: r.maxMB,
+      };
+    } catch {
+      S.pano = { items: [], enabled: false, depthModelPresent: false };
+    }
+    renderPanoPanel();
+  }
+
+  function renderPanoPanel() {
+    if (!$('#fold-pano')) return;
+    const p = S.pano || { items: [], enabled: false, depthModelPresent: false };
+
+    const box = $('#pano-badges');
+    box.innerHTML = '';
+    box.appendChild(el('span', {
+      class: 'mini',
+      html: `<i class="dot ${p.enabled ? 'ok' : 'warn'}"></i> ${p.enabled ? '已启用' : '功能已关闭'}`,
+    }));
+    box.appendChild(el('span', { class: 'mini', text: `已缓存 ${p.items.length} 张` }));
+    if (S.webEnabled) box.appendChild(el('span', { class: 'mini', html: '<i class="dot ok"></i> 联网已开，可检索' }));
+    else box.appendChild(el('span', { class: 'mini', html: '<i class="dot warn"></i> 联网未开，检索不可用' }));
+
+    const db = $('#pano-depth-badges');
+    db.innerHTML = '';
+    db.appendChild(el('span', {
+      class: 'mini',
+      html: `<i class="dot ${p.depthModelPresent ? 'ok' : 'warn'}"></i> 深度模型${p.depthModelPresent ? '已就位' : '未下载'}`,
+    }));
+
+    // 缓存列表：点一下就用它建场景
+    const list = $('#pano-list');
+    list.innerHTML = '';
+    if (!p.items.length) {
+      list.appendChild(el('div', { class: 'hintline', text: '还没有缓存的全景图。' }));
+    } else {
+      for (const it of p.items) {
+        list.appendChild(el('div', { class: 'mem-item' }, [
+          el('div', { class: 'txt' }, [
+            el('div', { text: `${it.width}×${it.height}（${it.ratio}:1）`, style: { fontWeight: '600' } }),
+            el('div', { class: 'meta', text: `${it.spot || '未标注'} · ${it.source} · ${(it.bytes / 1024 / 1024).toFixed(1)}MB` }),
+          ]),
+          el('div', { class: 'row' }, [
+            el('button', {
+              class: 'mini-btn',
+              text: '环视',
+              onclick: () => enterPanoramaFromRecord(it),
+            }),
+            el('button', {
+              class: 'mini-btn',
+              text: '删除',
+              onclick: async () => {
+                try {
+                  await api(`/api/pano/${encodeURIComponent(it.id)}`, { method: 'DELETE' });
+                  await loadPano();
+                } catch (e) { toast(e.message, 'err'); }
+              },
+            }),
+          ]),
+        ]));
+      }
+    }
+  }
+
+  function showPanoResult(lines) {
+    const box = $('#pano-result');
+    box.innerHTML = '';
+    for (const [state, name, detail] of lines) {
+      const icon = state === 'ok' ? '✅' : state === 'warn' ? '⚠️' : '❌';
+      box.appendChild(el('div', { class: 'mem-item' }, [
+        el('div', { class: 'txt' }, [
+          el('div', { text: `${icon} ${name}`, style: { fontWeight: '600' } }),
+          detail ? el('div', { class: 'meta', text: String(detail).slice(0, 600) }) : null,
+        ]),
+      ]));
+    }
+  }
+
+  /** 进入全景模式前先把 3D 舞台准备好（只有它有 three.js） */
+  async function with3DStage(fn) {
+    const st = await ensure3D();
+    showCanvas('3d');
+    return fn(st);
+  }
+
+  async function enterPanoramaFromRecord(rec) {
+    try {
+      showPanoResult([['warn', '正在构建场景', `${rec.width}×${rec.height}，深度计算可能要几秒…`]]);
+      const depthUrl = prefsDepthRelief() ? `/api/pano/depth/${encodeURIComponent(rec.id)}` : null;
+      const info = await with3DStage(st => st.buildPanorama({
+        url: `/api/pano/image/${encodeURIComponent(rec.id)}`,
+        depthUrl,
+        label: rec.spot || '全景',
+        sourceKind: 'downloaded',
+      }));
+      panoBuiltFrom = { kind: 'downloaded', label: rec.spot || '' };
+      afterPanoramaBuilt(info, `来源：${rec.source}（${rec.width}×${rec.height}）`);
+    } catch (e) {
+      // 深度接口 503 时给出的是"深度不可用"，但那不该挡住环视 ——
+      // 重新用不带深度的方式再建一次，并把原因说出来
+      if (/深度|DEPTH|503/i.test(String(e.message))) {
+        try {
+          const info = await with3DStage(st => st.buildPanorama({
+            url: `/api/pano/image/${encodeURIComponent(rec.id)}`,
+            label: rec.spot || '全景',
+            sourceKind: 'downloaded',
+          }));
+          panoBuiltFrom = { kind: 'downloaded', label: rec.spot || '' };
+          afterPanoramaBuilt(info, `深度不可用，已退化为普通环境球：${e.message.split('\n')[0]}`);
+          return;
+        } catch (e2) { /* 落到下面统一报错 */ }
+      }
+      showPanoResult([['err', '构建失败', e.message]]);
+      toast(String(e.message).split('\n')[0], 'err', 7000);
+    }
+  }
+
+  const prefsDepthRelief = () => !(S.pano && S.pano.depthRelief === false);
+
+  function afterPanoramaBuilt(info, extra) {
+    const bits = [extra];
+    if (info && info.relief) bits.push(`立体浮雕已启用（半径 ${info.minRadius.toFixed(1)}~${info.maxRadius.toFixed(1)}）`);
+    else bits.push('未使用深度，当前是普通环境球');
+    if (info && info.depthError) bits.push(`深度失败：${info.depthError}`);
+    showPanoResult([['ok', '场景已就绪', bits.filter(Boolean).join(' · ')]]);
+    toast('已进入全景环视：拖动鼠标就能环顾四周', 'ok', 4500);
+    $('#pano-stage-hint').hidden = false;
+  }
+
+  async function enterProceduralPanorama() {
+    try {
+      showPanoResult([['warn', '正在生成程序化全景', '离线合成，不依赖网络…']]);
+      const mod = await import('/js/pano.js');
+      const canvas = mod.makeProceduralPanorama();
+      const info = await with3DStage(st => st.buildPanorama({
+        canvas,
+        // 程序化全景也能走真深度：它本身有明确的地平线与远近结构，深度模型判得出来
+        label: '程序化生成',
+        sourceKind: 'procedural',
+      }));
+      panoBuiltFrom = { kind: 'procedural', label: '程序化生成' };
+      // 深度要按图片算，而程序化全景没有缓存记录 —— 先存成一张再算不值得，
+      // 所以这里直接用不带深度的环境球，并在提示里说明。
+      afterPanoramaBuilt({ ...info, relief: false }, '程序化生成（非实拍）· 未做深度浮雕');
+    } catch (e) {
+      showPanoResult([['err', '生成失败', e.message]]);
+      toast(String(e.message).split('\n')[0], 'err', 7000);
+    }
+  }
+
+  async function uploadPanorama(file) {
+    try {
+      showPanoResult([['warn', '正在读取', file.name]]);
+      const dataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result));
+        r.onerror = () => reject(new Error('读取文件失败'));
+        r.readAsDataURL(file);
+      });
+      // 先在本地量宽高比，不合格就不必传给服务端了
+      const img = await new Promise((resolve, reject) => {
+        const i = new Image();
+        i.onload = () => resolve(i);
+        i.onerror = () => reject(new Error('不是有效的图片'));
+        i.src = dataUrl;
+      });
+      const ratio = img.naturalWidth / img.naturalHeight;
+      const ok = ratio >= 1.9 && ratio <= 2.12;
+      showPanoResult([[
+        ok ? 'ok' : 'warn',
+        `宽高比 ${ratio.toFixed(2)}:1`,
+        ok ? '符合等距柱状全景，可以直接环视' : '不是 2:1 左右，贴到球面上会明显变形（仍会尝试渲染）',
+      ]]);
+      const info = await with3DStage(st => st.buildPanorama({
+        canvas: (() => {
+          const c = document.createElement('canvas');
+          c.width = img.naturalWidth; c.height = img.naturalHeight;
+          c.getContext('2d').drawImage(img, 0, 0);
+          return c;
+        })(),
+        label: file.name,
+        sourceKind: 'upload',
+      }));
+      panoBuiltFrom = { kind: 'upload', label: file.name };
+      afterPanoramaBuilt({ ...info, relief: false }, `上传：${file.name}`);
+    } catch (e) {
+      showPanoResult([['err', '上传失败', e.message]]);
+    }
+  }
+
+  function exitPanoramaMode() {
+    if (stage3d) stage3d.exitPanorama();
+    panoBuiltFrom = null;
+    $('#pano-stage-hint').hidden = true;
+    toast('已返回人物模式', 'ok');
+  }
+
+  function bindPanoPanel() {
+    if (!$('#fold-pano')) return;
+
+    $('#pano-acquire').addEventListener('click', async () => {
+      const spot = $('#pano-spot').value.trim();
+      if (!spot) return toast('请填写景点名', 'err');
+      const btn = $('#pano-acquire');
+      btn.disabled = true;
+      showPanoResult([['warn', '正在检索', '图片搜索 + 逐个下载校验（只接受 2:1 等值柱状）…']]);
+      try {
+        const r = await api('/api/pano/acquire', {
+          method: 'POST',
+          body: { spot, city: $('#pano-city').value.trim() },
+          timeout: 300000,
+        });
+        await loadPano();
+        showPanoResult([
+          ['ok', '已获取全景图', `${r.record.width}×${r.record.height}（${r.record.ratio}:1）来自 ${r.record.source}；跳过了 ${(r.tried || []).length} 个不合格候选`],
+        ]);
+        await enterPanoramaFromRecord(r.record);
+      } catch (e) {
+        showPanoResult([['err', '没能获取可用全景图', e.message]]);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    $('#pano-upload').addEventListener('click', () => $('#pano-file').click());
+    $('#pano-file').addEventListener('change', (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (f) uploadPanorama(f);
+      e.target.value = '';
+    });
+
+    $('#pano-procedural').addEventListener('click', enterProceduralPanorama);
+
+    $('#pano-depth-check').addEventListener('click', async () => {
+      const btn = $('#pano-depth-check');
+      btn.disabled = true;
+      $('#pano-depth-hint').textContent = '正在起一次 Python 探测环境（约几秒）…';
+      try {
+        const r = await api('/api/pano/depth-check', { method: 'POST' });
+        const d = r.depth;
+        $('#pano-depth-hint').textContent = d.available
+          ? `深度环境可用。Python：${d.python}`
+          : `深度不可用：${d.reason}`;
+        showPanoResult([[d.available ? 'ok' : 'err', '深度环境', d.available ? `Python：${d.python}` : d.reason]]);
+      } catch (e) {
+        $('#pano-depth-hint').textContent = `探测失败：${e.message}`;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    $('#pano-relief').addEventListener('click', async () => {
+      if (!panoBuiltFrom) return toast('还没有全景场景，先检索/上传/生成一个', 'err');
+      if (panoBuiltFrom.kind !== 'downloaded') {
+        return toast('程序化与上传的来源暂不支持重建深度（需要服务端有对应的缓存记录）', 'err', 6000);
+      }
+      const it = (S.pano.items || []).find(x => x.spot === panoBuiltFrom.label) || (S.pano.items || [])[0];
+      if (it) await enterPanoramaFromRecord(it);
+    });
+
+    $('#pano-enter').addEventListener('click', () => {
+      const it = (S.pano.items || [])[0];
+      if (!it) return toast('还没有已缓存的全景图。可以检索、上传，或直接程序化生成。', 'err', 5000);
+      enterPanoramaFromRecord(it);
+    });
+
+    $('#pano-exit').addEventListener('click', exitPanoramaMode);
+    $('#pano-stage-hint').addEventListener('click', exitPanoramaMode);
+  }
+
+  /* ========================================================================
+   * 十四、图片转 3D（TripoSR）
+   *
+   * 产物会登记进项目已有的模型库，所以生成完可以直接在「外观」里选到 ——
+   * 不需要为"生成的模型"另造一套浏览界面。
+   * ======================================================================*/
+
+  let i23dImage = null;        // 待转换的图片 dataURL
+
+  async function loadI23D() {
+    if (!$('#fold-i23d')) return;
+    try {
+      const r = await api('/api/img23d');
+      S.i23d = { jobs: r.jobs || [], modelPresent: r.modelPresent, modelDir: r.modelDir };
+    } catch {
+      S.i23d = { jobs: [], modelPresent: false };
+    }
+    renderI23DPanel();
+  }
+
+  function renderI23DPanel() {
+    if (!$('#fold-i23d')) return;
+    const p = S.i23d || { jobs: [], modelPresent: false };
+
+    const box = $('#i23d-badges');
+    box.innerHTML = '';
+    box.appendChild(el('span', {
+      class: 'mini',
+      html: `<i class="dot ${p.modelPresent ? 'ok' : 'warn'}"></i> 权重${p.modelPresent ? '已就位' : '未下载（npm run fetch:triposr）'}`,
+    }));
+    box.appendChild(el('span', { class: 'mini', text: `已生成 ${p.jobs.length} 个` }));
+    box.appendChild(el('span', { class: 'mini', text: `网格分辨率 ${$('#i23d-res').value}` }));
+
+    const list = $('#i23d-list');
+    list.innerHTML = '';
+    if (!p.jobs.length) {
+      list.appendChild(el('div', { class: 'hintline', text: '还没有生成过模型。' }));
+    } else {
+      for (const j of p.jobs) {
+        list.appendChild(el('div', { class: 'mem-item' }, [
+          el('div', { class: 'txt' }, [
+            el('div', { text: j.id, style: { fontWeight: '600' } }),
+            el('div', { class: 'meta', text: `${(j.bytes / 1024).toFixed(0)} KB · ${fmtTime(j.at)}` }),
+          ]),
+          el('div', { class: 'row' }, [
+            el('button', {
+              class: 'mini-btn',
+              text: '设为形象',
+              onclick: () => {
+                const it = (S.models3d.custom || []).find(m => String(m.url || '').includes(j.id));
+                if (!it) return toast('这个模型还没有登记进模型库，重新生成一次即可', 'err', 5000);
+                switchDisplay('3d', it.id);
+              },
+            }),
+          ]),
+        ]));
+      }
+    }
+  }
+
+  function showI23DResult(lines) {
+    const box = $('#i23d-result');
+    box.innerHTML = '';
+    for (const [state, name, detail] of lines) {
+      const icon = state === 'ok' ? '✅' : state === 'warn' ? '⚠️' : '❌';
+      box.appendChild(el('div', { class: 'mem-item' }, [
+        el('div', { class: 'txt' }, [
+          el('div', { text: `${icon} ${name}`, style: { fontWeight: '600' } }),
+          detail ? el('div', { class: 'meta', text: String(detail).slice(0, 800) }) : null,
+        ]),
+      ]));
+    }
+  }
+
+  async function generate3D() {
+    if (!i23dImage) return toast('请先选择一张图片', 'err');
+    const btn = $('#i23d-generate');
+    btn.disabled = true;
+    const res = Number($('#i23d-res').value);
+    showI23DResult([['warn', '正在生成', `分辨率 ${res}，本机推理通常 1~3 分钟（显存被别的程序占着会更慢）…`]]);
+    try {
+      const r = await api('/api/img23d/generate', {
+        method: 'POST',
+        timeout: 900000,
+        body: {
+          image: i23dImage,
+          resolution: res,
+          chunkSize: Number($('#i23d-chunk').value),
+          removeBg: $('#i23d-remove-bg').checked,
+          bakeTexture: $('#i23d-bake-texture').checked,
+        },
+      });
+      const lines = [['ok', '生成完成',
+        `${r.vertices} 顶点 / ${r.faces} 面 · ${(r.bytes / 1024).toFixed(0)}KB · 用时 ${r.seconds}s · 分辨率 ${r.resolution} · ${r.textured ? '带贴图' : '顶点色'}`]];
+      if (r.removeBgFailed) lines.push(['warn', '去背景失败，已用原图推理', r.removeBgFailed]);
+      if (r.registerError) lines.push(['warn', '登记到模型库失败', r.registerError]);
+      else lines.push(['ok', '已加入模型库', r.note]);
+      showI23DResult(lines);
+
+      // 刷新模型列表，让它在「外观」里立刻可选
+      const d = await api('/api/models3d');
+      S.models3d = { ...S.models3d, bundled: d.bundled, custom: d.custom, formats: d.formats };
+      renderLookPreview();
+      await loadI23D();
+      toast('三维模型已生成，可在「外观 → 更换形象」里选中', 'ok', 6000);
+    } catch (e) {
+      showI23DResult([['err', '生成失败', e.message]]);
+      toast(String(e.message).split('\n')[0], 'err', 9000);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function bindI23DPanel() {
+    if (!$('#fold-i23d')) return;
+
+    $('#i23d-pick').addEventListener('click', () => $('#i23d-file').click());
+    $('#i23d-file').addEventListener('change', async (e) => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (!f) return;
+      if (!/^image\//.test(f.type)) return toast('请选择图片文件', 'err');
+      try {
+        const raw = await new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve(String(r.result));
+          r.onerror = () => reject(new Error('读取文件失败'));
+          r.readAsDataURL(f);
+        });
+        // 先降采样：原图动辄几 MB，而 TripoSR 内部本来也会缩到 512 左右
+        i23dImage = await downscaleImage(raw, 1024);
+        $('#i23d-preview-hint').textContent = `已选择：${f.name}（${(f.size / 1024).toFixed(0)} KB）`;
+        showI23DResult([]);
+      } catch (err) {
+        toast(err.message, 'err');
+      }
+    });
+
+    $('#i23d-res').addEventListener('input', (e) => {
+      $('#i23d-res-label').textContent = e.target.value;
+      renderI23DPanel();
+    });
+    $('#i23d-chunk').addEventListener('input', (e) => { $('#i23d-chunk-label').textContent = e.target.value; });
+    $('#i23d-generate').addEventListener('click', generate3D);
+
+    $('#i23d-detect').addEventListener('click', async () => {
+      const btn = $('#i23d-detect');
+      btn.disabled = true;
+      $('#i23d-env-hint').textContent = '正在起一次 Python 探测（import torch 不快，约十几秒）…';
+      try {
+        const r = await api('/api/img23d/detect', { method: 'POST', timeout: 180000 });
+        const env = r.env;
+        $('#i23d-env-hint').textContent = env.available
+          ? `环境可用。Python：${env.python}`
+          : `环境不完整：${env.reason}`;
+        showI23DResult([[env.available ? 'ok' : 'err', '运行环境', env.available ? `Python：${env.python}` : env.reason]]);
+      } catch (e) {
+        $('#i23d-env-hint').textContent = `探测失败：${e.message}`;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+
+  /* ========================================================================
+   * 十五、Blender 动画（通过 MCP 驱动 Blender）
+   * ======================================================================*/
+
+  async function loadBlender() {
+    if (!$('#fold-blender')) return;
+    try {
+      const r = await api('/api/blender');
+      S.blender = { status: r.status, jobs: r.jobs || [], host: r.host, port: r.port };
+    } catch {
+      S.blender = { status: { available: false, reason: '读取状态失败' }, jobs: [] };
+    }
+    renderBlenderPanel();
+  }
+
+  function renderBlenderPanel() {
+    if (!$('#fold-blender')) return;
+    const b = S.blender || { status: {}, jobs: [] };
+    const st = b.status || {};
+
+    const box = $('#blender-badges');
+    box.innerHTML = '';
+    box.appendChild(el('span', {
+      class: 'mini',
+      html: `<i class="dot ${st.available ? 'ok' : 'warn'}"></i> ${st.available ? 'Blender 服务已连接' : 'Blender 服务未连接'}`,
+    }));
+    if (st.available && st.scene && st.scene.blender_version) {
+      box.appendChild(el('span', { class: 'mini', text: `Blender ${st.scene.blender_version}` }));
+    }
+    box.appendChild(el('span', { class: 'mini', text: `${b.host || '127.0.0.1'}:${b.port || 9876}` }));
+    box.appendChild(el('span', { class: 'mini', text: `已生成 ${(b.jobs || []).length} 个` }));
+
+    const list = $('#blender-list');
+    list.innerHTML = '';
+    if (!(b.jobs || []).length) {
+      list.appendChild(el('div', { class: 'hintline', text: '还没有生成过动画。' }));
+    } else {
+      for (const j of b.jobs) {
+        list.appendChild(el('div', { class: 'mem-item' }, [
+          el('div', { class: 'txt' }, [
+            el('div', { text: j.file, style: { fontWeight: '600' } }),
+            el('div', { class: 'meta', text: `${(j.bytes / 1024).toFixed(0)} KB · ${fmtTime(j.at)}` }),
+          ]),
+          el('div', { class: 'row' }, [
+            el('button', {
+              class: 'mini-btn',
+              text: '播放',
+              onclick: () => {
+                const it = (S.models3d.custom || []).find(m => String(m.url || '').includes(j.file));
+                if (!it) return toast('这个动画还没登记进模型库，重新生成一次即可', 'err', 5000);
+                switchDisplay('3d', it.id);
+                toast('已切到该模型；网页端会自动循环播放它自带的动画', 'ok', 4000);
+              },
+            }),
+          ]),
+        ]));
+      }
+    }
+  }
+
+  function showBlenderResult(lines) {
+    const box = $('#blender-result');
+    box.innerHTML = '';
+    for (const [state, name, detail] of lines) {
+      const icon = state === 'ok' ? '✅' : state === 'warn' ? '⚠️' : '❌';
+      box.appendChild(el('div', { class: 'mem-item' }, [
+        el('div', { class: 'txt' }, [
+          el('div', { text: `${icon} ${name}`, style: { fontWeight: '600' } }),
+          detail ? el('div', { class: 'meta', text: String(detail).slice(0, 800) }) : null,
+        ]),
+      ]));
+    }
+  }
+
+  async function generateBlenderAnim() {
+    const btn = $('#blender-generate');
+    btn.disabled = true;
+    showBlenderResult([['warn', '正在驱动 Blender', '建模型 → 打关键帧 → 导出 glTF，通常几秒…']]);
+    try {
+      const r = await api('/api/blender/anim', {
+        method: 'POST',
+        timeout: 300000,
+        body: {
+          name: 'tour-guide',
+          frames: Number($('#blender-frames').value),
+          // 滑块是 5~60（避免小数），这里除以 10 变成 0.5~6.0 米
+          radius: Number($('#blender-radius').value) / 10,
+        },
+      });
+      const lines = [['ok', '动画已生成',
+        `${r.fileName} · ${(r.bytes / 1024).toFixed(0)}KB · ${r.frames} 帧 @${r.fps}fps（${r.durationSeconds}s） · Blender ${r.blenderVersion}`]];
+      lines.push(['ok', 'Blender 里的对象', (r.objects || []).join(', ')]);
+      if (r.registerError) lines.push(['warn', '登记到模型库失败', r.registerError]);
+      else lines.push(['ok', '已加入模型库', r.note]);
+      showBlenderResult(lines);
+
+      // 刷新模型列表让它立刻可选
+      const d = await api('/api/models3d');
+      S.models3d = { ...S.models3d, bundled: d.bundled, custom: d.custom, formats: d.formats };
+      renderLookPreview();
+      await loadBlender();
+      toast('动画已生成，可在「外观 → 更换形象」里选中播放', 'ok', 6000);
+    } catch (e) {
+      showBlenderResult([['err', '生成失败', e.message]]);
+      toast(String(e.message).split('\n')[0], 'err', 9000);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function bindBlenderPanel() {
+    if (!$('#fold-blender')) return;
+
+    $('#blender-frames').addEventListener('input', (e) => { $('#blender-frames-label').textContent = e.target.value; });
+    $('#blender-radius').addEventListener('input', (e) => { $('#blender-radius-label').textContent = (Number(e.target.value) / 10).toFixed(1); });
+    $('#blender-generate').addEventListener('click', generateBlenderAnim);
+
+    $('#blender-check').addEventListener('click', async () => {
+      const btn = $('#blender-check');
+      btn.disabled = true;
+      try {
+        const r = await api('/api/blender/ping');
+        $('#blender-hint').textContent = r.available
+          ? `已连接 ${r.host}:${r.port}。可以生成动画了。`
+          : `未连接 ${r.host}:${r.port}。运行 npm run blender:start 会弹出 Blender 窗口并自动开启服务。`;
+        showBlenderResult([[r.available ? 'ok' : 'err', 'Blender 服务', r.available ? '已连接' : '未连接（需要 Blender 开着）']]);
+        await loadBlender();
+      } catch (e) {
+        showBlenderResult([['err', '检测失败', e.message]]);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+
+  /* ========================================================================
+   * 十六、界面绑定
    * ======================================================================*/
   function switchTab(name) {
     $$('#tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.pane === name));
@@ -1810,6 +4129,19 @@
       input.style.height = `${Math.min(input.scrollHeight, 132)}px`;
     });
     $('#btn-send').addEventListener('click', sendMessage);
+    $('#btn-web').addEventListener('click', async () => {
+      const next = !S.webEnabled;
+      try {
+        const r = await api('/api/prefs', { method: 'PUT', body: { web: { enabled: next } } });
+        S.webEnabled = Boolean(r.config && r.config.web && r.config.web.enabled);
+        applyWebUI();
+        toast(S.webEnabled
+          ? '已开启联网：模型遇到"最新"类问题会主动搜索核实'
+          : '已关闭联网：模型只凭本地知识回答', 'ok', 3500);
+      } catch (e) {
+        toast(`切换联网失败：${e.message}`, 'err', 5000);
+      }
+    });
     $('#btn-stop').addEventListener('click', () => {
       if (S.currentStream) S.currentStream.abort();
       toast('已请求停止', 'ok');
@@ -2290,6 +4622,16 @@
   /** 把"当前背景"的完整对象找出来（内置 / 程序化 / 自定义三类里查） */
   function findBackground(id) {
     if (!id) return null;
+    // 视频背景用 `video-<文件名>` 这个前缀寻址。它不在 /api/backgrounds 的清单里
+    // （视频是另一套接口，见 lib/videos.js），所以在这里现拼一条出来 ——
+    // 这样视频就能和图片/程序化背景走完全相同的 applyBackground 通路，
+    // 不必为"视频"再写一条平行的切换逻辑。
+    if (id.startsWith('video-')) {
+      const vid = String(id).slice('video-'.length);
+      const hit = (S.videos.items || []).find(v => v.id === vid);
+      if (hit) return { id, kind: 'video', url: hit.url, label: hit.name || hit.id };
+      return null;
+    }
     const all = [
       ...(S.backgrounds.procedural || []),
       ...(S.backgrounds.bundled || []),
@@ -2504,8 +4846,20 @@
       } else if (m.kind === '3d') {
         const size = m.bytes ? `${(m.bytes / 1024 / 1024).toFixed(1)} MB` : '';
         mNote.textContent = `3D · ${(m.format || 'glb').toUpperCase()}${size ? ` · ${size}` : ''} · three.js + three-vrm 渲染`;
+      } else if (m.kind === 'lake') {
+        // 西湖船娘没有 .motion3.json 也没有 .exp3.json —— 动作和表情都是算出来的。
+        // 照 Live2D 那一套去读 m.motionGroups.length 会当场抛 TypeError，
+        // 而这个函数是在 loadCapabilities() → setActiveCard() 里被调的，
+        // 一抛就把整个 boot() 打断：后面的 initStage() 不再执行，
+        // 画布停在 300×150 一个像素都没画 —— 表现就是"新形象不显示"。
+        mNote.textContent = '内置 · 程序化绘制 · 待机 / 6 个动作 / 4 种表情 / 口型同步 / 举牌';
       } else {
-        mNote.textContent = `${m.motionGroups.length} 组动作 / ${m.motionCount} 个 · ${m.expressions.length} 个表情 · 口型同步${m.hasLipSync ? '支持' : '不支持'}`;
+        // 老模型可能没有这些字段（第三方模型的 model3.json 千奇百怪），
+        // 兜一层默认值，别让"少一个字段"升级成"整个界面起不来"。
+        const groups = Array.isArray(m.motionGroups) ? m.motionGroups.length : 0;
+        const cnt = Number(m.motionCount) || 0;
+        const exprs = Array.isArray(m.expressions) ? m.expressions.length : 0;
+        mNote.textContent = `${groups} 组动作 / ${cnt} 个 · ${exprs} 个表情 · 口型同步${m.hasLipSync ? '支持' : '不支持'}`;
       }
     }
     if (mImg) {
@@ -2761,9 +5115,15 @@
     const makeCard = (m) => {
       const active = S.display.kind === m.kind && S.display.id === m.id;
       const is3d = m.kind === '3d';
+      const isLake = m.kind === 'lake';
+      const tags = (m.tags && m.tags.length) ? m.tags : [];
       const note = is3d
         ? `3D · ${(m.format || 'glb').toUpperCase()}${m.bytes ? ` · ${(m.bytes / 1024 / 1024).toFixed(1)} MB` : ''}${m.format === 'vrm' ? ' · 支持口型与眨眼' : ''}`
-        : `${m.motionGroups.length} 组动作 / ${m.motionCount} 个${m.expressions.length ? ` · ${m.expressions.length} 个表情` : ''}${m.hasLipSync ? ' · 支持口型同步' : ''}`;
+        : isLake
+          // 西湖船娘没有 .motion3.json 文件，动作是算出来的；照 Live2D 那套读
+          // motionGroups/motionCount 会直接把 undefined.length 打出来
+          ? '内置 · 程序化绘制 · 支持待机/动作/口型/举牌'
+          : `${(m.motionGroups || []).length} 组动作 / ${m.motionCount || 0} 个${(m.expressions || []).length ? ` · ${(m.expressions || []).length} 个表情` : ''}${m.hasLipSync ? ' · 支持口型同步' : ''}`;
 
       const card = el('button', {
         class: `pick-card${active ? ' active' : ''}`,
@@ -2772,13 +5132,13 @@
       }, [
         m.preview
           ? el('img', { class: 'pick-img pick-model-img', src: m.preview, alt: m.label })
-          : el('div', { class: 'pick-img', style: { display: 'grid', placeItems: 'center', fontSize: '28px' }, text: is3d ? '🧊' : '🧍' }),
+          : el('div', { class: 'pick-img', style: { display: 'grid', placeItems: 'center', fontSize: '28px' }, text: is3d ? '🧊' : isLake ? '🛶' : '🧍' }),
         el('div', { class: 'pick-name', text: m.label }),
         el('div', { class: 'pick-note', text: note }),
-        ((m.tags && m.tags.length) || is3d)
+        (tags.length || is3d || isLake)
           ? el('div', { class: 'pick-tags' }, [
-            ...(m.tags || []).map(t => el('span', { class: 'pick-tag', text: t })),
-            el('span', { class: 'pick-tag', text: is3d ? '3D' : '2D / Live2D' }),
+            ...tags.map(t => el('span', { class: 'pick-tag', text: t })),
+            el('span', { class: 'pick-tag', text: is3d ? '3D' : isLake ? '内置 2D' : '2D / Live2D' }),
           ])
           : null,
       ]);
@@ -2832,6 +5192,7 @@
         items.forEach(m => g.appendChild(makeCard(m)));
         host.appendChild(g);
       };
+      sec('内置形象（西湖主题，零外部素材）', allDisplayModels().filter(m => m.kind === 'lake'));
       sec('Live2D 形象（2D，PixiJS + Cubism）', S.l2dModels.map(m => ({ ...m, kind: 'live2d' })));
       sec('3D 形象（VRM / GLB，three.js）', (S.models3d.bundled || []));
       sec('我上传的 3D 模型', (S.models3d.custom || []));
