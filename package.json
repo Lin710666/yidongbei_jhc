@@ -1,8 +1,8 @@
 {
   "name": "wenlv-assistant",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "private": true,
-  "description": "文旅智能辅助 v4.0：本机运行的文旅智能助手。Live2D / 3D 虚拟人物 + 可点击交互词云，方案规划与营销素材生成，推理与语音全部本地化（Ollama + Qwen TTS）",
+  "description": "文旅智能辅助 v4.1：本机运行的文旅智能助手。Live2D / 3D 虚拟人物 + 可点击交互词云，方案规划与营销素材生成，推理与语音全部本地化（Ollama + Qwen TTS）",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

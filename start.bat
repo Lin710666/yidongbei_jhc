@@ -7,7 +7,7 @@ setlocal enabledelayedexpansion
 set "ROOT=%~dp0"
 REM 三个版本各用一个端口，才能同时开着做对比演示：
 REM     2.0 原始版 → 8200      2.2 → 8100      3.1 及以后 → 8000
-set "VER=4.0"
+set "VER=4.1"
 if not defined PORT set "PORT=8000"
 set "TTS_PORT=7860"
 
