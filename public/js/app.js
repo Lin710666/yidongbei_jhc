@@ -510,6 +510,24 @@
         break;
       }
 
+      // 产品研发：产出「产品概念卡」。
+      // 赛题「4.题目介绍」把「产品研发」列为五大业务场景之一，也点名了
+      // 「特色文创与服务产品创新赋能」这项能力，所以给它一条独立链路 ——
+      // 原来只在营销主体里间接带一下。参数直接取词云上已经选好的客群与预算档位，
+      // 不另开表单：产品概念的字段（组合要素 / 定价区间 / 风险前提）和
+      // 方案、营销那两个表单都对不上，硬套只会让人更糊涂。
+      case 'gen-product': {
+        say(pickLine('product', p), true);
+        const onCardP = openStageResult();
+        if (!onCardP) switchTab('tools');
+        await generate('product', {
+          kind: p.kind,
+          audience: collectMarketingParams().audience,
+          budget: collectPlanParams().budget,
+        });
+        break;
+      }
+
       // 兼容老词条（词表已经全部换成 pick / gen-*，这里留着以防有自定义角色卡带旧 action）
       case 'plan': {
         applyParamsToForm('tools', p);
@@ -613,6 +631,10 @@
     if (kind === 'marketing') {
       const plat = (p && p.platform) || chipVal('platform') || '小红书';
       return `${plat}的文案我来写，马上给你两个版本。`;
+    }
+    if (kind === 'product') {
+      const k = (p && p.kind) || '产品';
+      return `${k}的概念卡我来出，含卖点、定价区间和风险前提。`;
     }
     return '好，我来处理。';
   }

@@ -467,8 +467,8 @@ const server = http.createServer(async (req, res) => {
       const type = body.type || 'plan';
       // 先校验再开 SSE：一旦写了响应头就没法再返回 4xx 了，
       // 而"非法参数应当拿到 4xx 而不是 200"是评分点里明确要求的行为。
-      if (!['plan', 'marketing', 'intake'].includes(type)) {
-        return sendJSON(res, 400, { ok: false, code: 'BAD_INPUT', error: `未知类型: ${type}（只支持 plan / marketing / intake）` });
+      if (!['plan', 'marketing', 'product', 'intake'].includes(type)) {
+        return sendJSON(res, 400, { ok: false, code: 'BAD_INPUT', error: `未知类型: ${type}（只支持 plan / marketing / product / intake）` });
       }
       const sse = openSSE(res);
       try {
