@@ -13,7 +13,7 @@
  */
 
 import { mkdirSync } from 'node:fs'
-import { loadPlaywright } from './_playwright.mjs'
+import { loadPlaywrightOrSkip } from './_playwright.mjs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -23,7 +23,7 @@ mkdirSync(OUT, { recursive: true })
 const BASE = (process.argv[2] || 'http://127.0.0.1:8000').replace(/\/+$/, '')
 
 // Playwright 不在本交付物的依赖里，按候选路径自动去找（见 _playwright.mjs）
-const { chromium } = await loadPlaywright()
+const { chromium } = await loadPlaywrightOrSkip('verify-look.mjs（界面分层/换背景/换形象/上传背景）')
 
 const consoleErrors = []
 let pass = 0
