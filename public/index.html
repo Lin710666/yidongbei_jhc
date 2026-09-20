@@ -1,0 +1,1045 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#121212">
+<title>文旅智能辅助 v4.1 · AIRI 网页版</title>
+<meta name="description" content="基于 Project AIRI 交互风格重构的文旅智能辅助系统：Live2D 虚拟人物 + 可点击交互词云 + 全本地 AI 服务（Ollama / Qwen TTS）">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='88'>🏔️</text></svg>">
+<link rel="stylesheet" href="/css/airi.css?v=__ASSET_V__">
+<link rel="stylesheet" href="/planner-embed.css?v=__ASSET_V__">
+
+<!-- importmap：3D 舞台（js/stage3d.js）用裸标识符 import 'three' 与 'three/addons/...'，
+     浏览器靠这张表把它们指到本地 vendor 目录。全部本地文件，不联网。 -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "/vendor/three/three.module.js",
+    "three/addons/": "/vendor/three/addons/"
+  }
+}
+</script>
+
+<!-- Live2D 运行时（全部本地化，离线可用）：
+     ① Cubism 核心（Live2D 官方运行时，必须先于 pixi-live2d-display 加载）
+     ② PixiJS 渲染引擎
+     ③ pixi-live2d-display 的 cubism4 构建 -->
+<script src="/vendor/live2dcubismcore.min.js"></script>
+<script src="/vendor/pixi.min.js"></script>
+<script src="/vendor/pixi-live2d-display-cubism4.min.js"></script>
+</head>
+<body>
+<div class="app">
+
+  <!-- ===================== 顶栏 ===================== -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-logo">🏔️</div>
+      <div class="brand-text">
+        <span class="brand-title">文旅智能辅助 <span class="ver">v4.1</span></span>
+        <span class="brand-sub">Live2D 虚拟向导，全程本机运行</span>
+      </div>
+    </div>
+    <div class="status-row">
+      <button class="status-pill" id="pill-model" title="本机 Ollama 对话模型状态"><i class="dot"></i><span class="lbl">检测中…</span></button>
+      <button class="status-pill" id="pill-memory" title="机体记忆（本地文件 + 混合检索）"><i class="dot"></i><span class="lbl">记忆</span></button>
+      <button class="status-pill" id="pill-voice" title="本地 Qwen TTS 语音合成"><i class="dot"></i><span class="lbl">语音</span></button>
+      <button class="status-pill" id="pill-vision" title="本机多模态视觉理解"><i class="dot"></i><span class="lbl">视觉</span></button>
+      <button class="icon-btn" id="btn-speak-toggle" title="切换自动朗读">🔊</button>
+      <button class="icon-btn" id="btn-refresh" title="刷新本地服务状态">⟳</button>
+    </div>
+  </header>
+
+  <!-- ===================== 舞台 ===================== -->
+  <main class="stage" id="stage">
+    <div class="stage-bg">
+      <img id="bg-image" alt="" aria-hidden="true">
+      <canvas id="bg-canvas" aria-hidden="true"></canvas>
+      <!-- 视频背景（如西湖美景）。muted 是自动播放的硬性前提，缺了浏览器会直接拒绝；
+           playsinline 防止移动端被强制全屏；loop 让宣传片循环播放。 -->
+      <video id="bg-video" playsinline muted loop preload="auto" aria-hidden="true"></video>
+    </div>
+    <canvas id="live2d-canvas"></canvas>
+    <!-- 西湖船娘（内置形象）专用画布。
+         必须与 #live2d-canvas 分开：一块 canvas 只能有一种绘图上下文，
+         PIXI 占用 WebGL 之后 `getContext('2d')` 会返回 null，
+         共用会导致其中一套形象整块画不出来。 -->
+    <canvas id="lake-canvas"></canvas>
+    <!-- 3D 舞台（VRM / GLB）。与 Live2D 画布互斥显示，用哪个由所选形象决定 -->
+    <canvas id="stage3d-canvas"></canvas>
+    <div id="wordcloud-layer"></div>
+
+    <!-- 全屏词云模式下的结果卡。
+         进了全屏（body.wc-full）之后右侧面板是藏起来的，生成结果再写到 #tools-output
+         就等于写进了看不见的地方 —— 用户点完「个性化方案」会觉得"没反应"。
+         所以这时候让词云收起、这张卡浮上来：左上角是虚拟导游名字，右上角是朗读按钮。 -->
+    <div class="result-card" id="result-card" hidden>
+      <div class="result-head">
+        <div class="result-who" id="result-who">AI 导览</div>
+        <div class="result-actions">
+          <button class="result-btn" id="result-speak" title="朗读这段内容"><span class="ico">🔊</span></button>
+          <button class="result-btn" id="result-close" title="收起，回到词云"><span class="ico">✕</span></button>
+        </div>
+      </div>
+      <!-- 带 output 类是为了复用 .output 里那套 markdown 排版（标题 / 表格 / 列表） -->
+      <div class="result-body output" id="result-body"></div>
+    </div>
+
+    <!-- 顶部：角色铭牌 + 外观快捷操作（原来散在四处的浮层都收进这一条） -->
+    <div class="stage-top">
+      <div class="char-plate">
+        <div class="char-avatar" id="char-avatar">🏔️</div>
+        <div class="char-meta">
+          <div class="char-name" id="char-name">小文</div>
+          <div class="char-tag" id="char-tag">正在载入角色卡…</div>
+        </div>
+      </div>
+      <div class="stage-tools">
+        <!-- 工具排收纳按钮。
+             放在最前面：收纳起来之后它是这一条里唯一还看得见的按钮，
+             排在后面的话会跟着一起被藏掉，用户就再也展不开了。 -->
+        <button class="tool-btn tools-toggle" id="btn-tools-toggle"
+                title="设置：展开 / 收起右上角这一排工具" aria-expanded="false">
+          <span class="ico">⚙️</span><span class="txt">设置</span>
+        </button>
+        <button class="tool-btn" id="open-bg" title="更换背景"><span class="ico">🖼️</span><span class="txt">背景</span></button>
+        <button class="tool-btn" id="open-model" title="更换人物形象"><span class="ico">🧍</span><span class="txt">形象</span></button>
+        <button class="tool-btn" id="btn-avatar-hide" title="显示 / 隐藏虚拟形象（默认开启）"><span class="ico">👁️</span><span class="txt">隐藏</span></button>
+        <button class="tool-btn" id="btn-nav" title="定位导航：看我在哪、附近的景点、怎么过去（走本机后端的高德接口）"><span class="ico">🧭</span><span class="txt">导航</span></button>
+        <button class="tool-btn" id="btn-boot" title="重新播放开屏（回到主界面入口）"><span class="ico">🏠</span><span class="txt">主界面</span></button>
+        <button class="tool-btn" id="btn-chatbar" title="显示 / 关闭底部对话栏（大屏时想只留人物就关掉它）"><span class="ico">💬</span><span class="txt">对话栏</span></button>
+        <button class="tool-btn" id="btn-dock" title="调试：在「对话常驻」与「左右分栏」两套布局之间切换"><span class="ico">🐞</span><span class="txt">调试</span></button>
+        <button class="tool-btn" id="btn-kiosk" title="全屏展示模式（展厅大屏：藏掉操作界面，只留形象与字幕）"><span class="ico">🖥️</span><span class="txt">大屏</span></button>
+        <span class="tool-sep"></span>
+        <button class="tool-btn" id="btn-wc-toggle" title="显示 / 隐藏词云"><span class="ico">☁️</span></button>
+        <button class="tool-btn" id="wc-shuffle" title="重新排布词云"><span class="ico">🔀</span></button>
+        <button class="tool-btn" id="wc-full" title="全屏放大词云"><span class="ico">⤢</span></button>
+      </div>
+    </div>
+
+    <!-- 导航模式的操作条：只在导航模式打开时出现。
+         牌子上写什么、背景用哪张，都由这一条控制。 -->
+    <div class="nav-bar" id="nav-bar" hidden>
+      <div class="nav-row">
+        <span class="nav-label">🧭 导航目标</span>
+        <input class="nav-input" id="nav-spot" type="text" placeholder="输入景点名，例如 杭州西湖" autocomplete="off">
+        <button class="mini-btn" id="nav-go">设为目标</button>
+      </div>
+      <div class="nav-row">
+        <span class="nav-label">风景图来源</span>
+        <select class="nav-select" id="nav-scenery-source">
+          <option value="builtin">内置程序化（离线现画）</option>
+          <option value="folder">自备图片目录</option>
+          <option value="web">联网搜索（默认关闭，手动触发）</option>
+        </select>
+        <button class="mini-btn" id="nav-scenery-apply">应用</button>
+        <button class="mini-btn" id="nav-open-page">📍 打开定位导航页</button>
+      </div>
+      <div class="nav-hint" id="nav-hint">选一个景点，背景会换成它的风景；点「打开定位导航页」看你在哪、怎么过去。</div>
+    </div>
+
+    <!-- 舞台上的**小**导航条。
+         原来是让形象举一块大木牌，太抢戏：牌子比人还显眼，还会挡住风景。
+         改成角落里一张小卡片，只留"去哪、多远、往哪走"，需要细节再展开成整页。 -->
+    <div class="nav-mini" id="nav-mini" hidden>
+      <button class="nav-mini-open" id="nav-mini-open" type="button" title="打开定位导航页">
+        <span class="nav-mini-dir" id="nav-mini-dir">↑</span>
+        <span class="nav-mini-text">
+          <b id="nav-mini-name">—</b>
+          <i id="nav-mini-meta">—</i>
+        </span>
+        <span class="nav-mini-go">导航 ›</span>
+      </button>
+      <button class="nav-mini-x" id="nav-mini-close" type="button" title="收起">✕</button>
+    </div>
+
+    <!-- 底部：字幕条（替代原来的浮动气泡，不再和词云互相遮挡） -->
+    <div class="subtitle" id="subtitle" hidden>
+      <span class="subtitle-who" id="subtitle-who">小文</span>
+      <span class="subtitle-text" id="subtitle-text"></span>
+      <button class="subtitle-close" id="subtitle-close" title="收起字幕">✕</button>
+    </div>
+
+    <!-- 位置 HUD：显示"你在哪、景点在哪个方向、多远"。
+         做成页面浮层而不是画在 3D 里，是因为它对 Live2D 与 3D 两种舞台都适用，
+         而且中文不需要额外加载字体。 -->
+    <div class="geo-hud" id="geo-hud" hidden>
+      <div class="geo-compass"><span class="geo-arrow" id="geo-arrow">▲</span></div>
+      <div class="geo-text">
+        <div class="geo-title" id="geo-title">—</div>
+        <div class="geo-sub" id="geo-sub">—</div>
+      </div>
+      <button class="geo-close" id="geo-close" title="收起位置标记">✕</button>
+    </div>
+
+    <!-- 全景模式提示：明确告诉用户"现在在环视模式、拖动能转、点这里退出" -->
+    <div class="pano-hint" id="pano-stage-hint" hidden>
+      <span>🧭 全景环视中 · 按住拖动可环顾四周</span>
+      <b>点这里返回人物</b>
+    </div>
+
+    <div class="stage-empty" id="stage-empty" hidden>
+      <div>
+        <div style="font-size:26px;margin-bottom:8px">🧍‍♀️</div>
+        <div id="stage-empty-msg">正在加载 Live2D 模型…</div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===================== 右侧面板 ===================== -->
+  <aside class="side">
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-pane="chat" title="和角色对话">💬<span>对话</span></button>
+      <button class="tab" data-pane="tools" title="方案规划与营销素材">🧭<span>文旅</span></button>
+      <button class="tab" data-pane="look" title="背景、形象与词云">🎨<span>外观</span></button>
+      <button class="tab" data-pane="memory" title="机体记忆">🧠<span>记忆</span></button>
+      <button class="tab" data-pane="cards" title="AI 角色卡">🎭<span>角色卡</span></button>
+      <button class="tab" data-pane="voice" title="本地语音合成">🔊<span>声音</span></button>
+    </nav>
+
+    <div class="panes">
+
+      <!-- ---------- 对话 ---------- -->
+      <section class="pane active" id="pane-chat">
+        <h3>和 <span id="chat-char-name">小文</span> 说说话</h3>
+        <div class="badges" id="chat-badges"></div>
+        <div class="chat-log" id="chat-log"></div>
+
+        <!-- ---------- 历史对话 ----------
+             S.history 只是"当前这一段"；点「＋ 新对话」会把当前这段归档进
+             S.sessions（也存本机 localStorage），下面是归档列表，每条能打开或删除。 -->
+        <div class="hist" id="chat-hist">
+          <div class="hist-head">
+            <span class="hist-title">历史对话 <b id="hist-count">0</b></span>
+            <span class="hist-actions">
+              <button class="mini-btn" id="hist-new" title="把当前这段存进历史，重新开一段">＋ 新对话</button>
+              <button class="mini-btn danger" id="hist-clear" title="删除全部历史对话（不可恢复）">🗑 清空</button>
+            </span>
+          </div>
+          <div class="hist-list" id="hist-list"></div>
+        </div>
+      </section>
+
+      <!-- ---------- 文旅 ---------- -->
+      <section class="pane" id="pane-tools">
+        <h3>文旅工作台</h3>
+        <p class="sub">组员做的行程规划工作台，已按本机界面适配配色与字号。
+          填偏好或说一句话，出方案＋实时地图；方案可以改景点、换餐厅，预算与地图会跟着变。</p>
+
+        <!-- 行程规划工作台。
+             不是 iframe：组员的 React 组件直接挂进这个 div，和外壳共用同一个
+             文档，才能共用字体/配色/背景，看起来是一体而不是两块拼起来的板子。
+             脚本见页面尾部的 planner-embed.js。
+
+             里面那行占位文字是故意写死在 HTML 里的：工作台挂载成功后会被 React
+             覆盖掉，万一没挂上，这行也会一直留着。面板不允许再出现「一声不响的空白」
+             —— 那样根本分不清是在加载中、还是已经挂了。 -->
+        <div id="wenlv-planner">
+          <div class="planner-state">正在载入行程规划工作台…</div>
+        </div>
+
+        <!-- 生成结果：词云点「营销文案 / 个性化方案」时，结果会写到这里 -->
+        <div class="section" id="tools-result" hidden>
+          <div class="lbl">
+            生成结果
+            <span class="lbl-actions">
+              <button class="mini-btn" id="btn-speak-result" title="用本机语音朗读结果">🔊 朗读</button>
+              <button class="mini-btn" id="btn-export" title="导出自带排版的 HTML（双击能看、Ctrl+P 存 PDF）">📥 导出</button>
+            <!-- 注意：模板上传/恢复两个按钮**不能留在这里**。
+                 本容器（#tools-result）在没出结果时是 hidden 的，
+                 按钮点不到 —— 用户也就没法在生成之前先把模板准备好。
+                 它们已挪到「外观」页的「导出模板」一节。 -->
+            <input type="file" id="export-tpl-file" accept=".html,.htm,.txt" hidden>
+            </span>
+          </div>
+          <div id="tools-warn"></div>
+          <div class="output" id="tools-output"></div>
+        </div>
+
+        <!-- ---------------------------------------------------------------
+             原版 5.0 的工具表单。界面上不再展示，但**必须留在 DOM 里**：
+             app.js 里大量绑定依赖这些 id —— 词云点条件会回填这里、
+             「生成」按钮、导出、朗读都挂在这些元素上，删掉会直接报错。
+             所以改成 hidden 收起来，只把「生成结果」那个展示位留在外面。
+             --------------------------------------------------------------- -->
+        <div id="legacy-tools" hidden aria-hidden="true">
+
+        <!-- 定位导航：主入口在顶栏「🧭 导航」（打开整页），这里是相关设置 -->
+        <div class="field" style="margin-bottom:14px">
+          <label>定位导航</label>
+          <div class="row">
+            <button class="mini-btn" id="nav-mode-toggle" type="button">🧭 切换导航模式（换风景图）</button>
+          </div>
+          <div class="hintline">
+            顶栏的「🧭 导航」会打开整页导航：显示你的位置、附近景点、距离与方位，
+            并可一键跳到高德／百度／腾讯地图去真导航。
+            这里的「导航模式」只是在舞台上换风景图，属于展示设置。
+          </div>
+        </div>
+
+        <div class="seg" style="margin-bottom:14px">
+          <button class="seg-item" data-tool="plan">🗺️ 方案规划</button>
+          <button class="seg-item on" data-tool="marketing">✍️ 营销素材</button>
+        </div>
+
+        <!-- 方案规划表单 -->
+        <div id="form-plan" hidden>
+          <div class="field">
+            <label>目的地 <span class="hint-inline">样本库已覆盖：<span id="city-list-inline">—</span></span></label>
+            <div class="row" id="city-chips"></div>
+            <input type="text" id="plan-city" value="杭州" placeholder="也可填写其它城市，会走降级路径" style="margin-top:7px">
+          </div>
+          <div class="field">
+            <label>游玩天数：<b id="days-label">2</b> 天</label>
+            <input type="range" id="plan-days" min="1" max="7" value="2">
+          </div>
+          <div class="field"><label>预算档位</label><div class="row" data-name="budget"></div></div>
+          <div class="field"><label>同行人群</label><div class="row" data-name="crowd"></div></div>
+          <div class="field"><label>兴趣偏好 <span class="hint-inline">可多选</span></label><div class="row" data-name="interests" data-multi="1"></div></div>
+          <div class="field"><label>饮食禁忌</label><div class="row" data-name="diet"></div></div>
+        </div>
+
+        <!-- 营销表单 -->
+        <div id="form-marketing">
+          <div class="field"><label>产品 / 主体</label><div class="row" data-name="product"></div></div>
+          <div class="field"><label>目标平台</label><div class="row" data-name="platform"></div></div>
+          <div class="field"><label>目标客群</label><div class="row" data-name="audience"></div></div>
+          <div class="field"><label>文案风格</label><div class="row" data-name="style"></div></div>
+        </div>
+
+        <div class="actions">
+          <button class="btn" id="btn-generate">生成</button>
+          <button class="btn ghost" id="btn-intake">🤔 让 AI 先问我</button>
+        </div>
+        </div>
+      </section>
+
+      <!-- ---------- 外观 ---------- -->
+      <section class="pane" id="pane-look">
+        <h3>外观</h3>
+
+        <div class="section">
+          <div class="lbl">
+            背景
+            <span class="lbl-actions">
+              <button class="mini-btn" id="look-bg-pick">🖼️ 更换背景</button>
+            </span>
+          </div>
+          <div class="look-preview">
+            <canvas id="look-bg-thumb" width="300" height="140"></canvas>
+            <div class="look-preview-meta">
+              <div class="look-preview-name" id="look-bg-name">跟随主题</div>
+              <div class="look-preview-note" id="look-bg-note">—</div>
+            </div>
+          </div>
+
+          <!-- 视频也是"背景"的一种，所以并进同一个 section，不再单开一块 ——
+               用户的心智是"我要换背景"，不该让他在两处找。
+               视频卡片上的「主界面 / 开屏」两个按钮见 .pick-video-actions 的样式。 -->
+          <div class="lbl" style="margin-top:16px">
+            宣传片（视频背景）
+            <span class="lbl-actions">
+              <button class="mini-btn" id="video-upload">📤 上传视频</button>
+              <button class="mini-btn" id="video-refresh">🔄 刷新</button>
+            </span>
+          </div>
+          <p class="sub" style="margin:0 0 8px">
+            主界面舞台与开屏**共用**这里的片子。上传后点卡片即可设为主界面背景，
+            或用卡片上的「开屏」按钮设为开屏背景。
+            支持 mp4（推荐）/ webm / mov，单个上限 <strong id="video-maxmb">—</strong>。
+            <br>目录为空时，开屏与背景会自动用<strong>程序化绘制的西湖动态画面</strong>兜底，不会是一片黑。
+            <br>也可以直接把文件放进 <code id="video-dir">data/videos/</code>，或从 B 站下载：
+            <code>npm run fetch:bili -- &lt;BV号&gt; 名字</code>（连音轨一起下）。
+          </p>
+
+          <!-- 画面模式：开屏与主界面共用 -->
+          <div class="field">
+            <label>视频画面模式 <span class="hint-inline">开屏与主界面共用</span></label>
+            <div class="seg" id="video-fit-seg">
+              <button class="seg-item" data-vfit="rotate" type="button">↺ 逆时针旋转 90°</button>
+              <button class="seg-item" data-vfit="cover" type="button">⤢ 铺满裁剪</button>
+              <button class="seg-item" data-vfit="auto" type="button">🖼 完整显示（模糊铺底）</button>
+            </div>
+            <div class="hintline">
+              片源是竖屏、或横拍被封装成竖屏时，这三种模式的观感差别很大。
+              旋转适合"横拍被装进竖屏文件"的片子；铺满裁剪适合竖屏 MV 填满横屏；
+              完整显示不裁任何内容，两侧用模糊的同段视频垫底。
+            </div>
+          </div>
+
+          <div id="video-list" class="pick-grid"></div>
+          <div class="hintline" id="video-hint">—</div>
+        </div>
+
+        <div class="section">
+          <div class="lbl">
+            开屏模板
+          </div>
+          <p class="sub" style="margin:0 0 8px">
+            开屏就一套「视频主页」。改动立即生效，下次进来就用新的。
+          </p>
+          <div class="seg" id="boot-tpl-seg">
+            <button class="seg-item" data-boot-tpl="video" type="button">🎬 视频主页</button>
+          </div>
+          <div class="hintline" id="boot-tpl-hint">—</div>
+
+          <!-- ---------- 配乐 ----------
+               默认用视频原声；上传宣传片时后端会自动抽音轨进 data/audio/，
+               这里就能换成别的（或静音）。列表由 js/bg-audio.js 渲染。 -->
+          <div class="lbl" style="margin-top:16px">配乐</div>
+          <p class="sub" style="margin:0 0 8px">
+            默认用<strong>视频原声</strong>。上传宣传片时如果片子里有声音，
+            音轨会自动抽出来放进音频库，可以在这里换成别的曲子。
+          </p>
+          <div id="audio-list" class="aud-list"></div>
+
+          <!-- ---------- 导出模板 ----------
+               放在这里而不是文旅页的导出键旁边：那个容器（#tools-result）
+               没出结果时是 hidden 的，用户根本点不到，也就没法在生成之前
+               先把模板准备好。这两个按钮要始终可达。 -->
+          <div class="lbl" style="margin-top:16px">
+            导出模板
+            <span class="lbl-actions">
+              <button class="mini-btn" id="btn-export-tpl" title="上传自己的导出模板（HTML，支持 {{title}} {{body}} 等占位符）">🎨 上传模板</button>
+              <button class="mini-btn" id="btn-export-tpl-reset" title="恢复到内置模板" hidden>↺ 内置模板</button>
+            </span>
+          </div>
+          <p class="sub" style="margin:0 0 8px">
+            导出方案时套用的版式。不传就用内置模板（封面 + 正文 + 页脚，可打印成 PDF）。
+            模板里用 <code>{{title}}</code> <code>{{body}}</code> <code>{{date}}</code>
+            等占位符；<code>{{body}}</code> 是必需项。模板只存在本机浏览器里。
+          </p>
+
+          <!-- 上传入口。原来这里是「形象主页」那个按钮（已删）——
+               与其留一个空位，不如把最常用的动作放这儿：
+               换宣传片是展厅现场最常被要求的事。点了转给上面那节里的
+               #video-upload（同一个上传流程，不重复实现一遍）。 -->
+          <!-- 上传入口。两个分开，因为它们是两件事：
+               · 上传视频并提取音频 —— 传宣传片，后端顺手把音轨抽出来
+               · 上传音频           —— 我自己有一首曲子，直接放进音频库
+               两条最终都进同一个音频库，在下面的「配乐」列表里都能选。 -->
+          <div class="lbl-actions" style="margin-top:12px">
+            <button class="mini-btn" id="video-upload-here" type="button">📤 上传视频并提取音频</button>
+            <button class="mini-btn" id="audio-upload-here" type="button">🎵 上传音频</button>
+            <input type="file" id="audio-file" accept=".m4a,.mp3,.wav,.ogg,.opus,.aac,.flac,audio/*" hidden>
+          </div>
+
+          <!-- 开屏背景：本机视频（画面模式在上面的「视频背景」一节里统一设置） -->
+          <div class="field" style="margin-top:12px">
+            <label>开屏背景视频</label>
+            <select id="boot-video-sel">
+              <option value="">（自动：优先名字带「西湖」的，否则用第一个）</option>
+            </select>
+          </div>
+          <div class="hintline" id="boot-video-hint">
+            视频从 <code>data/videos/</code> 读取，<b>本机文件、离线可用</b>。
+            画面模式（旋转／铺满／完整显示）在上面「视频背景」一节里设置，开屏与主界面共用。
+            <br>声音：受浏览器自动播放策略限制，开屏是<b>先静音起播</b>，
+            点开屏上的 <b>🔊</b> 即可出声；选「静音」会记住你的选择。
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button class="mini-btn" id="boot-replay">▶️ 重新播放开屏</button>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="lbl">
+            人物形象（Live2D）
+            <span class="lbl-actions">
+              <button class="mini-btn" id="look-model-pick">🧍 更换形象</button>
+            </span>
+          </div>
+          <div class="look-preview">
+            <div class="look-model-thumb"><img id="look-model-img" alt=""></div>
+            <div class="look-preview-meta">
+              <div class="look-preview-name" id="look-model-name">—</div>
+              <div class="look-preview-note" id="look-model-note">—</div>
+            </div>
+          </div>
+          <div class="field" style="margin-top:12px">
+            <label>大小 <b id="l2d-scale-label">100%</b></label>
+            <input type="range" id="l2d-scale" min="40" max="200" value="100">
+          </div>
+          <div class="field">
+            <label>水平位置 <b id="l2d-x-label">0</b></label>
+            <input type="range" id="l2d-x" min="-100" max="100" value="0">
+          </div>
+          <div class="field">
+            <label>垂直位置 <b id="l2d-y-label">0</b></label>
+            <input type="range" id="l2d-y" min="-100" max="100" value="0">
+          </div>
+          <div class="field">
+            <label>表情 <span class="hint-inline" id="expr-hint"></span></label>
+            <div class="row" id="l2d-expressions"></div>
+          </div>
+          <div class="actions">
+            <button class="btn ghost sm" id="l2d-save">保存到当前角色卡</button>
+            <button class="btn ghost sm" id="l2d-reset">复位</button>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="lbl">词云</div>
+          <label class="check"><input type="checkbox" id="wc-enabled" checked> 在舞台上显示交互词云</label>
+          <label class="check"><input type="checkbox" id="wc-glow" checked> 悬浮动画</label>
+          <div class="field" style="margin-top:8px">
+            <label>显示数量 <b id="wc-density-label">标准</b></label>
+            <input type="range" id="wc-density" min="1" max="3" value="2">
+          </div>
+          <div class="field" style="margin-top:10px">
+            <label>词云字色</label>
+            <select id="wc-ink">
+              <option value="auto">自动 · 跟随背景亮度</option>
+              <option value="light">浅色字 · 适合深色背景</option>
+              <option value="dark">深色字 · 适合浅色背景</option>
+              <option value="custom">自定义 · 用下面的色板</option>
+            </select>
+            <!-- 色板：点一下就把词云字色换成这个颜色。
+                 后面的圆点是取色器（系统调色板），能挑任意颜色。 -->
+            <div class="ink-swatches" id="wc-ink-swatches">
+              <button type="button" class="ink-sw" data-ink="#ffffff" style="--c:#ffffff" title="纯白"></button>
+              <button type="button" class="ink-sw" data-ink="#0c0f13" style="--c:#0c0f13" title="墨黑"></button>
+              <button type="button" class="ink-sw" data-ink="#7fd4e8" style="--c:#7fd4e8" title="青"></button>
+              <button type="button" class="ink-sw" data-ink="#ffcf70" style="--c:#ffcf70" title="金"></button>
+              <button type="button" class="ink-sw" data-ink="#f0a6c8" style="--c:#f0a6c8" title="粉"></button>
+              <button type="button" class="ink-sw" data-ink="#8fe0a8" style="--c:#8fe0a8" title="绿"></button>
+              <button type="button" class="ink-sw" data-ink="#c4a7f0" style="--c:#c4a7f0" title="紫"></button>
+              <button type="button" class="ink-sw" data-ink="#ffab70" style="--c:#ffab70" title="橙"></button>
+              <input type="color" id="wc-ink-custom" class="ink-picker" value="#7fd4e8" title="自定义颜色">
+            </div>
+            <div class="hintline" id="wc-ink-hint" style="margin-top:6px">背景一换，字色会自动跟着调。</div>
+          </div>
+        </div>
+
+        <details class="fold" id="fold-blender">
+          <summary>Blender 动画（可选：在 Blender 里生成移动动画并回传网页）</summary>
+          <div style="margin-top:10px">
+            <p class="hintline" style="margin:0 0 10px">
+              通过 <b>MCP</b> 驱动你已装的「MCP for Blender」插件，在 Blender 里建一个
+              会绕圈巡逻的小人、打好关键帧，导出 glTF 回传网页，用 three.js 的
+              <b>AnimationMixer</b> 播放。
+            </p>
+
+            <div class="badges" id="blender-badges"></div>
+
+            <div class="actions" style="margin-top:10px">
+              <button class="btn ghost sm" id="blender-check" type="button">检测 Blender 服务</button>
+              <button class="btn sm" id="blender-generate" type="button">🎬 生成移动动画</button>
+            </div>
+            <div class="hintline" id="blender-hint">
+              需要 Blender 开着（在跑）。没开的话运行 <code>npm run blender:start</code> ——
+              会弹出 Blender 窗口，<b>这是必须的</b>：该插件的命令队列靠 Blender 主线程的定时器排空，
+              后台模式（<code>blender -b</code>）下命令永远不会执行。
+            </div>
+
+            <div class="field" style="margin-top:12px">
+              <label>时长（帧）<b id="blender-frames-label">72</b> · 24fps</label>
+              <input type="range" id="blender-frames" min="24" max="240" step="24" value="72">
+            </div>
+            <div class="field">
+              <label>巡逻半径 <b id="blender-radius-label">2.4</b> 米</label>
+              <input type="range" id="blender-radius" min="5" max="60" step="1" value="24">
+            </div>
+            <div class="hintline">
+              动画是<b>首尾闭合</b>的：小人绕圈巡逻、朝向始终沿切线，所以循环播放时不会跳帧。
+            </div>
+
+            <div class="field">
+              <label>已生成</label>
+              <div id="blender-list"></div>
+            </div>
+            <div id="blender-result"></div>
+          </div>
+        </details>
+
+        <details class="fold" id="fold-i23d">
+          <summary>图片转 3D（可选：一张图生成三维模型）</summary>
+          <div style="margin-top:10px">
+            <p class="hintline" style="margin:0 0 10px">
+              用 <b>TripoSR</b> 把一张图片重建成带顶点色的三维网格，生成后自动加入
+              「外观 → 更换形象」的模型列表，可以直接选中查看。
+              全程在本机跑，图片不会上传到任何地方。
+            </p>
+
+            <div class="badges" id="i23d-badges"></div>
+
+            <div class="field" style="margin-top:10px">
+              <label>输入图片</label>
+              <div class="actions">
+                <button class="btn ghost sm" id="i23d-pick" type="button">🖼️ 选择图片</button>
+                <button class="btn sm" id="i23d-generate" type="button">✨ 生成三维模型</button>
+              </div>
+              <input type="file" id="i23d-file" accept="image/*" hidden>
+              <div class="hintline" id="i23d-preview-hint">还没有选择图片。主体清晰、背景干净的照片效果最好。</div>
+            </div>
+
+            <div class="field">
+              <label>网格分辨率 <b id="i23d-res-label">160</b></label>
+              <input type="range" id="i23d-res" min="96" max="256" step="16" value="160">
+              <div class="hintline">
+                越高越细，也越吃显存。默认 160 是"显卡上还有别的程序在跑"时的稳当档位；
+                显卡空着可以调到 256。想更省显存就把分块也调小。
+              </div>
+            </div>
+            <div class="field">
+              <label>渲染分块 <b id="i23d-chunk-label">2048</b></label>
+              <input type="range" id="i23d-chunk" min="512" max="8192" step="512" value="2048">
+            </div>
+
+            <label class="check"><input type="checkbox" id="i23d-remove-bg" checked> 自动去除背景（需要 rembg；失败会自动改用原图并告知）</label>
+            <label class="check"><input type="checkbox" id="i23d-bake-texture" checked> 烘焙贴图（关掉则用顶点色，文件更小、快约 25 秒）</label>
+
+            <div class="actions" style="margin-top:10px">
+              <button class="btn ghost sm" id="i23d-detect" type="button">检测运行环境</button>
+            </div>
+            <div class="hintline" id="i23d-env-hint">权重约 1.6GB，用 <code>npm run fetch:triposr</code> 下载。</div>
+
+            <div class="field">
+              <label>已生成</label>
+              <div id="i23d-list"></div>
+            </div>
+            <div id="i23d-result"></div>
+          </div>
+        </details>
+
+        <details class="fold" id="fold-pano">
+          <summary>景区全景（可选：把景点变成能环视的三维场景）</summary>
+          <div style="margin-top:10px">
+            <p class="hintline" style="margin:0 0 10px">
+              用一张 <b>360° 等距柱状全景图</b>（宽高比 2:1）搭出可环视的景区场景，
+              再用单目深度模型把画面撑出起伏 —— 近处凸、远处退，是真正的立体浮雕。
+            </p>
+
+            <div class="badges" id="pano-badges"></div>
+
+            <div class="field" style="margin-top:10px">
+              <label>按景点联网查找</label>
+              <div class="inline">
+                <input type="text" id="pano-spot" placeholder="景点名，如 杭州西湖" spellcheck="false">
+                <input type="text" id="pano-city" placeholder="城市（可选）" spellcheck="false">
+              </div>
+              <div class="actions" style="margin-top:8px">
+                <button class="btn sm" id="pano-acquire" type="button">🔎 检索并生成</button>
+              </div>
+              <div class="hintline">
+                需要先开启联网。注意：网上多数景点<b>没有公开可用的等距柱状图</b>
+                （中文全景平台不给直链），找不到时会明确列出试过哪些、为什么不行 ——
+                这时请用下面的「上传」或「程序化生成」。
+              </div>
+            </div>
+
+            <div class="field">
+              <label>本地来源</label>
+              <div class="actions">
+                <button class="btn ghost sm" id="pano-upload" type="button">📤 上传全景图</button>
+                <button class="btn ghost sm" id="pano-procedural" type="button">🎨 程序化生成（离线）</button>
+              </div>
+              <input type="file" id="pano-file" accept="image/*" hidden>
+              <div class="hintline">上传的图会被量宽高比，不是 2:1 左右会明确告诉你（贴上去会变形）。</div>
+            </div>
+
+            <div class="field">
+              <label>深度地形</label>
+              <div class="badges" id="pano-depth-badges"></div>
+              <div class="actions" style="margin-top:8px">
+                <button class="btn ghost sm" id="pano-depth-check" type="button">检测深度环境</button>
+                <button class="btn ghost sm" id="pano-relief" type="button">重建起伏地形</button>
+              </div>
+              <div class="hintline" id="pano-depth-hint">深度模型约 95MB，用 <code>npm run fetch:depth</code> 下载。</div>
+            </div>
+
+            <div class="field">
+              <label>已缓存的全景</label>
+              <div id="pano-list"></div>
+            </div>
+
+            <div class="actions">
+              <button class="btn sm" id="pano-enter" type="button">🧭 进入全景环视</button>
+              <button class="btn ghost sm" id="pano-exit" type="button">返回人物</button>
+            </div>
+            <div id="pano-result"></div>
+          </div>
+        </details>
+
+        <details class="fold" id="fold-geo">
+          <summary>位置（可选：显示你在哪、景点在哪个方向）</summary>
+          <div style="margin-top:10px">
+            <p class="hintline" style="margin:0 0 10px">
+              位置只写进本机的 <code>data/location.json</code>，不上传。
+              浏览器定位需要你在弹窗里点一次授权；「IP 估算」会把请求发给第三方定位服务
+              （精度只到城市级），默认关闭。位置 MCP 服务读的就是同一个文件。
+            </p>
+
+            <div class="badges" id="geo-badges"></div>
+
+            <div class="actions" style="margin-top:10px">
+              <button class="btn ghost sm" id="geo-acquire" type="button">📍 获取我的位置</button>
+              <button class="btn ghost sm" id="geo-ip" type="button">🛰️ 用 IP 估算</button>
+              <button class="btn ghost sm" id="geo-clear" type="button">清除</button>
+            </div>
+
+            <div class="field" style="margin-top:12px">
+              <label>手动坐标</label>
+              <div class="inline">
+                <input type="text" id="geo-lat" placeholder="纬度，如 30.2470" spellcheck="false">
+                <input type="text" id="geo-lng" placeholder="经度，如 120.1490" spellcheck="false">
+              </div>
+              <input type="text" id="geo-label" placeholder="备注（可选），如 杭州市西湖区" style="margin-top:6px">
+              <div class="actions" style="margin-top:8px">
+                <button class="btn ghost sm" id="geo-save-manual" type="button">保存坐标</button>
+              </div>
+              <div class="hintline">演示时手填坐标最省事：不用授权、结果也可复现。</div>
+            </div>
+
+            <label class="check"><input type="checkbox" id="geo-allow-ip"> 允许「IP 估算」（会请求第三方定位服务）</label>
+
+            <div class="field" style="margin-top:12px">
+              <label>算某个景点的距离与方位</label>
+              <div class="inline">
+                <input type="text" id="geo-spot" placeholder="景点名，如 灵隐寺" spellcheck="false">
+                <input type="text" id="geo-city" placeholder="城市（可选）" spellcheck="false">
+              </div>
+              <div class="actions" style="margin-top:8px">
+                <button class="btn sm" id="geo-relation" type="button">算距离并在舞台上标记</button>
+              </div>
+              <div class="hintline">内置坐标覆盖杭州 / 苏州 / 成都 / 丽江 / 西安的主要景点；表外地点需开启联网。</div>
+            </div>
+
+            <div class="field">
+              <label>位置 MCP 服务（给外部 Agent 用）</label>
+              <div class="hintline" id="geo-mcp">—</div>
+            </div>
+          </div>
+        </details>
+
+        <details class="fold" id="fold-web">
+          <summary>联网（可选：让模型能上网查资料）</summary>
+          <div style="margin-top:10px">
+            <p class="hintline" style="margin:0 0 10px">
+              开启后，模型遇到"最新票价 / 开放时间 / 天气 / 最近活动"这类问题时，
+              会主动调用搜索工具查证再回答，而不是凭训练时的旧记忆作答。
+              <b>默认关闭</b>；开启意味着你输入的查询词会被发往搜索引擎、相关网页会被抓取。
+            </p>
+
+            <div class="badges" id="web-badges"></div>
+
+            <label class="check" style="margin-top:10px"><input type="checkbox" id="web-enabled"> 允许模型联网（等同于输入框上方的 🌐 按钮）</label>
+            <label class="check"><input type="checkbox" id="web-allow-fetch"> 允许读取网页正文（web_fetch）</label>
+            <label class="check"><input type="checkbox" id="web-allow-panorama"> 允许检索 360° 全景图（find_panorama）</label>
+
+            <div class="field" style="margin-top:12px">
+              <label>最多查证轮数 <b id="web-steps-label">4</b></label>
+              <input type="range" id="web-steps" min="1" max="8" value="4">
+              <div class="hintline">模型可以"搜索 → 读网页 → 再搜索"地连续查几轮。调大更彻底，但也更慢。</div>
+            </div>
+
+            <div class="field">
+              <label>可用工具</label>
+              <div class="hintline" id="web-tools">—</div>
+            </div>
+
+            <div class="field">
+              <label>安全边界</label>
+              <div class="hintline">
+                只允许 http/https 的公网地址；内网、本机（含 127.0.0.1 与 169.254.169.254 这类云元数据地址）
+                一律拒绝，重定向逐跳复检 —— 因为要抓的网址是<b>模型生成的</b>，属于不可信输入。
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <details class="fold" id="fold-provider">
+          <summary>模型接入（可选：接外部大模型 API）</summary>
+          <div style="margin-top:10px">
+            <p class="hintline" style="margin:0 0 10px">
+              默认全部走本机 Ollama，<b>不出网</b>。想换成云端模型（DeepSeek / 智谱 / 通义千问 /
+              OpenRouter / 任意 OpenAI 兼容端点）时在这里配置。Base URL 与 API Key 只写进本机的
+              <code>data/providers.json</code>，不会上传到任何地方。
+            </p>
+
+            <div class="field">
+              <label>当前接入</label>
+              <div class="badges" id="provider-badges"></div>
+            </div>
+
+            <div class="field">
+              <label>供应商</label>
+              <select id="provider-preset"></select>
+              <div class="hintline" id="provider-note"></div>
+            </div>
+
+            <div class="field">
+              <label>Base URL</label>
+              <input type="text" id="provider-baseurl" placeholder="https://api.deepseek.com/v1" spellcheck="false">
+              <div class="hintline">填「根地址」就行：以 <code>/v1</code> 这类结尾，不要带 <code>/chat/completions</code>。带错了会自动截回。</div>
+            </div>
+
+            <div class="field">
+              <label>API Key <span class="hint-inline" id="provider-key-hint"></span></label>
+              <input type="password" id="provider-apikey" placeholder="sk-…（留空表示不修改已存的密钥）" autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="field">
+              <label>
+                对话模型
+                <span class="lbl-actions">
+                  <button class="mini-btn" id="provider-fetch-models" type="button">⬇️ 拉取模型列表</button>
+                </span>
+              </label>
+              <input type="text" id="provider-chatmodel" list="provider-model-list" placeholder="deepseek-chat" spellcheck="false">
+              <datalist id="provider-model-list"></datalist>
+            </div>
+
+            <div class="field">
+              <label>视觉模型（可选）</label>
+              <input type="text" id="provider-visionmodel" placeholder="留空则继续用本机多模态模型" spellcheck="false">
+              <label class="check" style="margin-top:6px"><input type="checkbox" id="provider-use-vision"> 视觉理解也走这个外部接口</label>
+              <div class="hintline">多数厂商只有对话接口，没有视觉。勾了却没填模型名时会自动回落本机。</div>
+            </div>
+
+            <div class="field">
+              <label>向量模型（可选）</label>
+              <input type="text" id="provider-embedmodel" placeholder="留空则继续用本机向量模型" spellcheck="false">
+              <label class="check" style="margin-top:6px"><input type="checkbox" id="provider-use-embed"> 记忆向量也走这个外部接口</label>
+              <div class="hintline">换向量模型后，旧向量不再参与语义检索（不同模型的向量不可比），关键词召回不受影响。</div>
+            </div>
+
+            <div class="actions">
+              <button class="btn ghost sm" id="provider-test" type="button">🔌 测试连接</button>
+              <button class="btn sm" id="provider-save" type="button">保存并启用</button>
+              <button class="btn ghost sm" id="provider-local" type="button">切回本机 Ollama</button>
+            </div>
+            <div id="provider-result"></div>
+          </div>
+        </details>
+
+        <details class="fold" id="fold-openapi">
+          <summary>对外开放（可选：把本项目当 API 给外部调用）</summary>
+          <div style="margin-top:10px">
+            <p class="hintline" style="margin:0 0 10px">
+              开启后，AIRI 等外部程序可以用标准 <b>OpenAI 兼容接口</b>调用本项目的对话与文旅能力。
+              <b>默认关闭</b>；一旦勾上「记忆 / 角色卡」，就等于把这些数据交给持有令牌的一方，请按需勾选。
+            </p>
+
+            <label class="check"><input type="checkbox" id="openapi-enabled"> 允许外部程序调用本项目</label>
+            <label class="check"><input type="checkbox" id="openapi-require-token"> 必须携带 Bearer 令牌（强烈建议保持勾选）</label>
+
+            <div class="field" style="margin-top:12px">
+              <label>
+                访问令牌
+                <span class="lbl-actions">
+                  <button class="mini-btn" id="openapi-token-regen" type="button">🔄 重新生成</button>
+                </span>
+              </label>
+              <input type="text" id="openapi-token" readonly placeholder="开启后自动生成">
+              <div class="hintline" id="openapi-token-hint">明文只在生成的那一刻显示一次，之后只保留打码版本。</div>
+            </div>
+
+            <div class="field">
+              <label>允许调用的能力</label>
+              <div id="openapi-expose"></div>
+            </div>
+
+            <div class="field">
+              <label>接口一览</label>
+              <div class="hintline" id="openapi-endpoints"></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="fold">
+          <summary>本地服务状态</summary>
+          <div id="settings-services" style="margin-top:10px"></div>
+        </details>
+
+        <details class="fold">
+          <summary>关于</summary>
+          <div class="info-box" style="margin-top:10px">
+            <b>交互风格</b>取自 <a href="https://github.com/moeru-ai/airi" target="_blank" rel="noreferrer" style="color:var(--primary)">Project AIRI</a>（MIT）。<br>
+            <b>内置的 Live2D 形象</b>是桃瀬ひより，Live2D Inc. 的官方示例模型，随 AIRI 一起分发。<br>
+            <b>内置背景</b>有 3 张来自 AIRI，另外 9 个程序化背景是照 AIRI 的 Backgrounds 组件重写的。<br>
+            <b>业务能力</b>来自原「文旅智能辅助 Skill」，赛题编号 JBGS-2026-06。<br>
+            <b>推理</b>用本机 Ollama，<b>语音</b>用本机 Qwen TTS。<br>
+            <b>渲染</b>用 PixiJS + pixi-live2d-display + Live2D Cubism Core，3D 用 three.js + three-vrm。
+          </div>
+        </details>
+      </section>
+
+      <!-- ---------- 机体记忆 ---------- -->
+      <section class="pane" id="pane-memory">
+        <h3>机体记忆</h3>
+        <div class="badges" id="memory-badges"></div>
+
+        <div class="section">
+          <div class="lbl">检索记忆</div>
+          <div class="inline">
+            <input type="text" id="mem-query" placeholder="例如：上次说的杭州餐厅">
+            <button class="btn sm" id="mem-search">搜索</button>
+          </div>
+          <div id="mem-search-result" style="margin-top:11px"></div>
+        </div>
+
+        <div class="section">
+          <div class="lbl">手动记一条</div>
+          <textarea id="mem-add-text" placeholder="例如：用户是杭州本地人，带 6 岁小孩，忌辣，预算偏经济。"></textarea>
+          <div class="actions" style="margin-top:8px">
+            <button class="btn sm" id="mem-add">💾 存入记忆</button>
+            <button class="btn ghost sm" id="mem-reload">刷新</button>
+            <button class="btn ghost sm" id="mem-clear">清空全部</button>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="lbl">记忆库</div>
+          <div id="mem-list"></div>
+        </div>
+      </section>
+
+      <!-- ---------- 角色卡 ---------- -->
+      <section class="pane" id="pane-cards">
+        <h3>AI 角色卡</h3>
+        <div class="actions" style="margin-bottom:13px">
+          <button class="btn sm" id="card-new">＋ 新建</button>
+          <button class="btn ghost sm" id="card-import">📂 导入</button>
+          <button class="btn ghost sm" id="card-export-all">📤 全部导出</button>
+        </div>
+        <div class="card-grid" id="card-list"></div>
+      </section>
+
+      <!-- ---------- 声音 ---------- -->
+      <section class="pane" id="pane-voice">
+        <h3>声音（本地 Qwen TTS）</h3>
+        <p class="sub">语音合成本地化：直接调用本机 Qwen TTS WebUI。<br>启动方式：在 Qwen TTS WebUI 目录执行 <code>python launch.py --nowebui</code>。</p>
+        <div class="badges" id="voice-badges"></div>
+
+        <!-- 听觉（语音输入）：与上面的"说话"是一对 —— 上面让它说，这里让它听。
+             默认关闭，因为要载一个约 1GB 的本地 Whisper 模型。 -->
+        <div class="section">
+          <div class="lbl">听觉（本地 Whisper 语音识别）</div>
+          <p class="sub" style="margin:0 0 8px">
+            打开后，输入框旁边会出现 <strong>🎤</strong>：录一段话，用<strong>本机</strong> Whisper 转成文字填进输入框。
+            全程离线，音频不会发到任何地方。默认关闭，因为要用约 1GB 的模型权重。
+          </p>
+          <label class="check-row" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="stt-enabled">
+            <span>启用听觉（默认关闭）</span>
+          </label>
+          <div class="row" style="margin-top:8px">
+            <button class="mini-btn" id="stt-probe">检测环境</button>
+            <span class="hint-inline" id="stt-status">—</span>
+          </div>
+          <p class="sub" style="margin:8px 0 0">
+            没有权重时先跑 <code>npm run fetch:whisper</code>（约 1GB，走 hf-mirror 镜像）。
+            嫌大可以设 <code>WHISPER_MODEL=openai/whisper-base</code> 换更小的模型。
+          </p>
+        </div>
+
+        <div class="section">
+          <div class="lbl">音色库</div>
+          <div id="voice-list"></div>
+        </div>
+
+        <div class="section">
+          <div class="lbl">内置音色（说话人 speaker）</div>
+          <div id="speaker-list"></div>
+        </div>
+
+        <div class="section">
+          <div class="lbl">我的音色（用你自己的录音克隆）</div>
+          <p class="sub" style="margin:0 0 8px">
+            选一段 <strong>5~15 秒</strong>、单人、没有背景音乐的 <strong>真 WAV</strong>，
+            本地会拿它当参考音频克隆出这副嗓子。音频只存在本机 <code>data/voice-refs/</code>，不出本机。
+          </p>
+          <div id="my-voices"></div>
+          <div class="actions" style="margin-top:8px">
+            <button class="btn sm" id="voice-add">＋ 添加音色</button>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="lbl">试听</div>
+          <textarea id="voice-test-text">你好，我是你的文旅向导。断桥残雪这会儿人不多，咱们可以先去走一圈。</textarea>
+          <div class="actions" style="margin-top:8px">
+            <button class="btn sm" id="voice-test">▶ 试听当前音色</button>
+            <button class="btn ghost sm" id="voice-refresh">⟳ 刷新</button>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="lbl">语气指令 <span class="hint-inline">instruct，决定音色</span></div>
+          <textarea id="voice-instruct" placeholder="用自然语言描述想要的音色与语气…"></textarea>
+          <div class="actions" style="margin-top:8px">
+            <button class="btn sm" id="voice-save">保存到当前角色卡</button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- ---------- 输入区 ---------- -->
+    <div class="composer">
+      <div id="attach-slot"></div>
+      <div class="composer-top">
+        <textarea id="chat-input" placeholder="和向导说点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
+      </div>
+      <div class="composer-bar">
+        <button class="icon-btn" id="btn-image" title="上传图片，用本机视觉模型看懂它">🖼️</button>
+        <input type="file" id="file-input" accept="image/*" hidden>
+        <button class="icon-btn" id="btn-camera" title="调用摄像头拍照识景">📷</button>
+        <button class="icon-btn" id="btn-web" title="联网：让模型能搜索网页、读取正文，用最新信息回答">🌐</button>
+        <!-- 语音输入（听觉）。默认关闭，要现在「声音」页里打开「听觉」才会出现：
+             它要载一个约 1GB 的本地 Whisper 模型，不能让所有人被迫承担。 -->
+        <button class="icon-btn" id="btn-mic" title="按住说话：录一段语音，用本机 Whisper 识别成文字" hidden>🎤</button>
+        <div class="spacer"></div>
+        <span class="hintline" id="composer-hint"></span>
+        <!-- 「让 AI 先问我」：把文旅流程里**所有**必问项一条条问出来，
+             用户逐条答完就自动去生成方案。放在发送键左边，和"打字问"并列。 -->
+        <button class="btn ghost sm" id="btn-ask-me" title="让 AI 把文旅规划需要的项目一条条问你，答完自动出方案">🤔 让 AI 先问我</button>
+        <button class="btn ghost sm" id="btn-stop" hidden>■ 停止</button>
+        <button class="btn sm" id="btn-send">发送</button>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div class="toast-wrap" id="toasts"></div>
+<div id="modal-root"></div>
+<audio id="tts-audio" hidden></audio>
+
+<script src="/js/util.js?v=__ASSET_V__"></script>
+<!-- 方案导出（内置排版模板 + 用户自定义模板）。排在 util.js 之后：
+     它要复用 util.js 里的 renderMarkdown，导出件和页面里的排版才一致。 -->
+<script src="/js/export-plan.js?v=__ASSET_V__"></script>
+<!-- 背景配乐：默认用视频原声，也能换成音频库里的音轨。
+     音轨由后端在上传视频时自动抽取（data/audio/）。 -->
+<script src="/js/bg-audio.js?v=__ASSET_V__"></script>
+<!-- 对话引导气泡：分批提问 + 「我选好了」。
+     替换原来"点一下就直接生成"的老流程 —— 那套没有引导作用。 -->
+<script src="/js/ask-bubbles.js?v=__ASSET_V__"></script>
+<script src="/js/backgrounds.js?v=__ASSET_V__"></script>
+<!-- 导航模式的牌子与风景图（纯 2D 绘制，Live2D 与 3D 两套渲染器共用）。
+     必须排在 live2d.js 之前：live2d.js 会用到 window.WenlvNavVisuals。 -->
+<script src="/js/nav-visuals.js?v=__ASSET_V__"></script>
+<script src="/js/nav.js?v=__ASSET_V__"></script>
+<!-- 西湖主题：动态风景 + 程序化绘制的「西湖船娘」形象（内置默认形象，零外部素材） -->
+<script src="/js/lake.js?v=__ASSET_V__"></script>
+<script src="/js/live2d.js?v=__ASSET_V__"></script>
+<!-- 语音输入：录音 + 转成 16kHz 单声道 WAV + 调 /api/stt。
+     纯前端能力（MediaRecorder + AudioContext），不依赖任何第三方库。 -->
+<script src="/js/voice.js?v=__ASSET_V__"></script>
+<!-- 开屏（两套可互相切换的模板：视频主页 / 形象主页）。
+     放在 app.js 之前：app.js 启动时要挂它。 -->
+<script src="/js/boot.js?v=__ASSET_V__"></script>
+<script src="/js/wordcloud.js?v=__ASSET_V__"></script>
+<!-- 组员的行程规划工作台（React + antd），构建产物见 public/planner-embed.js。
+     放在 app.js 之前同步加载，这样 boot() 里调 mount() 时它一定已经就绪。 -->
+<!-- 组员的行程规划工作台（React + antd）。
+     排在 app.js 之前同步加载，保证 boot() 调 mount() 时它已经就绪。
+     onerror 把加载失败记下来，app.js 那边会把它显示在面板上——
+     否则脚本没加载成功时面板只会静悄悄地空着。 -->
+<script src="/planner-embed.js?v=__ASSET_V__"
+        onerror="window.__plannerScriptError = '工作台脚本加载失败（HTTP 或网络问题）';"></script>
+<script src="/js/app.js?v=__ASSET_V__"></script>
+</body>
+</html>

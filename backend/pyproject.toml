@@ -1,0 +1,35 @@
+# 后端项目管理文件（PEP 621 标准，uv 与 pip 均可用）
+#
+# 推荐使用 uv 管理依赖（速度快、可复现）：
+#   cd backend
+#   uv sync                # 创建 .venv 并安装依赖，同时生成 uv.lock 锁文件
+#   uv run uvicorn app.main:app --reload
+#
+# 评委未安装 uv 时，pip 同样可用：
+#   pip install -e ".[dev]"
+#   uvicorn app.main:app --reload
+
+[project]
+name = "travelplanner-backend"
+version = "0.1.0"
+description = "文旅智能辅助场景 - 个性化可交互旅游规划系统（后端）"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
