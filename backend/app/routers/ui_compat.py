@@ -140,11 +140,46 @@ def _live2d() -> List[Dict[str, Any]]:
 
 
 def _models3d_bundled() -> List[Dict[str, Any]]:
-    items = (CATALOG.get("models3d") or {}).get("bundled") or MODELS3D.get("bundled") or []
+    """清单里声明、且 public/models3d/<目录> 真的存在的 3D 模型。
+
+    ★ 原版这里有两个坑，都会让模型"登记了却不出现"：
+
+    1. **用 id 当目录名去比对**。原来是 `it["id"] in have`，
+       但 id 和目录名并不一致（id=vrm-seed-san，目录=seed-san；
+       id=vrm-vrm1-sample，目录=vrm1-sample）——
+       于是**两个 VRM 示例从来没显示出来过**。改成从 url 里取目录名。
+
+    2. **`or` 短路吞掉了整份清单**。原来是
+       `CATALOG...bundled or MODELS3D.bundled or []`：
+       CATALOG（capabilities.json）里只要非空，MODELS3D（models3d.json）
+       就**完全读不到** —— 往 models3d.json 里加条目等于白加。
+       改成两份合并去重。
+    """
     if not M3D_DIR.is_dir():
         return []
     have = {p.name for p in M3D_DIR.iterdir() if p.is_dir()}
-    return [it for it in items if it.get("id") in have]
+
+    merged: List[Dict[str, Any]] = []
+    seen = set()
+    for src in ((CATALOG.get("models3d") or {}).get("bundled"),
+                MODELS3D.get("bundled")):
+        for it in (src or []):
+            if not isinstance(it, dict):
+                continue
+            key = it.get("id") or it.get("url")
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            merged.append(it)
+
+    def _dir_of(it: Dict[str, Any]) -> str:
+        """从 /models3d/<目录>/xxx.glb 里取 <目录>；取不到退回 id。"""
+        parts = [x for x in str(it.get("url") or "").split("/") if x]
+        if len(parts) >= 2 and parts[0] == "models3d":
+            return parts[1]
+        return str(it.get("id") or "")
+
+    return [it for it in merged if _dir_of(it) in have]
 
 
 # ---------------------------------------------------------------------------

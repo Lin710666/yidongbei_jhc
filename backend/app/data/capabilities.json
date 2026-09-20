@@ -1,1 +1,1353 @@
-{"ok":true,"options":{"budget":["经济","舒适","高端"],"crowd":["单人","情侣","朋友","亲子","带老人","团建"],"interests":["自然风光","人文历史","美食","亲子","文艺打卡","购物"],"diet":["无","素食","忌辣","清真"],"product":["景区","酒店","餐饮","文创","活动"],"platform":["朋友圈","小红书","抖音","OTA","公众号"],"audience":["亲子家庭","年轻情侣","银发族","商务","学生"],"style":["种草","亲切","文艺","促销","权威"],"productKind":["文创产品","主题线路","服务套餐"]},"defaults":{"city":"杭州","days":2,"budget":"舒适","crowd":"朋友","interests":["自然风光","人文历史"],"diet":"无","product":"景区","platform":"小红书","audience":"年轻情侣","style":"种草","productKind":"文创产品"},"cities":["杭州","苏州","成都","丽江","西安"],"wordCloud":[{"word":"个性化方案","weight":100,"action":"gen-plan","group":"核心功能","hint":"用词云上选中的条件生成一体化方案","role":"core"},{"word":"营销文案","weight":96,"action":"gen-marketing","group":"核心功能","hint":"用词云上选中的条件生成 A/B 两版文案","role":"core"},{"word":"让 AI 先问我","weight":78,"action":"intake","group":"异常处理","hint":"不填任何信息，演示信息缺失时的集中追问","role":"core"},{"word":"输出质检","weight":72,"action":"audit","group":"可信度","hint":"核对推荐项是否真的来自本地样本库","role":"core"},{"word":"行程规划","weight":84,"action":"pick","payload":{"city":"杭州","days":2},"group":"行程","role":"member"},{"word":"游玩天数","weight":78,"action":"days-stepper","role":"core","group":"行程","hint":"点两侧的 ▼▲ 调天数"},{"word":"费用预估","weight":62,"action":"pick","payload":{"city":"杭州","days":3,"budget":"舒适"},"group":"行程","role":"member"},{"word":"避坑提示","weight":58,"action":"pick","payload":{"city":"杭州","days":2,"crowd":"带老人"},"group":"行程","role":"member"},{"word":"替代方案","weight":56,"action":"pick","payload":{"city":"杭州","days":2,"interests":["亲子"]},"group":"行程","role":"member"},{"word":"一键导出","weight":54,"action":"export","group":"行程","hint":"把结果导出为 Markdown，数据不出本机","role":"member"},{"word":"杭州","weight":88,"action":"pick","payload":{"city":"杭州","days":2},"group":"目的地","role":"member"},{"word":"苏州","weight":74,"action":"pick","payload":{"city":"苏州","days":2},"group":"目的地","role":"member"},{"word":"成都","weight":74,"action":"pick","payload":{"city":"成都","days":3},"group":"目的地","role":"member"},{"word":"丽江","weight":70,"action":"pick","payload":{"city":"丽江","days":3},"group":"目的地","role":"member"},{"word":"西安","weight":70,"action":"pick","payload":{"city":"西安","days":3},"group":"目的地","role":"member"},{"word":"经济","weight":48,"action":"pick","payload":{"budget":"经济"},"group":"预算","role":"member"},{"word":"舒适","weight":52,"action":"pick","payload":{"budget":"舒适"},"group":"预算","role":"member"},{"word":"高端","weight":48,"action":"pick","payload":{"budget":"高端"},"group":"预算","role":"member"},{"word":"亲子","weight":62,"action":"pick","payload":{"crowd":"亲子","interests":["亲子"]},"group":"同行人群","role":"member"},{"word":"情侣","weight":60,"action":"pick","payload":{"crowd":"情侣"},"group":"同行人群","role":"member"},{"word":"带老人","weight":56,"action":"pick","payload":{"crowd":"带老人"},"group":"同行人群","role":"member"},{"word":"团建","weight":54,"action":"pick","payload":{"crowd":"团建"},"group":"同行人群","role":"member"},{"word":"自然风光","weight":64,"action":"pick","payload":{"interests":["自然风光"]},"group":"兴趣","role":"member"},{"word":"人文历史","weight":62,"action":"pick","payload":{"interests":["人文历史"]},"group":"兴趣","role":"member"},{"word":"美食","weight":66,"action":"pick","payload":{"interests":["美食"]},"group":"兴趣","role":"member"},{"word":"文艺打卡","weight":56,"action":"pick","payload":{"interests":["文艺打卡"]},"group":"兴趣","role":"member"},{"word":"购物","weight":48,"action":"pick","payload":{"interests":["购物"]},"group":"兴趣","role":"member"},{"word":"素食","weight":44,"action":"pick","payload":{"diet":"素食"},"group":"饮食禁忌","role":"member"},{"word":"忌辣","weight":44,"action":"pick","payload":{"diet":"忌辣"},"group":"饮食禁忌","role":"member"},{"word":"清真","weight":44,"action":"pick","payload":{"diet":"清真"},"group":"饮食禁忌","role":"member"},{"word":"小红书","weight":78,"action":"pick","payload":{"platform":"小红书"},"group":"营销平台","role":"member"},{"word":"朋友圈","weight":64,"action":"pick","payload":{"platform":"朋友圈"},"group":"营销平台","role":"member"},{"word":"抖音","weight":70,"action":"pick","payload":{"platform":"抖音"},"group":"营销平台","role":"member"},{"word":"OTA","weight":56,"action":"pick","payload":{"platform":"OTA"},"group":"营销平台","role":"member"},{"word":"公众号","weight":58,"action":"pick","payload":{"platform":"公众号"},"group":"营销平台","role":"member"},{"word":"景区","weight":60,"action":"pick","payload":{"product":"景区"},"group":"营销产品","role":"member"},{"word":"酒店民宿","weight":60,"action":"pick","payload":{"product":"酒店"},"group":"营销产品","role":"member"},{"word":"餐饮","weight":58,"action":"pick","payload":{"product":"餐饮"},"group":"营销产品","role":"member"},{"word":"文创创意","weight":60,"action":"pick","payload":{"product":"文创"},"group":"营销产品","role":"member"},{"word":"活动策划","weight":54,"action":"pick","payload":{"product":"活动"},"group":"营销产品","role":"member"},{"word":"种草","weight":54,"action":"pick","payload":{"style":"种草"},"group":"文案风格","role":"member"},{"word":"促销","weight":50,"action":"pick","payload":{"style":"促销"},"group":"文案风格","role":"member"},{"word":"文艺","weight":48,"action":"pick","payload":{"style":"文艺"},"group":"文案风格","role":"member"},{"word":"机体记忆","weight":80,"action":"panel","payload":{"tab":"memory"},"group":"本地服务","hint":"长期记忆：本机文件存储 + 混合检索","role":"member"},{"word":"记住这个","weight":58,"action":"remember","group":"本地服务","hint":"把当前这句话存进长期记忆","role":"member"},{"word":"视觉理解","weight":76,"action":"vision","group":"本地服务","hint":"用本机多模态模型看懂一张图","role":"member"},{"word":"拍照识景","weight":66,"action":"vision","group":"本地服务","hint":"上传景点照片，让 AI 认一认","role":"member"},{"word":"语音播报","weight":74,"action":"speak","group":"本地服务","hint":"用本机 Qwen TTS 把回答读出来","role":"member"},{"word":"声音设置","weight":58,"action":"panel","payload":{"tab":"voice"},"group":"本地服务","role":"member"},{"word":"角色卡","weight":82,"action":"panel","payload":{"tab":"cards"},"group":"本地服务","hint":"自定义虚拟人格：人设/音色/形象","role":"member"},{"word":"换表情","weight":52,"action":"expression-cycle","group":"形象","role":"member"},{"word":"打招呼","weight":56,"action":"greet","group":"形象","role":"member"},{"word":"本地模型","weight":68,"action":"panel","payload":{"tab":"settings"},"group":"本地服务","hint":"全部推理都在本机 Ollama 上跑","role":"member"},{"word":"文创产品概念","weight":66,"action":"gen-product","payload":{"kind":"文创产品"},"group":"产品研发","hint":"生成一张文创产品概念卡","role":"member"},{"word":"主题线路组合","weight":64,"action":"gen-product","payload":{"kind":"主题线路"},"group":"产品研发","hint":"生成一张主题线路产品概念卡","role":"member"},{"word":"服务套餐设计","weight":62,"action":"gen-product","payload":{"kind":"服务套餐"},"group":"产品研发","hint":"生成一张服务套餐产品概念卡","role":"member"},{"word":"目的地","weight":86,"action":"focus-group","payload":{"group":"目的地"},"group":"目的地","role":"label","hint":"点击展开「目的地」这一组"},{"word":"行程","weight":84,"action":"focus-group","payload":{"group":"行程"},"group":"行程","role":"label","hint":"点击展开「行程」这一组"},{"word":"营销平台","weight":82,"action":"focus-group","payload":{"group":"营销平台"},"group":"营销平台","role":"label","hint":"点击展开「营销平台」这一组"},{"word":"本地服务","weight":80,"action":"focus-group","payload":{"group":"本地服务"},"group":"本地服务","role":"label","hint":"点击展开「本地服务」这一组"},{"word":"营销产品","weight":72,"action":"focus-group","payload":{"group":"营销产品"},"group":"营销产品","role":"label","hint":"点击展开「营销产品」这一组"},{"word":"兴趣","weight":70,"action":"focus-group","payload":{"group":"兴趣"},"group":"兴趣","role":"label","hint":"点击展开「兴趣」这一组"},{"word":"同行人群","weight":66,"action":"focus-group","payload":{"group":"同行人群"},"group":"同行人群","role":"label","hint":"点击展开「同行人群」这一组"},{"word":"预算","weight":76,"action":"focus-group","payload":{"group":"预算"},"group":"预算","role":"label","hint":"点击展开「预算」这一组"},{"word":"文案风格","weight":74,"action":"focus-group","payload":{"group":"文案风格"},"group":"文案风格","role":"label","hint":"点击展开「文案风格」这一组"},{"word":"饮食禁忌","weight":72,"action":"focus-group","payload":{"group":"饮食禁忌"},"group":"饮食禁忌","role":"label","hint":"点击展开「饮食禁忌」这一组"},{"word":"形象","weight":70,"action":"focus-group","payload":{"group":"形象"},"group":"形象","role":"label","hint":"点击展开「形象」这一组"},{"word":"产品研发","weight":76,"action":"focus-group","payload":{"group":"产品研发"},"group":"产品研发","role":"label","hint":"点击展开「产品研发」这一组"}],"wordCloudGroups":[{"name":"核心功能","desc":"本项目的两大核心能力 + 两个演示入口"},{"name":"异常处理","desc":"信息缺失时集中追问的演示入口"},{"name":"可信度","desc":"对照本地样本库做输出质检，不静默放行编造内容"},{"name":"目的地","desc":"本地样本库已覆盖的城市"},{"name":"行程","desc":"方案的组成要素"},{"name":"预算","desc":"预算档位"},{"name":"同行人群","desc":"和谁一起去"},{"name":"兴趣","desc":"兴趣偏好（可多选）"},{"name":"饮食禁忌","desc":"忌口筛选"},{"name":"营销平台","desc":"五大投放平台"},{"name":"营销产品","desc":"文旅五大业态"},{"name":"文案风格","desc":"文案语气"},{"name":"本地服务","desc":"airi 侧服务全部本地化"},{"name":"形象","desc":"Live2D 人物互动"},{"name":"产品研发","desc":"从创意到产品概念：文创 / 线路 / 套餐"}],"entityCount":117,"features":[{"id":"plan","name":"个性化方案规划","desc":"游玩·旅居·餐饮一体化方案","icon":"🗺️"},{"id":"marketing","name":"文旅营销素材生成","desc":"五大平台 · A/B 双版本","icon":"✍️"},{"id":"intake","name":"信息缺失集中追问","desc":"异常处理演示入口","icon":"🤔"},{"id":"audit","name":"输出质检","desc":"与本地样本库核对，不静默放行编造内容","icon":"🔍"}],"voices":[{"id":"wenlv-guide-female","name":"小文 · 温柔讲解","desc":"温柔亲切的年轻女声，语速稍慢、吐字清晰，适合景点讲解与行程播报","mode":"custom-voice","speaker":"vivian","instruct":"用温柔亲切的语气说话，语速稍慢、吐字清晰，语气自然不夸张，像在给游客做景点讲解。","language":"Chinese","speedHint":"稍慢"},{"id":"wenlv-guide-male","name":"阿杭 · 沉稳男声","desc":"沉稳温和的男声，适合文化历史类讲解","mode":"custom-voice","speaker":"uncle_fu","instruct":"用沉稳从容的语气说话，语速中等，像博物馆讲解员一样不紧不慢。","language":"Chinese","speedHint":"中等"},{"id":"wenlv-sweet","name":"小游 · 元气少女","desc":"活泼元气的少女音，适合种草短视频口播","mode":"custom-voice","speaker":"ono_anna","instruct":"语调起伏明显、语速偏快，带一点俏皮的笑意，像在跟朋友兴奋地推荐好玩的地方。","language":"Chinese","speedHint":"偏快"},{"id":"wenlv-marketing","name":"运营号 · 干练播报","desc":"干练清晰的播报腔，适合营销文案口播","mode":"custom-voice","speaker":"serena","instruct":"节奏明快、重点词加重，像电商直播里介绍产品一样利落。","language":"Chinese","speedHint":"偏快"},{"id":"wenlv-gentle-slow","name":"静水 · 舒缓睡前","desc":"很慢很轻的旁白音，适合民宿/疗愈场景","mode":"custom-voice","speaker":"sohee","instruct":"非常轻柔舒缓，语速很慢，营造安静放松的氛围。","language":"Chinese","speedHint":"很慢"}],"myVoices":[],"live2d":[{"id":"haru","label":"春","note":"Live2D Inc. 官方示例模型 Haru，由本脚本从公开仓库 Live2D/CubismWebSamples 获取。模型版权归 Live2D Inc.，使用前请阅读 https://www.live2d.com/eula/live2d-free-material-license-agreement_cn.html","tags":["Live2D 官方示例","第三方素材"],"entry":"/models/haru/Haru.model3.json","preview":null,"expressions":["F01","F02","F03","F04","F05","F06","F07","F08"],"motionGroups":["Idle","TapBody"],"motionCount":6,"hasLipSync":true,"textureCount":2},{"id":"hiyori","label":"桃瀬ひより","note":"Live2D Inc. 官方示例模型 Hiyori，由本脚本从公开仓库 Live2D/CubismWebSamples 获取。模型版权归 Live2D Inc.，使用前请阅读 https://www.live2d.com/eula/live2d-free-material-license-agreement_cn.html","tags":["Live2D 官方示例","第三方素材"],"entry":"/models/hiyori/Hiyori.model3.json","preview":null,"expressions":[],"motionGroups":["Idle","TapBody"],"motionCount":10,"hasLipSync":true,"textureCount":2},{"id":"mao","label":"Mao","note":"Live2D Inc. 官方示例模型 Mao，由本脚本从公开仓库 Live2D/CubismWebSamples 获取。模型版权归 Live2D Inc.，使用前请阅读 https://www.live2d.com/eula/live2d-free-material-license-agreement_cn.html","tags":["Live2D 官方示例","第三方素材"],"entry":"/models/mao/Mao.model3.json","preview":null,"expressions":["exp_01","exp_02","exp_03","exp_04","exp_05","exp_06","exp_07","exp_08"],"motionGroups":["Idle","TapBody"],"motionCount":8,"hasLipSync":true,"textureCount":1}],"models3d":{"formats":{".vrm":{"label":"VRM","mime":"model/gltf-binary","desc":"VRoid / VRM 虚拟形象，带骨骼与表情"},".glb":{"label":"GLB","mime":"model/gltf-binary","desc":"glTF 二进制单文件"}},"bundled":[{"id":"vrm-seed-san","kind":"3d","format":"vrm","label":"Seed-san","note":"VRM 官方示例角色（VRM Consortium 提供），由本脚本从公开仓库 vrm-c/vrm-specification 获取。","tags":["3D / VRM","官方示例","第三方素材"],"url":"/models3d/seed-san/Seed-san.vrm","preview":"/api/models3d/preview/cb6fa7cc88b4abaf","bundled":true,"bytes":10917800},{"id":"vrm-vrm1-sample","kind":"3d","format":"vrm","label":"VRM 1.0 示例模型","note":"VRM 1.0 约束/扭转测试模型，用于验证骨骼与表情，由本脚本从公开仓库 vrm-c/vrm-specification 获取。","tags":["3D / VRM","官方示例","第三方素材"],"url":"/models3d/vrm1-sample/VRM1_Constraint_Twist_Sample.vrm","preview":null,"bundled":true,"bytes":10776032}],"custom":[]},"backgrounds":{"bundled":[{"id":"bg-cozy-tea-corner","kind":"image","label":"温馨茶室","note":"来自 Project AIRI · packages/stage-ui/src/assets/backgrounds","tone":"light","url":"/backgrounds/cozy-tea-corner.avif","bundled":true},{"id":"bg-cute-streaming-room","kind":"image","label":"粉色直播间","note":"来自 Project AIRI · packages/stage-ui/src/assets/backgrounds","tone":"light","url":"/backgrounds/cute-streaming-room.avif","bundled":true},{"id":"bg-fairy-forest","kind":"image","label":"精灵森林","note":"来自 Project AIRI · apps/stage-web/src/assets/backgrounds","tone":"dark","url":"/backgrounds/fairy-forest.avif","bundled":true}],"procedural":[{"id":"proc-lake","kind":"procedural","label":"西湖美景","note":"程序化绘制的西湖动态画面：远山、雷峰塔、断桥、柳枝与水面波光。完全离线，不需要任何素材","renderer":"lake","palette":["#3f6f86","#2f6d6a","#d9b06a"],"tone":"dark"},{"id":"proc-aurora","kind":"procedural","label":"极光渐变","note":"AIRI 默认的色相流动背景（跟随角色卡主色）","renderer":"aurora","palette":["#7dd3fc","#a78bfa","#f472b6"],"tone":"dark"},{"id":"proc-wave","kind":"procedural","label":"动态波浪","note":"照 AIRI 的 part-animated-wave 重做，三层正弦波错速流动","renderer":"wave","palette":["#38bdf8","#0ea5e9","#0f766e"],"tone":"dark"},{"id":"proc-sakura","kind":"procedural","label":"樱花飘落","note":"照 AIRI 的 SakuraPetal 重做，花瓣带旋转与横向摆动","renderer":"sakura","palette":["#fbcfe8","#f9a8d4","#fda4af"],"tone":"dark"},{"id":"proc-stars","kind":"procedural","label":"夜空星野","note":"缓慢漂移的星点 + 轻微闪烁","renderer":"stars","palette":["#e2e8f0","#a5b4fc","#7dd3fc"],"tone":"dark"},{"id":"proc-cross","kind":"procedural","label":"十字点纹","note":"照 AIRI 的 pattern-cross 重做，静态几何底纹","renderer":"cross","palette":["#94a3b8"],"tone":"dark"},{"id":"proc-shanshui","kind":"procedural","label":"山水青绿","note":"文旅主色：远近三层山脊 + 晨雾（呼应\"诗画浙江\"）","renderer":"shanshui","palette":["#0f766e","#14b8a6","#99f6e4"],"tone":"dark"},{"id":"proc-sunset","kind":"procedural","label":"暖金黄昏","note":"落日暖调渐变 + 地平线光晕","renderer":"sunset","palette":["#f59e0b","#fb7185","#7c3aed"],"tone":"dark"},{"id":"proc-paper","kind":"procedural","label":"宣纸留白","note":"浅色纸张纹理，人物与词云对比度最高，适合截图","renderer":"paper","palette":["#f5f5f4","#e7e5e4"],"tone":"light"},{"id":"proc-plain","kind":"procedural","label":"纯色（跟随主题）","note":"不加任何装饰，只用主题底色","renderer":"plain","palette":["#121212"],"tone":"dark"}],"custom":[]},"cards":[{"id":"builtin-marketer","builtin":true,"name":"小柚","avatar":"✨","accent":"#f472b6","tagline":"文旅营销文案官，负责把人种草","persona":"你是「小柚」，文旅营销文案官。你熟悉小红书、朋友圈、抖音、OTA、公众号五个平台的写法差异，能把景区、酒店、餐饮、文创产品的卖点翻译成有画面感的种草文案。你每次都给 A/B 两个不同角度的版本，并且绝不编造价格、折扣、评分、销量这些无法核实的数据。","speakingStyle":"轻快、有感染力，偶尔带一点点俏皮，但落到正文时立刻变得具体、有细节。","greeting":"我是小柚～把要推的产品、发哪个平台、给谁看告诉我，我给你两版可以直接发的文案。","voice":{"presetId":"wenlv-sweet","mode":"voice-design","instruct":"体现元气活泼的少女音，音调偏高、语调起伏明显，语速偏快，带一点俏皮的笑意。","language":"Chinese"},"model":{"chat":null,"temperature":0.85,"numCtx":16384,"numPredict":2048},"live2d":{"kind":"lake","model":"lake-boatwoman","scale":1,"x":0,"y":0,"expression":"","idleMotion":true},"memory":{"enabled":true,"topK":4},"vision":{"enabled":true},"tags":["文旅","营销"]},{"id":"builtin-planner","builtin":true,"name":"阿杭","avatar":"🗺️","accent":"#a78bfa","tagline":"行程规划师，专治「选择困难」","persona":"你是「阿杭」，一位行程规划师。你擅长把模糊的需求拆成可执行的逐日安排，会主动追问缺失的关键信息（目的地、天数、预算、同行人群、兴趣、饮食禁忌），并且一次把问题问完，不让用户反复来回。你输出的行程必须有总览、逐日明细、费用预估和替代方案。","speakingStyle":"条理清晰、干练，喜欢用「第一件事」「另外」来分点，但仍然是口语不是念稿。","greeting":"我是阿杭。把目的地、天数、预算、和谁一起去告诉我，缺的我一次问完，然后给你一份能直接照着走的行程。","voice":{"presetId":"wenlv-guide-male","mode":"custom-voice","instruct":"用沉稳温和的男声说话，中低音，语速中等，像博物馆讲解员一样从容。","language":"Chinese"},"model":{"chat":null,"temperature":0.5,"numCtx":16384,"numPredict":2048},"live2d":{"kind":"lake","model":"lake-boatwoman","scale":1,"x":0,"y":0,"expression":"","idleMotion":true},"memory":{"enabled":true,"topK":5},"vision":{"enabled":true},"tags":["文旅","规划"]},{"id":"builtin-wenlv-guide","builtin":true,"name":"小文","avatar":"🏔️","accent":"#7dd3fc","tagline":"浙江文旅向导，陪你玩得明白、玩得值","persona":"你是「小文」，一位土生土长的浙江文旅向导，对杭州、苏州、成都、丽江、西安等目的地的景区、酒店民宿、餐厅小吃了如指掌。你说话像朋友聊天，先给结论再给理由，会主动提醒避坑和天气备选方案。你手上有一套本地样本库，推荐景点餐厅时优先引用样本库里真实存在的条目，绝不凭空编造商家名字和价格。","speakingStyle":"亲切、口语化，像地陪在耳边说话；会用「咱们」「推荐你」这类词；不用书面语和官腔。","greeting":"你好呀，我是小文。想去哪儿玩？告诉我目的地和天数，我帮你把行程、住宿、吃饭一次安排好。","voice":{"presetId":"wenlv-guide-female","mode":"custom-voice","instruct":"用温柔亲切的年轻女声说话，语速稍慢、吐字清晰，语气自然不夸张，像在给游客做景点讲解。","speaker":null,"language":"Chinese","refVoiceId":null},"model":{"chat":null,"temperature":0.7,"numCtx":16384,"numPredict":1024},"live2d":{"kind":"live2d","model":"mao","scale":1,"x":0,"y":0,"expression":"","idleMotion":true},"memory":{"enabled":true,"topK":5},"vision":{"enabled":true},"tags":["文旅","向导","默认"],"createdAt":1789762222745,"updatedAt":1789762463785}],"activeCardId":"builtin-wenlv-guide"}
+{
+  "ok": true,
+  "options": {
+    "budget": [
+      "经济",
+      "舒适",
+      "高端"
+    ],
+    "crowd": [
+      "单人",
+      "情侣",
+      "朋友",
+      "亲子",
+      "带老人",
+      "团建"
+    ],
+    "interests": [
+      "自然风光",
+      "人文历史",
+      "美食",
+      "亲子",
+      "文艺打卡",
+      "购物"
+    ],
+    "diet": [
+      "无",
+      "素食",
+      "忌辣",
+      "清真"
+    ],
+    "product": [
+      "景区",
+      "酒店",
+      "餐饮",
+      "文创",
+      "活动"
+    ],
+    "platform": [
+      "朋友圈",
+      "小红书",
+      "抖音",
+      "OTA",
+      "公众号"
+    ],
+    "audience": [
+      "亲子家庭",
+      "年轻情侣",
+      "银发族",
+      "商务",
+      "学生"
+    ],
+    "style": [
+      "种草",
+      "亲切",
+      "文艺",
+      "促销",
+      "权威"
+    ],
+    "productKind": [
+      "文创产品",
+      "主题线路",
+      "服务套餐"
+    ]
+  },
+  "defaults": {
+    "city": "杭州",
+    "days": 2,
+    "budget": "舒适",
+    "crowd": "朋友",
+    "interests": [
+      "自然风光",
+      "人文历史"
+    ],
+    "diet": "无",
+    "product": "景区",
+    "platform": "小红书",
+    "audience": "年轻情侣",
+    "style": "种草",
+    "productKind": "文创产品"
+  },
+  "cities": [
+    "杭州",
+    "苏州",
+    "成都",
+    "丽江",
+    "西安"
+  ],
+  "wordCloud": [
+    {
+      "word": "个性化方案",
+      "weight": 100,
+      "action": "gen-plan",
+      "group": "核心功能",
+      "hint": "用词云上选中的条件生成一体化方案",
+      "role": "core"
+    },
+    {
+      "word": "营销文案",
+      "weight": 96,
+      "action": "gen-marketing",
+      "group": "核心功能",
+      "hint": "用词云上选中的条件生成 A/B 两版文案",
+      "role": "core"
+    },
+    {
+      "word": "让 AI 先问我",
+      "weight": 78,
+      "action": "intake",
+      "group": "异常处理",
+      "hint": "不填任何信息，演示信息缺失时的集中追问",
+      "role": "core"
+    },
+    {
+      "word": "输出质检",
+      "weight": 72,
+      "action": "audit",
+      "group": "可信度",
+      "hint": "核对推荐项是否真的来自本地样本库",
+      "role": "core"
+    },
+    {
+      "word": "行程规划",
+      "weight": 84,
+      "action": "pick",
+      "payload": {
+        "city": "杭州",
+        "days": 2
+      },
+      "group": "行程",
+      "role": "member"
+    },
+    {
+      "word": "游玩天数",
+      "weight": 78,
+      "action": "days-stepper",
+      "role": "core",
+      "group": "行程",
+      "hint": "点两侧的 ▼▲ 调天数"
+    },
+    {
+      "word": "费用预估",
+      "weight": 62,
+      "action": "pick",
+      "payload": {
+        "city": "杭州",
+        "days": 3,
+        "budget": "舒适"
+      },
+      "group": "行程",
+      "role": "member"
+    },
+    {
+      "word": "避坑提示",
+      "weight": 58,
+      "action": "pick",
+      "payload": {
+        "city": "杭州",
+        "days": 2,
+        "crowd": "带老人"
+      },
+      "group": "行程",
+      "role": "member"
+    },
+    {
+      "word": "替代方案",
+      "weight": 56,
+      "action": "pick",
+      "payload": {
+        "city": "杭州",
+        "days": 2,
+        "interests": [
+          "亲子"
+        ]
+      },
+      "group": "行程",
+      "role": "member"
+    },
+    {
+      "word": "一键导出",
+      "weight": 54,
+      "action": "export",
+      "group": "行程",
+      "hint": "把结果导出为 Markdown，数据不出本机",
+      "role": "member"
+    },
+    {
+      "word": "杭州",
+      "weight": 88,
+      "action": "pick",
+      "payload": {
+        "city": "杭州",
+        "days": 2
+      },
+      "group": "目的地",
+      "role": "member"
+    },
+    {
+      "word": "苏州",
+      "weight": 74,
+      "action": "pick",
+      "payload": {
+        "city": "苏州",
+        "days": 2
+      },
+      "group": "目的地",
+      "role": "member"
+    },
+    {
+      "word": "成都",
+      "weight": 74,
+      "action": "pick",
+      "payload": {
+        "city": "成都",
+        "days": 3
+      },
+      "group": "目的地",
+      "role": "member"
+    },
+    {
+      "word": "丽江",
+      "weight": 70,
+      "action": "pick",
+      "payload": {
+        "city": "丽江",
+        "days": 3
+      },
+      "group": "目的地",
+      "role": "member"
+    },
+    {
+      "word": "西安",
+      "weight": 70,
+      "action": "pick",
+      "payload": {
+        "city": "西安",
+        "days": 3
+      },
+      "group": "目的地",
+      "role": "member"
+    },
+    {
+      "word": "经济",
+      "weight": 48,
+      "action": "pick",
+      "payload": {
+        "budget": "经济"
+      },
+      "group": "预算",
+      "role": "member"
+    },
+    {
+      "word": "舒适",
+      "weight": 52,
+      "action": "pick",
+      "payload": {
+        "budget": "舒适"
+      },
+      "group": "预算",
+      "role": "member"
+    },
+    {
+      "word": "高端",
+      "weight": 48,
+      "action": "pick",
+      "payload": {
+        "budget": "高端"
+      },
+      "group": "预算",
+      "role": "member"
+    },
+    {
+      "word": "亲子",
+      "weight": 62,
+      "action": "pick",
+      "payload": {
+        "crowd": "亲子",
+        "interests": [
+          "亲子"
+        ]
+      },
+      "group": "同行人群",
+      "role": "member"
+    },
+    {
+      "word": "情侣",
+      "weight": 60,
+      "action": "pick",
+      "payload": {
+        "crowd": "情侣"
+      },
+      "group": "同行人群",
+      "role": "member"
+    },
+    {
+      "word": "带老人",
+      "weight": 56,
+      "action": "pick",
+      "payload": {
+        "crowd": "带老人"
+      },
+      "group": "同行人群",
+      "role": "member"
+    },
+    {
+      "word": "团建",
+      "weight": 54,
+      "action": "pick",
+      "payload": {
+        "crowd": "团建"
+      },
+      "group": "同行人群",
+      "role": "member"
+    },
+    {
+      "word": "自然风光",
+      "weight": 64,
+      "action": "pick",
+      "payload": {
+        "interests": [
+          "自然风光"
+        ]
+      },
+      "group": "兴趣",
+      "role": "member"
+    },
+    {
+      "word": "人文历史",
+      "weight": 62,
+      "action": "pick",
+      "payload": {
+        "interests": [
+          "人文历史"
+        ]
+      },
+      "group": "兴趣",
+      "role": "member"
+    },
+    {
+      "word": "美食",
+      "weight": 66,
+      "action": "pick",
+      "payload": {
+        "interests": [
+          "美食"
+        ]
+      },
+      "group": "兴趣",
+      "role": "member"
+    },
+    {
+      "word": "文艺打卡",
+      "weight": 56,
+      "action": "pick",
+      "payload": {
+        "interests": [
+          "文艺打卡"
+        ]
+      },
+      "group": "兴趣",
+      "role": "member"
+    },
+    {
+      "word": "购物",
+      "weight": 48,
+      "action": "pick",
+      "payload": {
+        "interests": [
+          "购物"
+        ]
+      },
+      "group": "兴趣",
+      "role": "member"
+    },
+    {
+      "word": "素食",
+      "weight": 44,
+      "action": "pick",
+      "payload": {
+        "diet": "素食"
+      },
+      "group": "饮食禁忌",
+      "role": "member"
+    },
+    {
+      "word": "忌辣",
+      "weight": 44,
+      "action": "pick",
+      "payload": {
+        "diet": "忌辣"
+      },
+      "group": "饮食禁忌",
+      "role": "member"
+    },
+    {
+      "word": "清真",
+      "weight": 44,
+      "action": "pick",
+      "payload": {
+        "diet": "清真"
+      },
+      "group": "饮食禁忌",
+      "role": "member"
+    },
+    {
+      "word": "小红书",
+      "weight": 78,
+      "action": "pick",
+      "payload": {
+        "platform": "小红书"
+      },
+      "group": "营销平台",
+      "role": "member"
+    },
+    {
+      "word": "朋友圈",
+      "weight": 64,
+      "action": "pick",
+      "payload": {
+        "platform": "朋友圈"
+      },
+      "group": "营销平台",
+      "role": "member"
+    },
+    {
+      "word": "抖音",
+      "weight": 70,
+      "action": "pick",
+      "payload": {
+        "platform": "抖音"
+      },
+      "group": "营销平台",
+      "role": "member"
+    },
+    {
+      "word": "OTA",
+      "weight": 56,
+      "action": "pick",
+      "payload": {
+        "platform": "OTA"
+      },
+      "group": "营销平台",
+      "role": "member"
+    },
+    {
+      "word": "公众号",
+      "weight": 58,
+      "action": "pick",
+      "payload": {
+        "platform": "公众号"
+      },
+      "group": "营销平台",
+      "role": "member"
+    },
+    {
+      "word": "景区",
+      "weight": 60,
+      "action": "pick",
+      "payload": {
+        "product": "景区"
+      },
+      "group": "营销产品",
+      "role": "member"
+    },
+    {
+      "word": "酒店民宿",
+      "weight": 60,
+      "action": "pick",
+      "payload": {
+        "product": "酒店"
+      },
+      "group": "营销产品",
+      "role": "member"
+    },
+    {
+      "word": "餐饮",
+      "weight": 58,
+      "action": "pick",
+      "payload": {
+        "product": "餐饮"
+      },
+      "group": "营销产品",
+      "role": "member"
+    },
+    {
+      "word": "文创创意",
+      "weight": 60,
+      "action": "pick",
+      "payload": {
+        "product": "文创"
+      },
+      "group": "营销产品",
+      "role": "member"
+    },
+    {
+      "word": "活动策划",
+      "weight": 54,
+      "action": "pick",
+      "payload": {
+        "product": "活动"
+      },
+      "group": "营销产品",
+      "role": "member"
+    },
+    {
+      "word": "种草",
+      "weight": 54,
+      "action": "pick",
+      "payload": {
+        "style": "种草"
+      },
+      "group": "文案风格",
+      "role": "member"
+    },
+    {
+      "word": "促销",
+      "weight": 50,
+      "action": "pick",
+      "payload": {
+        "style": "促销"
+      },
+      "group": "文案风格",
+      "role": "member"
+    },
+    {
+      "word": "文艺",
+      "weight": 48,
+      "action": "pick",
+      "payload": {
+        "style": "文艺"
+      },
+      "group": "文案风格",
+      "role": "member"
+    },
+    {
+      "word": "机体记忆",
+      "weight": 80,
+      "action": "panel",
+      "payload": {
+        "tab": "memory"
+      },
+      "group": "本地服务",
+      "hint": "长期记忆：本机文件存储 + 混合检索",
+      "role": "member"
+    },
+    {
+      "word": "记住这个",
+      "weight": 58,
+      "action": "remember",
+      "group": "本地服务",
+      "hint": "把当前这句话存进长期记忆",
+      "role": "member"
+    },
+    {
+      "word": "视觉理解",
+      "weight": 76,
+      "action": "vision",
+      "group": "本地服务",
+      "hint": "用本机多模态模型看懂一张图",
+      "role": "member"
+    },
+    {
+      "word": "拍照识景",
+      "weight": 66,
+      "action": "vision",
+      "group": "本地服务",
+      "hint": "上传景点照片，让 AI 认一认",
+      "role": "member"
+    },
+    {
+      "word": "语音播报",
+      "weight": 74,
+      "action": "speak",
+      "group": "本地服务",
+      "hint": "用本机 Qwen TTS 把回答读出来",
+      "role": "member"
+    },
+    {
+      "word": "声音设置",
+      "weight": 58,
+      "action": "panel",
+      "payload": {
+        "tab": "voice"
+      },
+      "group": "本地服务",
+      "role": "member"
+    },
+    {
+      "word": "角色卡",
+      "weight": 82,
+      "action": "panel",
+      "payload": {
+        "tab": "cards"
+      },
+      "group": "本地服务",
+      "hint": "自定义虚拟人格：人设/音色/形象",
+      "role": "member"
+    },
+    {
+      "word": "换表情",
+      "weight": 52,
+      "action": "expression-cycle",
+      "group": "形象",
+      "role": "member"
+    },
+    {
+      "word": "打招呼",
+      "weight": 56,
+      "action": "greet",
+      "group": "形象",
+      "role": "member"
+    },
+    {
+      "word": "本地模型",
+      "weight": 68,
+      "action": "panel",
+      "payload": {
+        "tab": "settings"
+      },
+      "group": "本地服务",
+      "hint": "全部推理都在本机 Ollama 上跑",
+      "role": "member"
+    },
+    {
+      "word": "文创产品概念",
+      "weight": 66,
+      "action": "gen-product",
+      "payload": {
+        "kind": "文创产品"
+      },
+      "group": "产品研发",
+      "hint": "生成一张文创产品概念卡",
+      "role": "member"
+    },
+    {
+      "word": "主题线路组合",
+      "weight": 64,
+      "action": "gen-product",
+      "payload": {
+        "kind": "主题线路"
+      },
+      "group": "产品研发",
+      "hint": "生成一张主题线路产品概念卡",
+      "role": "member"
+    },
+    {
+      "word": "服务套餐设计",
+      "weight": 62,
+      "action": "gen-product",
+      "payload": {
+        "kind": "服务套餐"
+      },
+      "group": "产品研发",
+      "hint": "生成一张服务套餐产品概念卡",
+      "role": "member"
+    },
+    {
+      "word": "目的地",
+      "weight": 86,
+      "action": "focus-group",
+      "payload": {
+        "group": "目的地"
+      },
+      "group": "目的地",
+      "role": "label",
+      "hint": "点击展开「目的地」这一组"
+    },
+    {
+      "word": "行程",
+      "weight": 84,
+      "action": "focus-group",
+      "payload": {
+        "group": "行程"
+      },
+      "group": "行程",
+      "role": "label",
+      "hint": "点击展开「行程」这一组"
+    },
+    {
+      "word": "营销平台",
+      "weight": 82,
+      "action": "focus-group",
+      "payload": {
+        "group": "营销平台"
+      },
+      "group": "营销平台",
+      "role": "label",
+      "hint": "点击展开「营销平台」这一组"
+    },
+    {
+      "word": "本地服务",
+      "weight": 80,
+      "action": "focus-group",
+      "payload": {
+        "group": "本地服务"
+      },
+      "group": "本地服务",
+      "role": "label",
+      "hint": "点击展开「本地服务」这一组"
+    },
+    {
+      "word": "营销产品",
+      "weight": 72,
+      "action": "focus-group",
+      "payload": {
+        "group": "营销产品"
+      },
+      "group": "营销产品",
+      "role": "label",
+      "hint": "点击展开「营销产品」这一组"
+    },
+    {
+      "word": "兴趣",
+      "weight": 70,
+      "action": "focus-group",
+      "payload": {
+        "group": "兴趣"
+      },
+      "group": "兴趣",
+      "role": "label",
+      "hint": "点击展开「兴趣」这一组"
+    },
+    {
+      "word": "同行人群",
+      "weight": 66,
+      "action": "focus-group",
+      "payload": {
+        "group": "同行人群"
+      },
+      "group": "同行人群",
+      "role": "label",
+      "hint": "点击展开「同行人群」这一组"
+    },
+    {
+      "word": "预算",
+      "weight": 76,
+      "action": "focus-group",
+      "payload": {
+        "group": "预算"
+      },
+      "group": "预算",
+      "role": "label",
+      "hint": "点击展开「预算」这一组"
+    },
+    {
+      "word": "文案风格",
+      "weight": 74,
+      "action": "focus-group",
+      "payload": {
+        "group": "文案风格"
+      },
+      "group": "文案风格",
+      "role": "label",
+      "hint": "点击展开「文案风格」这一组"
+    },
+    {
+      "word": "饮食禁忌",
+      "weight": 72,
+      "action": "focus-group",
+      "payload": {
+        "group": "饮食禁忌"
+      },
+      "group": "饮食禁忌",
+      "role": "label",
+      "hint": "点击展开「饮食禁忌」这一组"
+    },
+    {
+      "word": "形象",
+      "weight": 70,
+      "action": "focus-group",
+      "payload": {
+        "group": "形象"
+      },
+      "group": "形象",
+      "role": "label",
+      "hint": "点击展开「形象」这一组"
+    },
+    {
+      "word": "产品研发",
+      "weight": 76,
+      "action": "focus-group",
+      "payload": {
+        "group": "产品研发"
+      },
+      "group": "产品研发",
+      "role": "label",
+      "hint": "点击展开「产品研发」这一组"
+    }
+  ],
+  "wordCloudGroups": [
+    {
+      "name": "核心功能",
+      "desc": "本项目的两大核心能力 + 两个演示入口"
+    },
+    {
+      "name": "异常处理",
+      "desc": "信息缺失时集中追问的演示入口"
+    },
+    {
+      "name": "可信度",
+      "desc": "对照本地样本库做输出质检，不静默放行编造内容"
+    },
+    {
+      "name": "目的地",
+      "desc": "本地样本库已覆盖的城市"
+    },
+    {
+      "name": "行程",
+      "desc": "方案的组成要素"
+    },
+    {
+      "name": "预算",
+      "desc": "预算档位"
+    },
+    {
+      "name": "同行人群",
+      "desc": "和谁一起去"
+    },
+    {
+      "name": "兴趣",
+      "desc": "兴趣偏好（可多选）"
+    },
+    {
+      "name": "饮食禁忌",
+      "desc": "忌口筛选"
+    },
+    {
+      "name": "营销平台",
+      "desc": "五大投放平台"
+    },
+    {
+      "name": "营销产品",
+      "desc": "文旅五大业态"
+    },
+    {
+      "name": "文案风格",
+      "desc": "文案语气"
+    },
+    {
+      "name": "本地服务",
+      "desc": "airi 侧服务全部本地化"
+    },
+    {
+      "name": "形象",
+      "desc": "Live2D 人物互动"
+    },
+    {
+      "name": "产品研发",
+      "desc": "从创意到产品概念：文创 / 线路 / 套餐"
+    }
+  ],
+  "entityCount": 117,
+  "features": [
+    {
+      "id": "plan",
+      "name": "个性化方案规划",
+      "desc": "游玩·旅居·餐饮一体化方案",
+      "icon": "🗺️"
+    },
+    {
+      "id": "marketing",
+      "name": "文旅营销素材生成",
+      "desc": "五大平台 · A/B 双版本",
+      "icon": "✍️"
+    },
+    {
+      "id": "intake",
+      "name": "信息缺失集中追问",
+      "desc": "异常处理演示入口",
+      "icon": "🤔"
+    },
+    {
+      "id": "audit",
+      "name": "输出质检",
+      "desc": "与本地样本库核对，不静默放行编造内容",
+      "icon": "🔍"
+    }
+  ],
+  "voices": [
+    {
+      "id": "wenlv-guide-female",
+      "name": "小文 · 温柔讲解",
+      "desc": "温柔亲切的年轻女声，语速稍慢、吐字清晰，适合景点讲解与行程播报",
+      "mode": "custom-voice",
+      "speaker": "vivian",
+      "instruct": "用温柔亲切的语气说话，语速稍慢、吐字清晰，语气自然不夸张，像在给游客做景点讲解。",
+      "language": "Chinese",
+      "speedHint": "稍慢"
+    },
+    {
+      "id": "wenlv-guide-male",
+      "name": "阿杭 · 沉稳男声",
+      "desc": "沉稳温和的男声，适合文化历史类讲解",
+      "mode": "custom-voice",
+      "speaker": "uncle_fu",
+      "instruct": "用沉稳从容的语气说话，语速中等，像博物馆讲解员一样不紧不慢。",
+      "language": "Chinese",
+      "speedHint": "中等"
+    },
+    {
+      "id": "wenlv-sweet",
+      "name": "小游 · 元气少女",
+      "desc": "活泼元气的少女音，适合种草短视频口播",
+      "mode": "custom-voice",
+      "speaker": "ono_anna",
+      "instruct": "语调起伏明显、语速偏快，带一点俏皮的笑意，像在跟朋友兴奋地推荐好玩的地方。",
+      "language": "Chinese",
+      "speedHint": "偏快"
+    },
+    {
+      "id": "wenlv-marketing",
+      "name": "运营号 · 干练播报",
+      "desc": "干练清晰的播报腔，适合营销文案口播",
+      "mode": "custom-voice",
+      "speaker": "serena",
+      "instruct": "节奏明快、重点词加重，像电商直播里介绍产品一样利落。",
+      "language": "Chinese",
+      "speedHint": "偏快"
+    },
+    {
+      "id": "wenlv-gentle-slow",
+      "name": "静水 · 舒缓睡前",
+      "desc": "很慢很轻的旁白音，适合民宿/疗愈场景",
+      "mode": "custom-voice",
+      "speaker": "sohee",
+      "instruct": "非常轻柔舒缓，语速很慢，营造安静放松的氛围。",
+      "language": "Chinese",
+      "speedHint": "很慢"
+    }
+  ],
+  "myVoices": [],
+  "live2d": [
+    {
+      "id": "haru",
+      "label": "春",
+      "note": "Live2D Inc. 官方示例模型 Haru，由本脚本从公开仓库 Live2D/CubismWebSamples 获取。模型版权归 Live2D Inc.，使用前请阅读 https://www.live2d.com/eula/live2d-free-material-license-agreement_cn.html",
+      "tags": [
+        "Live2D 官方示例",
+        "第三方素材"
+      ],
+      "entry": "/models/haru/Haru.model3.json",
+      "preview": null,
+      "expressions": [
+        "F01",
+        "F02",
+        "F03",
+        "F04",
+        "F05",
+        "F06",
+        "F07",
+        "F08"
+      ],
+      "motionGroups": [
+        "Idle",
+        "TapBody"
+      ],
+      "motionCount": 6,
+      "hasLipSync": true,
+      "textureCount": 2
+    },
+    {
+      "id": "hiyori",
+      "label": "桃瀬ひより",
+      "note": "Live2D Inc. 官方示例模型 Hiyori，由本脚本从公开仓库 Live2D/CubismWebSamples 获取。模型版权归 Live2D Inc.，使用前请阅读 https://www.live2d.com/eula/live2d-free-material-license-agreement_cn.html",
+      "tags": [
+        "Live2D 官方示例",
+        "第三方素材"
+      ],
+      "entry": "/models/hiyori/Hiyori.model3.json",
+      "preview": null,
+      "expressions": [],
+      "motionGroups": [
+        "Idle",
+        "TapBody"
+      ],
+      "motionCount": 10,
+      "hasLipSync": true,
+      "textureCount": 2
+    },
+    {
+      "id": "mao",
+      "label": "Mao",
+      "note": "Live2D Inc. 官方示例模型 Mao，由本脚本从公开仓库 Live2D/CubismWebSamples 获取。模型版权归 Live2D Inc.，使用前请阅读 https://www.live2d.com/eula/live2d-free-material-license-agreement_cn.html",
+      "tags": [
+        "Live2D 官方示例",
+        "第三方素材"
+      ],
+      "entry": "/models/mao/Mao.model3.json",
+      "preview": null,
+      "expressions": [
+        "exp_01",
+        "exp_02",
+        "exp_03",
+        "exp_04",
+        "exp_05",
+        "exp_06",
+        "exp_07",
+        "exp_08"
+      ],
+      "motionGroups": [
+        "Idle",
+        "TapBody"
+      ],
+      "motionCount": 8,
+      "hasLipSync": true,
+      "textureCount": 1
+    }
+  ],
+  "models3d": {
+    "formats": {
+      ".vrm": {
+        "label": "VRM",
+        "mime": "model/gltf-binary",
+        "desc": "VRoid / VRM 虚拟形象，带骨骼与表情"
+      },
+      ".glb": {
+        "label": "GLB",
+        "mime": "model/gltf-binary",
+        "desc": "glTF 二进制单文件"
+      }
+    },
+    "bundled": [
+      {
+        "id": "vrm-seed-san",
+        "kind": "3d",
+        "format": "vrm",
+        "label": "Seed-san",
+        "note": "VRM 官方示例角色（VRM Consortium 提供），由本脚本从公开仓库 vrm-c/vrm-specification 获取。",
+        "tags": [
+          "3D / VRM",
+          "官方示例",
+          "第三方素材"
+        ],
+        "url": "/models3d/seed-san/Seed-san.vrm",
+        "preview": null,
+        "bundled": true,
+        "bytes": 10917800
+      },
+      {
+        "id": "vrm-vrm1-sample",
+        "kind": "3d",
+        "format": "vrm",
+        "label": "VRM 1.0 示例模型",
+        "note": "VRM 1.0 约束/扭转测试模型，用于验证骨骼与表情，由本脚本从公开仓库 vrm-c/vrm-specification 获取。",
+        "tags": [
+          "3D / VRM",
+          "官方示例",
+          "第三方素材"
+        ],
+        "url": "/models3d/vrm1-sample/VRM1_Constraint_Twist_Sample.vrm",
+        "preview": null,
+        "bundled": true,
+        "bytes": 10776032
+      }
+    ],
+    "custom": []
+  },
+  "backgrounds": {
+    "bundled": [
+      {
+        "id": "bg-cozy-tea-corner",
+        "kind": "image",
+        "label": "温馨茶室",
+        "note": "来自 Project AIRI · packages/stage-ui/src/assets/backgrounds",
+        "tone": "light",
+        "url": "/backgrounds/cozy-tea-corner.avif",
+        "bundled": true
+      },
+      {
+        "id": "bg-cute-streaming-room",
+        "kind": "image",
+        "label": "粉色直播间",
+        "note": "来自 Project AIRI · packages/stage-ui/src/assets/backgrounds",
+        "tone": "light",
+        "url": "/backgrounds/cute-streaming-room.avif",
+        "bundled": true
+      },
+      {
+        "id": "bg-fairy-forest",
+        "kind": "image",
+        "label": "精灵森林",
+        "note": "来自 Project AIRI · apps/stage-web/src/assets/backgrounds",
+        "tone": "dark",
+        "url": "/backgrounds/fairy-forest.avif",
+        "bundled": true
+      }
+    ],
+    "procedural": [
+      {
+        "id": "proc-lake",
+        "kind": "procedural",
+        "label": "西湖美景",
+        "note": "程序化绘制的西湖动态画面：远山、雷峰塔、断桥、柳枝与水面波光。完全离线，不需要任何素材",
+        "renderer": "lake",
+        "palette": [
+          "#3f6f86",
+          "#2f6d6a",
+          "#d9b06a"
+        ],
+        "tone": "dark"
+      },
+      {
+        "id": "proc-aurora",
+        "kind": "procedural",
+        "label": "极光渐变",
+        "note": "AIRI 默认的色相流动背景（跟随角色卡主色）",
+        "renderer": "aurora",
+        "palette": [
+          "#7dd3fc",
+          "#a78bfa",
+          "#f472b6"
+        ],
+        "tone": "dark"
+      },
+      {
+        "id": "proc-wave",
+        "kind": "procedural",
+        "label": "动态波浪",
+        "note": "照 AIRI 的 part-animated-wave 重做，三层正弦波错速流动",
+        "renderer": "wave",
+        "palette": [
+          "#38bdf8",
+          "#0ea5e9",
+          "#0f766e"
+        ],
+        "tone": "dark"
+      },
+      {
+        "id": "proc-sakura",
+        "kind": "procedural",
+        "label": "樱花飘落",
+        "note": "照 AIRI 的 SakuraPetal 重做，花瓣带旋转与横向摆动",
+        "renderer": "sakura",
+        "palette": [
+          "#fbcfe8",
+          "#f9a8d4",
+          "#fda4af"
+        ],
+        "tone": "dark"
+      },
+      {
+        "id": "proc-stars",
+        "kind": "procedural",
+        "label": "夜空星野",
+        "note": "缓慢漂移的星点 + 轻微闪烁",
+        "renderer": "stars",
+        "palette": [
+          "#e2e8f0",
+          "#a5b4fc",
+          "#7dd3fc"
+        ],
+        "tone": "dark"
+      },
+      {
+        "id": "proc-cross",
+        "kind": "procedural",
+        "label": "十字点纹",
+        "note": "照 AIRI 的 pattern-cross 重做，静态几何底纹",
+        "renderer": "cross",
+        "palette": [
+          "#94a3b8"
+        ],
+        "tone": "dark"
+      },
+      {
+        "id": "proc-shanshui",
+        "kind": "procedural",
+        "label": "山水青绿",
+        "note": "文旅主色：远近三层山脊 + 晨雾（呼应\"诗画浙江\"）",
+        "renderer": "shanshui",
+        "palette": [
+          "#0f766e",
+          "#14b8a6",
+          "#99f6e4"
+        ],
+        "tone": "dark"
+      },
+      {
+        "id": "proc-sunset",
+        "kind": "procedural",
+        "label": "暖金黄昏",
+        "note": "落日暖调渐变 + 地平线光晕",
+        "renderer": "sunset",
+        "palette": [
+          "#f59e0b",
+          "#fb7185",
+          "#7c3aed"
+        ],
+        "tone": "dark"
+      },
+      {
+        "id": "proc-paper",
+        "kind": "procedural",
+        "label": "宣纸留白",
+        "note": "浅色纸张纹理，人物与词云对比度最高，适合截图",
+        "renderer": "paper",
+        "palette": [
+          "#f5f5f4",
+          "#e7e5e4"
+        ],
+        "tone": "light"
+      },
+      {
+        "id": "proc-plain",
+        "kind": "procedural",
+        "label": "纯色（跟随主题）",
+        "note": "不加任何装饰，只用主题底色",
+        "renderer": "plain",
+        "palette": [
+          "#121212"
+        ],
+        "tone": "dark"
+      }
+    ],
+    "custom": []
+  },
+  "cards": [
+    {
+      "id": "builtin-marketer",
+      "builtin": true,
+      "name": "小柚",
+      "avatar": "✨",
+      "accent": "#f472b6",
+      "tagline": "文旅营销文案官，负责把人种草",
+      "persona": "你是「小柚」，文旅营销文案官。你熟悉小红书、朋友圈、抖音、OTA、公众号五个平台的写法差异，能把景区、酒店、餐饮、文创产品的卖点翻译成有画面感的种草文案。你每次都给 A/B 两个不同角度的版本，并且绝不编造价格、折扣、评分、销量这些无法核实的数据。",
+      "speakingStyle": "轻快、有感染力，偶尔带一点点俏皮，但落到正文时立刻变得具体、有细节。",
+      "greeting": "我是小柚～把要推的产品、发哪个平台、给谁看告诉我，我给你两版可以直接发的文案。",
+      "voice": {
+        "presetId": "wenlv-sweet",
+        "mode": "voice-design",
+        "instruct": "体现元气活泼的少女音，音调偏高、语调起伏明显，语速偏快，带一点俏皮的笑意。",
+        "language": "Chinese"
+      },
+      "model": {
+        "chat": null,
+        "temperature": 0.85,
+        "numCtx": 16384,
+        "numPredict": 2048
+      },
+      "live2d": {
+        "kind": "lake",
+        "model": "lake-boatwoman",
+        "scale": 1,
+        "x": 0,
+        "y": 0,
+        "expression": "",
+        "idleMotion": true
+      },
+      "memory": {
+        "enabled": true,
+        "topK": 4
+      },
+      "vision": {
+        "enabled": true
+      },
+      "tags": [
+        "文旅",
+        "营销"
+      ]
+    },
+    {
+      "id": "builtin-planner",
+      "builtin": true,
+      "name": "阿杭",
+      "avatar": "🗺️",
+      "accent": "#a78bfa",
+      "tagline": "行程规划师，专治「选择困难」",
+      "persona": "你是「阿杭」，一位行程规划师。你擅长把模糊的需求拆成可执行的逐日安排，会主动追问缺失的关键信息（目的地、天数、预算、同行人群、兴趣、饮食禁忌），并且一次把问题问完，不让用户反复来回。你输出的行程必须有总览、逐日明细、费用预估和替代方案。",
+      "speakingStyle": "条理清晰、干练，喜欢用「第一件事」「另外」来分点，但仍然是口语不是念稿。",
+      "greeting": "我是阿杭。把目的地、天数、预算、和谁一起去告诉我，缺的我一次问完，然后给你一份能直接照着走的行程。",
+      "voice": {
+        "presetId": "wenlv-guide-male",
+        "mode": "custom-voice",
+        "instruct": "用沉稳温和的男声说话，中低音，语速中等，像博物馆讲解员一样从容。",
+        "language": "Chinese"
+      },
+      "model": {
+        "chat": null,
+        "temperature": 0.5,
+        "numCtx": 16384,
+        "numPredict": 2048
+      },
+      "live2d": {
+        "kind": "lake",
+        "model": "lake-boatwoman",
+        "scale": 1,
+        "x": 0,
+        "y": 0,
+        "expression": "",
+        "idleMotion": true
+      },
+      "memory": {
+        "enabled": true,
+        "topK": 5
+      },
+      "vision": {
+        "enabled": true
+      },
+      "tags": [
+        "文旅",
+        "规划"
+      ]
+    },
+    {
+      "id": "builtin-wenlv-guide",
+      "builtin": true,
+      "name": "小文",
+      "avatar": "🏔️",
+      "accent": "#7dd3fc",
+      "tagline": "浙江文旅向导，陪你玩得明白、玩得值",
+      "persona": "你是「小文」，一位土生土长的浙江文旅向导，对杭州、苏州、成都、丽江、西安等目的地的景区、酒店民宿、餐厅小吃了如指掌。你说话像朋友聊天，先给结论再给理由，会主动提醒避坑和天气备选方案。你手上有一套本地样本库，推荐景点餐厅时优先引用样本库里真实存在的条目，绝不凭空编造商家名字和价格。",
+      "speakingStyle": "亲切、口语化，像地陪在耳边说话；会用「咱们」「推荐你」这类词；不用书面语和官腔。",
+      "greeting": "你好呀，我是小文。想去哪儿玩？告诉我目的地和天数，我帮你把行程、住宿、吃饭一次安排好。",
+      "voice": {
+        "presetId": "wenlv-guide-female",
+        "mode": "custom-voice",
+        "instruct": "用温柔亲切的年轻女声说话，语速稍慢、吐字清晰，语气自然不夸张，像在给游客做景点讲解。",
+        "speaker": null,
+        "language": "Chinese",
+        "refVoiceId": null
+      },
+      "model": {
+        "chat": null,
+        "temperature": 0.7,
+        "numCtx": 16384,
+        "numPredict": 1024
+      },
+      "live2d": {
+        "kind": "live2d",
+        "model": "mao",
+        "scale": 1,
+        "x": 0,
+        "y": 0,
+        "expression": "",
+        "idleMotion": true
+      },
+      "memory": {
+        "enabled": true,
+        "topK": 5
+      },
+      "vision": {
+        "enabled": true
+      },
+      "tags": [
+        "文旅",
+        "向导",
+        "默认"
+      ],
+      "createdAt": 1789762222745,
+      "updatedAt": 1789762463785
+    }
+  ],
+  "activeCardId": "builtin-wenlv-guide"
+}

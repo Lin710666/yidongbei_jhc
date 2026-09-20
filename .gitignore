@@ -32,3 +32,7 @@ frontend/dist-embed/
 *.swp
 .DS_Store
 Thumbs.db
+
+# ---- 本地自用素材（授权不允许再配布，所以永不提交）----
+# 洛天依模型：作者配布规则禁止二次配布 / 禁止商用，仅本地演示使用。
+public/models3d/luotianyi/

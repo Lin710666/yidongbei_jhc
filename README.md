@@ -1,7 +1,6 @@
 # 文旅智能辅助 · 融合版（HikiTravel 后端 + AIRI 网页界面）
 
-**版本：`HikiTravel-AIRI-1.1`**（仓库分支同名：`HikiTravel-AIRI-1.1`；
-本地目录名也是 `HikiTravel-AIRI-1.1/`）
+**版本：`v6.5`**（仓库分支同名：`v6.5`；本地目录名仍是 `HikiTravel-AIRI-1.1/`）
 
 赛题 **JBGS-2026-06**（发榜方：杭州网易智企）的比赛工程。
 

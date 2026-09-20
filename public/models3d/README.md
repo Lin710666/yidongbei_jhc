@@ -1,10 +1,36 @@
 # 3D 模型放这里
 
-这个目录默认是空的。脚本会安装的两套 3D 形象来自 VRM 官方规范仓库
-[`vrm-c/vrm-specification`](https://github.com/vrm-c/vrm-specification)，同样属于第三方素材，
-和 Live2D 模型一样没有随仓库分发。
+这个目录当前只放本机自用的模型（见下），没有随仓库分发的第三方素材。
 
-## 怎么拿到
+## 当前内容
+
+```
+public/models3d/
+└── luotianyi/
+    └── luotianyi.glb     ← 洛天依（本地自用），由 PMX 经 Blender + mmd_tools 转换
+```
+
+> 该模型的原作者配布规则禁止二次配布、禁止商用，只在本机演示使用，已在 `.gitignore` 中排除。
+
+### 这个模型为什么是 unlit（不受光照）
+
+它的材质标了 `KHR_materials_unlit`，引擎会**直接取贴图固有色、忽略灯光**。
+
+原因：MMD 模型本来就是按平面着色画的，而本项目的 3D 舞台光照很强
+（`HemisphereLight` 强度 2.0 + 两盏方向光）。同一份模型按受光照的 PBR 材质导出时，
+会被推得发白——银色偏紫的头发变成一片白、布料层次糊平，看着像"有些部件没加载出来"。
+标成 unlit 后就与 MMD 里的原始观感一致了。
+
+注意 `KHR_materials_unlit` 在 glTF 里只是材质上的一个标记，颜色仍然来自
+`baseColorTexture`，**不是** `emissiveTexture`。Blender 5.1 的 glTF 导出器不会生成
+这个标记（它会把 Emission 写成 `emissiveTexture` + 黑色 baseColor），所以转换脚本
+是导出后直接改 JSON 打标记，二进制块不动、贴图不重编码。
+
+## 想要官方示例模型
+
+两套 VRM 官方示例（Seed-san、VRM 1.0 约束/扭转测试模型）来自 VRM 官方规范仓库
+[`vrm-c/vrm-specification`](https://github.com/vrm-c/vrm-specification)，属于第三方素材，
+没有随仓库分发，需要时再下载：
 
 双击 **`tools\获取示例模型.bat`**，或者：
 
@@ -12,7 +38,7 @@
 pwsh -File tools\获取示例模型.ps1 -SkipLive2D   # 只要 3D
 ```
 
-脚本会下载两个 `.vrm`（约 22MB）到：
+脚本会把两个 `.vrm`（约 22MB）放回：
 
 ```
 public/models3d/
@@ -24,11 +50,16 @@ public/models3d/
     └── manifest.json
 ```
 
+> 注意：脚本只是把文件放回磁盘，**还要在 `backend/app/data/models3d.json` 里补回对应条目**
+> 才会出现在界面的形象选择器里（后端按 url 里的目录名去比对目录是否存在，
+> 目录不在的条目会被自动过滤掉）。
+
 `manifest.json` 是可选的，用来给界面提供显示名与说明：
 
 ```json
 { "label": "我的模型", "note": "出处", "tags": ["自制"], "kind": "3d" }
 ```
+
 
 ## 换成自己的模型
 
