@@ -1,0 +1,907 @@
+{
+  "_note": "词云的词表。原来的那份是从上个项目（5.0 / 2.2）导出的，里面是「营销平台 / 文创产品概念 / 机体记忆 / 声音设置 / 形象」这些本项目根本没有的东西。这里按当前项目（HikiTravel 后端 + 组员的工作台）真实有的东西重写：条件词对应工作台表单的字段与可选值，产物词对应 PlanView 实际渲染出来的区块。词表全部有出处，不是编的，见 README「词云」一节。",
+  "_actions": {
+    "pick": "把条件同步进工作台表单（bridge.setPreference）",
+    "focus-group": "点亮/收起该组，只改透明度不重排",
+    "days-stepper": "游玩天数的加减控件",
+    "gen-plan": "让工作台按当前表单生成方案",
+    "export": "导出当前方案为 Markdown",
+    "focus": "滚到工作台里对应的那块并高亮（payload.target 见下）",
+    "panel": "切到外壳的某个面板",
+    "open-tools": "直接打开文旅工作台本体（和右侧「文旅」页同一套表单）"
+  },
+  "groups": [
+    {
+      "name": "核心功能",
+      "desc": "生成方案、追问补全、导出、对话入口"
+    },
+    {
+      "name": "目的地",
+      "desc": "本地知识库覆盖杭州；其它城市走高德实时数据"
+    },
+    {
+      "name": "游玩天数",
+      "desc": "点词加一天，两侧箭头精细加减"
+    },
+    {
+      "name": "总预算",
+      "desc": "档位会换算成具体金额填进工作台"
+    },
+    {
+      "name": "同行人群",
+      "desc": "决定成人/儿童/老人的构成"
+    },
+    {
+      "name": "兴趣导向",
+      "desc": "可多选，影响景点与餐饮的取向"
+    },
+    {
+      "name": "游玩节奏",
+      "desc": "节奏与时长、强度相关"
+    },
+    {
+      "name": "往返交通",
+      "desc": "决定是否算入往返行程"
+    },
+    {
+      "name": "讨厌的项目",
+      "desc": "可多选，规划时会尽量避开"
+    },
+    {
+      "name": "饮食禁忌",
+      "desc": "可多选，影响餐厅推荐"
+    },
+    {
+      "name": "出行日期",
+      "desc": "决定逐日天气与梯度的起点"
+    },
+    {
+      "name": "方案产出",
+      "desc": "生成后会出现在工作台里的内容"
+    },
+    {
+      "name": "推荐池",
+      "desc": "可以替换的餐厅 / 酒店 / 景点备选"
+    },
+    {
+      "name": "异常拦截",
+      "desc": "需求矛盾会给出建议，不擅自改动"
+    },
+    {
+      "name": "一键跳转",
+      "desc": "每个 POI 旁都有，带四级降级链"
+    },
+    {
+      "name": "数据来源",
+      "desc": "方案里的数据是从哪来的"
+    }
+  ],
+  "words": [
+    {
+      "word": "个性化方案",
+      "weight": 100,
+      "action": "gen-plan",
+      "group": "核心功能",
+      "role": "core",
+      "hint": "让工作台按当前表单生成方案（结果出在右侧，可改景点、换餐厅、看地图）"
+    },
+    {
+      "word": "对话生成",
+      "weight": 92,
+      "action": "focus",
+      "payload": {
+        "target": "chat"
+      },
+      "group": "核心功能",
+      "role": "core",
+      "hint": "直接说一句话，由意图识别抽出画像"
+    },
+    {
+      "word": "开始规划",
+      "weight": 78,
+      "action": "open-tools",
+      "group": "核心功能",
+      "role": "core",
+      "hint": "直接打开文旅工作台本体（和右侧「文旅」页是同一套表单）"
+    },
+    {
+      "word": "一键导出",
+      "weight": 72,
+      "action": "export",
+      "group": "核心功能",
+      "role": "core",
+      "hint": "把当前方案导出为 Markdown"
+    },
+    {
+      "word": "目的地",
+      "weight": 86,
+      "action": "focus-group",
+      "payload": {
+        "group": "目的地"
+      },
+      "group": "目的地",
+      "role": "label",
+      "hint": "决定检索范围"
+    },
+    {
+      "word": "杭州",
+      "weight": 96,
+      "action": "pick",
+      "payload": {
+        "city": "杭州",
+        "days": 2
+      },
+      "group": "目的地",
+      "role": "member",
+      "hint": "本地知识库覆盖（西湖人文、餐饮、酒店）"
+    },
+    {
+      "word": "苏州",
+      "weight": 62,
+      "action": "pick",
+      "payload": {
+        "city": "苏州",
+        "days": 2
+      },
+      "group": "目的地",
+      "role": "member",
+      "hint": "走高德实时数据"
+    },
+    {
+      "word": "成都",
+      "weight": 62,
+      "action": "pick",
+      "payload": {
+        "city": "成都",
+        "days": 3
+      },
+      "group": "目的地",
+      "role": "member",
+      "hint": "走高德实时数据"
+    },
+    {
+      "word": "西安",
+      "weight": 58,
+      "action": "pick",
+      "payload": {
+        "city": "西安",
+        "days": 3
+      },
+      "group": "目的地",
+      "role": "member",
+      "hint": "走高德实时数据"
+    },
+    {
+      "word": "丽江",
+      "weight": 52,
+      "action": "pick",
+      "payload": {
+        "city": "丽江",
+        "days": 3
+      },
+      "group": "目的地",
+      "role": "member",
+      "hint": "走高德实时数据"
+    },
+    {
+      "word": "游玩天数",
+      "weight": 90,
+      "action": "days-stepper",
+      "group": "游玩天数",
+      "role": "core",
+      "hint": "点这个词加一天，两侧箭头加减"
+    },
+    {
+      "word": "出行日期",
+      "weight": 58,
+      "action": "focus-group",
+      "payload": {
+        "group": "出行日期"
+      },
+      "group": "出行日期",
+      "role": "label",
+      "hint": "决定逐日天气的起点；留空则从现在开始排"
+    },
+    {
+      "word": "今天出发",
+      "weight": 46,
+      "action": "focus",
+      "payload": {
+        "target": "start_date"
+      },
+      "group": "出行日期",
+      "role": "member",
+      "hint": "在工作台里选当天"
+    },
+    {
+      "word": "周末出发",
+      "weight": 44,
+      "action": "focus",
+      "payload": {
+        "target": "start_date"
+      },
+      "group": "出行日期",
+      "role": "member",
+      "hint": "在工作台里选周末"
+    },
+    {
+      "word": "总预算",
+      "weight": 88,
+      "action": "focus-group",
+      "payload": {
+        "group": "总预算"
+      },
+      "group": "总预算",
+      "role": "label",
+      "hint": "填进工作台的「总预算（元）」"
+    },
+    {
+      "word": "经济",
+      "weight": 64,
+      "action": "pick",
+      "payload": {
+        "budget": "经济"
+      },
+      "group": "总预算",
+      "role": "member",
+      "hint": "约 ¥800"
+    },
+    {
+      "word": "舒适",
+      "weight": 72,
+      "action": "pick",
+      "payload": {
+        "budget": "舒适"
+      },
+      "group": "总预算",
+      "role": "member",
+      "hint": "约 ¥3000"
+    },
+    {
+      "word": "高端",
+      "weight": 56,
+      "action": "pick",
+      "payload": {
+        "budget": "高端"
+      },
+      "group": "总预算",
+      "role": "member",
+      "hint": "约 ¥8000"
+    },
+    {
+      "word": "同行人群",
+      "weight": 86,
+      "action": "focus-group",
+      "payload": {
+        "group": "同行人群"
+      },
+      "group": "同行人群",
+      "role": "label",
+      "hint": "决定成人 / 儿童 / 老人的构成"
+    },
+    {
+      "word": "单人",
+      "weight": 46,
+      "action": "pick",
+      "payload": {
+        "crowd": "单人"
+      },
+      "group": "同行人群",
+      "role": "member",
+      "hint": "1 成人"
+    },
+    {
+      "word": "情侣",
+      "weight": 60,
+      "action": "pick",
+      "payload": {
+        "crowd": "情侣"
+      },
+      "group": "同行人群",
+      "role": "member",
+      "hint": "2 成人"
+    },
+    {
+      "word": "亲子",
+      "weight": 74,
+      "action": "pick",
+      "payload": {
+        "crowd": "亲子"
+      },
+      "group": "同行人群",
+      "role": "member",
+      "hint": "2 成人 + 1 儿童"
+    },
+    {
+      "word": "带老人",
+      "weight": 70,
+      "action": "pick",
+      "payload": {
+        "crowd": "带老人"
+      },
+      "group": "同行人群",
+      "role": "member",
+      "hint": "2 成人 + 1 老人，会触发节奏拦截"
+    },
+    {
+      "word": "团建",
+      "weight": 50,
+      "action": "pick",
+      "payload": {
+        "crowd": "团建"
+      },
+      "group": "同行人群",
+      "role": "member",
+      "hint": "8 成人"
+    },
+    {
+      "word": "兴趣导向",
+      "weight": 84,
+      "action": "focus-group",
+      "payload": {
+        "group": "兴趣导向"
+      },
+      "group": "兴趣导向",
+      "role": "label",
+      "hint": "可多选"
+    },
+    {
+      "word": "人文历史",
+      "weight": 78,
+      "action": "pick",
+      "payload": {
+        "interests": [
+          "人文历史"
+        ]
+      },
+      "group": "兴趣导向",
+      "role": "member"
+    },
+    {
+      "word": "自然风光",
+      "weight": 76,
+      "action": "pick",
+      "payload": {
+        "interests": [
+          "自然风光"
+        ]
+      },
+      "group": "兴趣导向",
+      "role": "member"
+    },
+    {
+      "word": "美食",
+      "weight": 74,
+      "action": "pick",
+      "payload": {
+        "interests": [
+          "美食"
+        ]
+      },
+      "group": "兴趣导向",
+      "role": "member"
+    },
+    {
+      "word": "娱乐",
+      "weight": 58,
+      "action": "pick",
+      "payload": {
+        "interests": [
+          "娱乐"
+        ]
+      },
+      "group": "兴趣导向",
+      "role": "member"
+    },
+    {
+      "word": "文艺打卡",
+      "weight": 54,
+      "action": "pick",
+      "payload": {
+        "interests": [
+          "文艺打卡"
+        ]
+      },
+      "group": "兴趣导向",
+      "role": "member"
+    },
+    {
+      "word": "购物",
+      "weight": 48,
+      "action": "pick",
+      "payload": {
+        "interests": [
+          "购物"
+        ]
+      },
+      "group": "兴趣导向",
+      "role": "member"
+    },
+    {
+      "word": "游玩节奏",
+      "weight": 76,
+      "action": "focus-group",
+      "payload": {
+        "group": "游玩节奏"
+      },
+      "group": "游玩节奏",
+      "role": "label",
+      "hint": "强度相关，会与老人/儿童构成做矛盾检测"
+    },
+    {
+      "word": "悠闲",
+      "weight": 60,
+      "action": "pick",
+      "payload": {
+        "pace": "悠闲"
+      },
+      "group": "游玩节奏",
+      "role": "member",
+      "hint": "每天 2~3 个点"
+    },
+    {
+      "word": "适中",
+      "weight": 66,
+      "action": "pick",
+      "payload": {
+        "pace": "适中"
+      },
+      "group": "游玩节奏",
+      "role": "member",
+      "hint": "默认节奏"
+    },
+    {
+      "word": "特种兵",
+      "weight": 62,
+      "action": "pick",
+      "payload": {
+        "pace": "特种兵"
+      },
+      "group": "游玩节奏",
+      "role": "member",
+      "hint": "排得很满；和老人/儿童同时出现会被拦截"
+    },
+    {
+      "word": "往返交通",
+      "weight": 62,
+      "action": "focus-group",
+      "payload": {
+        "group": "往返交通"
+      },
+      "group": "往返交通",
+      "role": "label"
+    },
+    {
+      "word": "自驾",
+      "weight": 48,
+      "action": "pick",
+      "payload": {
+        "transportation": "自驾"
+      },
+      "group": "往返交通",
+      "role": "member"
+    },
+    {
+      "word": "高铁",
+      "weight": 54,
+      "action": "pick",
+      "payload": {
+        "transportation": "高铁"
+      },
+      "group": "往返交通",
+      "role": "member"
+    },
+    {
+      "word": "飞机",
+      "weight": 46,
+      "action": "pick",
+      "payload": {
+        "transportation": "飞机"
+      },
+      "group": "往返交通",
+      "role": "member"
+    },
+    {
+      "word": "本地",
+      "weight": 50,
+      "action": "pick",
+      "payload": {
+        "transportation": "本地"
+      },
+      "group": "往返交通",
+      "role": "member",
+      "hint": "不算往返，只排市内"
+    },
+    {
+      "word": "讨厌的项目",
+      "weight": 66,
+      "action": "focus-group",
+      "payload": {
+        "group": "讨厌的项目"
+      },
+      "group": "讨厌的项目",
+      "role": "label",
+      "hint": "可多选，规划时尽量避开"
+    },
+    {
+      "word": "爬山",
+      "weight": 58,
+      "action": "pick",
+      "payload": {
+        "avoidances": [
+          "爬山"
+        ]
+      },
+      "group": "讨厌的项目",
+      "role": "member",
+      "hint": "与老人同游时会被拦截"
+    },
+    {
+      "word": "排队",
+      "weight": 56,
+      "action": "pick",
+      "payload": {
+        "avoidances": [
+          "排队"
+        ]
+      },
+      "group": "讨厌的项目",
+      "role": "member"
+    },
+    {
+      "word": "网红打卡",
+      "weight": 44,
+      "action": "pick",
+      "payload": {
+        "avoidances": [
+          "网红打卡"
+        ]
+      },
+      "group": "讨厌的项目",
+      "role": "member"
+    },
+    {
+      "word": "饮食禁忌",
+      "weight": 64,
+      "action": "focus-group",
+      "payload": {
+        "group": "饮食禁忌"
+      },
+      "group": "饮食禁忌",
+      "role": "label",
+      "hint": "可多选，影响餐厅推荐"
+    },
+    {
+      "word": "海鲜",
+      "weight": 50,
+      "action": "pick",
+      "payload": {
+        "diet": "海鲜"
+      },
+      "group": "饮食禁忌",
+      "role": "member"
+    },
+    {
+      "word": "清真",
+      "weight": 46,
+      "action": "pick",
+      "payload": {
+        "diet": "清真"
+      },
+      "group": "饮食禁忌",
+      "role": "member"
+    },
+    {
+      "word": "素食",
+      "weight": 46,
+      "action": "pick",
+      "payload": {
+        "diet": "素食"
+      },
+      "group": "饮食禁忌",
+      "role": "member"
+    },
+    {
+      "word": "无辣",
+      "weight": 48,
+      "action": "pick",
+      "payload": {
+        "diet": "无辣"
+      },
+      "group": "饮食禁忌",
+      "role": "member"
+    },
+    {
+      "word": "方案产出",
+      "weight": 70,
+      "action": "focus-group",
+      "payload": {
+        "group": "方案产出"
+      },
+      "group": "方案产出",
+      "role": "label",
+      "hint": "生成后点这些词可以直接跳到对应位置"
+    },
+    {
+      "word": "行程总览",
+      "weight": 68,
+      "action": "focus",
+      "payload": {
+        "target": "overview"
+      },
+      "group": "方案产出",
+      "role": "member",
+      "hint": "方案摘要 + 总预算 + 分项明细"
+    },
+    {
+      "word": "逐日时间轴",
+      "weight": 66,
+      "action": "focus",
+      "payload": {
+        "target": "timeline"
+      },
+      "group": "方案产出",
+      "role": "member",
+      "hint": "每天几点去哪、停留多久、怎么接驳"
+    },
+    {
+      "word": "实时天气",
+      "weight": 62,
+      "action": "focus",
+      "payload": {
+        "target": "weather"
+      },
+      "group": "方案产出",
+      "role": "member",
+      "hint": "来自高德天气，不是写死的"
+    },
+    {
+      "word": "费用明细",
+      "weight": 60,
+      "action": "focus",
+      "payload": {
+        "target": "cost"
+      },
+      "group": "方案产出",
+      "role": "member",
+      "hint": "交通 / 门票 / 餐饮 / 住宿 分项"
+    },
+    {
+      "word": "游玩贴士",
+      "weight": 54,
+      "action": "focus",
+      "payload": {
+        "target": "tips"
+      },
+      "group": "方案产出",
+      "role": "member",
+      "hint": "来自本地知识库"
+    },
+    {
+      "word": "地图轨迹",
+      "weight": 58,
+      "action": "focus",
+      "payload": {
+        "target": "map"
+      },
+      "group": "方案产出",
+      "role": "member",
+      "hint": "按坐标打点并连成路线"
+    },
+    {
+      "word": "推荐池",
+      "weight": 64,
+      "action": "focus-group",
+      "payload": {
+        "group": "推荐池"
+      },
+      "group": "推荐池",
+      "role": "label",
+      "hint": "点这些词会展开对应的候选"
+    },
+    {
+      "word": "餐饮推荐",
+      "weight": 62,
+      "action": "focus",
+      "payload": {
+        "target": "dining"
+      },
+      "group": "推荐池",
+      "role": "member",
+      "hint": "按经济 / 中档分档"
+    },
+    {
+      "word": "酒店推荐",
+      "weight": 58,
+      "action": "focus",
+      "payload": {
+        "target": "hotel"
+      },
+      "group": "推荐池",
+      "role": "member",
+      "hint": "含入住/退房时间"
+    },
+    {
+      "word": "景点备选",
+      "weight": 60,
+      "action": "focus",
+      "payload": {
+        "target": "attraction"
+      },
+      "group": "推荐池",
+      "role": "member",
+      "hint": "换景点时从这里挑"
+    },
+    {
+      "word": "换一家餐厅",
+      "weight": 52,
+      "action": "focus",
+      "payload": {
+        "target": "dining"
+      },
+      "group": "推荐池",
+      "role": "member"
+    },
+    {
+      "word": "异常拦截",
+      "weight": 74,
+      "action": "focus-group",
+      "payload": {
+        "group": "异常拦截"
+      },
+      "group": "异常拦截",
+      "role": "label",
+      "hint": "只给建议，不擅自改用户的条件"
+    },
+    {
+      "word": "需求矛盾",
+      "weight": 68,
+      "action": "focus",
+      "payload": {
+        "target": "conflict"
+      },
+      "group": "异常拦截",
+      "role": "member",
+      "hint": "预算偏低 / 老人×特种兵 / 老人×爬山 / 儿童×特种兵 / 高龄×极低预算"
+    },
+    {
+      "word": "一键采纳建议",
+      "weight": 56,
+      "action": "focus",
+      "payload": {
+        "target": "conflict"
+      },
+      "group": "异常拦截",
+      "role": "member",
+      "hint": "应用建议后重新生成"
+    },
+    {
+      "word": "雨天备选",
+      "weight": 58,
+      "action": "focus",
+      "payload": {
+        "target": "planb"
+      },
+      "group": "异常拦截",
+      "role": "member",
+      "hint": "基于实时天气给出的室内替代"
+    },
+    {
+      "word": "一键换室内",
+      "weight": 50,
+      "action": "focus",
+      "payload": {
+        "target": "planb"
+      },
+      "group": "异常拦截",
+      "role": "member"
+    },
+    {
+      "word": "一键跳转",
+      "weight": 62,
+      "action": "focus-group",
+      "payload": {
+        "group": "一键跳转"
+      },
+      "group": "一键跳转",
+      "role": "label",
+      "hint": "每个 POI 旁边都有，带 Scheme→超时→H5→复制口令 四级降级"
+    },
+    {
+      "word": "高德导航",
+      "weight": 60,
+      "action": "focus",
+      "payload": {
+        "target": "jump"
+      },
+      "group": "一键跳转",
+      "role": "member"
+    },
+    {
+      "word": "大众点评",
+      "weight": 54,
+      "action": "focus",
+      "payload": {
+        "target": "jump"
+      },
+      "group": "一键跳转",
+      "role": "member",
+      "hint": "餐厅与购物点才有"
+    },
+    {
+      "word": "美团",
+      "weight": 52,
+      "action": "focus",
+      "payload": {
+        "target": "jump"
+      },
+      "group": "一键跳转",
+      "role": "member"
+    },
+    {
+      "word": "携程",
+      "weight": 46,
+      "action": "focus",
+      "payload": {
+        "target": "jump"
+      },
+      "group": "一键跳转",
+      "role": "member",
+      "hint": "住宿点才有"
+    },
+    {
+      "word": "数据来源",
+      "weight": 52,
+      "action": "focus-group",
+      "payload": {
+        "group": "数据来源"
+      },
+      "group": "数据来源",
+      "role": "label",
+      "hint": "方案里的数据从哪来"
+    },
+    {
+      "word": "高德实时POI",
+      "weight": 56,
+      "action": "focus",
+      "payload": {
+        "target": "overview"
+      },
+      "group": "数据来源",
+      "role": "member",
+      "hint": "景点 / 餐厅 / 酒店都是实时检索的，不是样本库"
+    },
+    {
+      "word": "高德天气",
+      "weight": 50,
+      "action": "focus",
+      "payload": {
+        "target": "weather"
+      },
+      "group": "数据来源",
+      "role": "member"
+    },
+    {
+      "word": "本地知识库",
+      "weight": 54,
+      "action": "focus",
+      "payload": {
+        "target": "tips"
+      },
+      "group": "数据来源",
+      "role": "member",
+      "hint": "游玩贴士来自本地 RAG，不联网"
+    },
+    {
+      "word": "四段式流水线",
+      "weight": 48,
+      "action": "focus",
+      "payload": {
+        "target": "overview"
+      },
+      "group": "数据来源",
+      "role": "member",
+      "hint": "意图识别 → 异常拦截 → 数据检索 → 规划生成"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "label": "桃瀬ひより",
+  "note": "Live2D Inc. 官方示例模型 Hiyori，由本脚本从公开仓库 Live2D/CubismWebSamples 获取。模型版权归 Live2D Inc.，使用前请阅读 https://www.live2d.com/eula/live2d-free-material-license-agreement_cn.html",
+  "tags": [
+    "Live2D 官方示例",
+    "第三方素材"
+  ],
+  "source": "Live2D/CubismWebSamples",
+  "files": 18,
+  "lipSyncParam": "ParamMouthOpenY"
+}

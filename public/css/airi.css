@@ -1,0 +1,2802 @@
+/* ============================================================================
+ * airi.css —— 文旅智能辅助 · AIRI 网页版 主题样式
+ *
+ * 视觉语言直接对齐 Project AIRI（apps/stage-web + packages/ui）：
+ *   · 底色 #121212（airi 的 theme-color），青灰层次用 oklch 明度阶梯堆出来
+ *   · 主色用 airi 的「chromatic」机制：baseHue 220.44，primary / complementary(+180)
+ *     / tertiary(+60) 三个色相由 --chromatic-hue 驱动，改一个变量整站变装
+ *   · 动效曲线统一用 airi 的 cubic-bezier(.16,1,.3,1)
+ *   · 圆角、毛玻璃、细描边、柔和外发光，对应 airi 的卡片与浮层质感
+ *   · 圆体字栈对齐 airi 的 sans-rounded / cute 字族（Comfortaa / Nunito / ChillRoundM）
+ * ==========================================================================*/
+
+/* ---------- 1. 设计令牌 ---------- */
+:root {
+  /* airi 的色相机制：改这一个数字，主色/互补色/第三色一起变 */
+  --chromatic-hue: 220.44;
+  --chromatic-chroma-900: 0.11;
+  --chromatic-chroma-600: 0.14;
+
+  /* 由 --chromatic-hue 派生的三个色（写法与 airi 的 App.vue 一致） */
+  --primary: color-mix(in srgb, oklch(78% var(--chromatic-chroma-600) var(--chromatic-hue)) 100%, transparent);
+  --primary-soft: color-mix(in srgb, oklch(95% var(--chromatic-chroma-900) var(--chromatic-hue)) 70%, oklch(50% 0 360));
+  --complementary: color-mix(in srgb, oklch(95% var(--chromatic-chroma-900) calc(var(--chromatic-hue) + 180)) 70%, oklch(50% 0 360));
+  --tertiary: color-mix(in srgb, oklch(95% var(--chromatic-chroma-900) calc(var(--chromatic-hue) + 60)) 70%, oklch(50% 0 360));
+
+  /* 文旅第二识别色：青绿（山水），只在"文旅"语义处点缀，不抢 airi 主色 */
+  --wenlv: oklch(76% 0.11 178);
+  --wenlv-deep: oklch(58% 0.10 178);
+
+  /* airi 的底色与层次 */
+  --bg: #121212;
+  --bg-elevated: #191a1d;
+  --surface: rgb(255 255 255 / 0.045);
+  --surface-hover: rgb(255 255 255 / 0.075);
+  --surface-strong: rgb(255 255 255 / 0.10);
+  --border: rgb(255 255 255 / 0.09);
+  --border-strong: rgb(255 255 255 / 0.16);
+
+  --text: rgb(255 255 255 / 0.94);
+  --text-sub: rgb(255 255 255 / 0.62);
+  --text-dim: rgb(255 255 255 / 0.38);
+
+  --ok: oklch(80% 0.13 150);
+  --warn: oklch(84% 0.13 85);
+  --err: oklch(72% 0.16 25);
+
+  /* airi 的动效曲线 */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur: 260ms;
+
+  --radius-sm: 10px;
+  --radius: 16px;
+  --radius-lg: 22px;
+  --radius-xl: 28px;
+
+  --blur: 22px;
+  --shadow: 0 18px 50px rgb(0 0 0 / 0.45);
+  --glow: 0 0 0 1px rgb(255 255 255 / 0.06), 0 8px 32px rgb(0 0 0 / 0.4);
+
+  --font: "Nunito", "Comfortaa", "ChillRoundM", "PingFang SC", "HarmonyOS Sans SC",
+          "Microsoft YaHei UI", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "DM Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+/**
+ * `[hidden]` 必须能压住任何作者样式。
+ *
+ * 项目里这个坑已经踩了**四次**：.stage-empty、.wc-word、.result-card，
+ * 以及后来的 .boot。规律是一样的：
+ *
+ *   给元素写了 `display: grid/flex/block` 之后，UA 样式表里的
+ *   `[hidden] { display: none }` 就被顶掉了（作者样式优先于 UA 样式），
+ *   于是 JS 里 `el.hidden = true` 只是改了个属性，元素**照样显示**。
+ *
+ * 表现极具迷惑性：
+ *   · 开屏关不掉，一直盖在 z-index 2000 上 —— 用户"进不去功能页"
+ *   · 或者一块空的结果卡浮在中间
+ * 而且用 `el.hidden` 去断言是**测不出来**的（属性确实是 true），
+ * 必须查 getComputedStyle 或做命中测试（见 test/verify-cdp.js）。
+ *
+ * 所以这里统一兜住：与其每加一个浮层就记得补一条 `xxx[hidden]`，
+ * 不如让 `[hidden]` 成为一条不可覆盖的硬规则。
+ */
+[hidden] { display: none !important; }
+
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.6;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 背景光晕：airi 的 stage 用色相光斑营造"角色在发光"的氛围 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: -20%;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(38rem 38rem at 22% 18%, color-mix(in srgb, var(--primary) 22%, transparent), transparent 68%),
+    radial-gradient(32rem 32rem at 78% 78%, color-mix(in srgb, var(--complementary) 16%, transparent), transparent 70%),
+    radial-gradient(26rem 26rem at 62% 12%, color-mix(in srgb, var(--wenlv) 12%, transparent), transparent 72%);
+  filter: blur(20px);
+  animation: hueDrift 26s linear infinite;
+}
+@keyframes hueDrift {
+  0%   { --chromatic-hue: 220.44; }
+  100% { --chromatic-hue: 580.44; }
+}
+@property --chromatic-hue { syntax: "<number>"; initial-value: 220.44; inherits: true; }
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgb(255 255 255 / 0.13); border-radius: 99px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: rgb(255 255 255 / 0.24); background-clip: content-box; }
+
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
+
+/* ---------- 2. 骨架布局 ---------- */
+.app {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: 58px 1fr;
+  grid-template-columns: 1fr minmax(360px, 460px);
+  grid-template-areas:
+    "topbar topbar"
+    "stage  side";
+  height: 100vh;
+  gap: 14px;
+  padding: 14px;
+}
+.topbar { grid-area: topbar; }
+.stage { grid-area: stage; }
+.side { grid-area: side; }
+
+/* ---------- 3. 顶栏 ---------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
+}
+.brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.brand-logo {
+  width: 32px; height: 32px; flex: none;
+  border-radius: 11px;
+  display: grid; place-items: center;
+  font-size: 17px;
+  background: linear-gradient(140deg, color-mix(in srgb, var(--primary) 85%, transparent), color-mix(in srgb, var(--complementary) 70%, transparent));
+  box-shadow: 0 0 22px color-mix(in srgb, var(--primary) 40%, transparent);
+}
+.brand-text { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.brand-title { font-weight: 700; letter-spacing: .3px; font-size: 14px; white-space: nowrap; }
+/* 版本号角标：小一号、弱一点，不跟标题抢注意力 */
+.brand-title .ver {
+  margin-left: 5px; padding: 1px 7px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .4px;
+  border-radius: 999px;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 32%, transparent);
+  vertical-align: 1px;
+}
+.brand-sub { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+
+.status-row { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+.status-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgb(255 255 255 / 0.03);
+  font-size: 11.5px;
+  color: var(--text-sub);
+  cursor: pointer;
+  transition: all var(--dur) var(--ease);
+  white-space: nowrap;
+}
+.status-pill:hover { background: var(--surface-hover); border-color: var(--border-strong); color: var(--text); }
+
+/* 状态药丸已禁用点击（见 app.js）：它们是**状态显示**，不是入口。
+   点一下就被切页签 —— 在底部对话框形态下看起来就是"聊天突然消失了"。
+   注意：禁用态**不要变灰**，否则会被当成"功能坏了"；只去掉手型与按压反馈。 */
+.status-pill:disabled {
+  opacity: 1;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* ----------------------------------------------------------------------------
+ * 历史对话面板
+ * --------------------------------------------------------------------------*/
+.hist {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 9px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.hist-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 7px;
+  font-size: 12px; color: var(--text-sub);
+}
+.hist-title b { color: var(--primary); font-weight: 700; margin-left: 2px; }
+.hist-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.hist-actions .mini-btn.danger { color: var(--tertiary); border-color: color-mix(in srgb, var(--tertiary) 40%, transparent); }
+
+/* 列表最多占 132px，超出滚动 —— 不然历史一多就把输入框顶出可视区 */
+.hist-list { max-height: 132px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.hist-empty { font-size: 11.5px; color: var(--text-dim); padding: 6px 2px; line-height: 1.6; }
+
+.hist-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px; border-radius: 8px;
+  border: 1px solid transparent;
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  transition: background 160ms var(--ease), border-color 160ms var(--ease);
+}
+.hist-row:hover { background: var(--surface-hover); border-color: var(--border); }
+.hist-main { flex: 1; min-width: 0; cursor: pointer; }
+.hist-name {
+  font-size: 12.5px; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hist-meta { font-size: 10.5px; color: var(--text-dim); margin-top: 1px; }
+.hist-del {
+  flex-shrink: 0; width: 26px; height: 26px; padding: 0;
+  border-radius: 7px; cursor: pointer; font-size: 12px;
+  background: transparent; border: 1px solid var(--border); color: var(--text-sub);
+  transition: all 160ms var(--ease);
+}
+.hist-del:hover { color: var(--tertiary); border-color: var(--tertiary); background: color-mix(in srgb, var(--tertiary) 12%, transparent); }
+
+/* 底部对话框形态下，历史列表收窄一点，别把聊天挤没 */
+body:not(.debug) .hist-list { max-height: 84px; }
+
+/* ----------------------------------------------------------------------------
+ * 方案消息（对话里的 .bd.plan-body.output）
+ *
+ * 目标：**同一份方案，在对话框里和在调试界面的文旅页里长得一样**。
+ * .output 那套是文旅页方案输出区的排版（标题带竖线、表格斑马纹、引用块）；
+ * 这里只做两件聊天场景特有的事：
+ *   1. 气泡放宽 —— 方案有表格，挤在窄气泡里会横向滚动
+ *   2. 去掉气泡的"对话感"内边距和底色，让它读起来像一份文档而不是一条消息
+ * 其余一律继承 .output，不再重复定义，否则两处又会漂移。
+ * --------------------------------------------------------------------------*/
+.plan-body.output {
+  max-width: 100%;
+  padding: 2px 2px 6px;
+  background: transparent;
+  border: none;
+  overflow-x: auto;      /* 宽表格横向滚动，别把对话框撑破 */
+}
+.plan-body.output > :first-child { margin-top: 0; }
+.plan-body.output > :last-child { margin-bottom: 0; }
+/* 表格在暗色气泡里要压得比文旅页更实一点，否则细线看不清 */
+.plan-body.output table { font-size: 12.5px; }
+.plan-body.output th { background: color-mix(in srgb, var(--primary) 14%, transparent); }
+.plan-body.output td,
+.plan-body.output th { border-color: var(--border); }
+/* 底部对话框是横向铺开的，方案里的多列内容能显示得更舒服 */
+body:not(.debug) .plan-body.output { font-size: 13px; line-height: 1.75; }
+
+/* ----------------------------------------------------------------------------
+ * 底部对话框：放大 / 收起
+ *
+ * 默认那条只有 200~330px 高，方案一长就得一直滚。放大态最高到 62vh
+ * （**最多盖过人物身体**，脑袋还留得出来，不至于完全看不见人）；
+ * 再点一次回到原来的高度。
+ * 只对**非调试**布局生效：调试界面的 .side 是右侧分栏，不参与这套。
+ * --------------------------------------------------------------------------*/
+.chat-expand {
+  position: absolute; top: 7px; right: 9px; z-index: 6;
+  width: 26px; height: 26px; padding: 0; line-height: 1;
+  border-radius: 8px; cursor: pointer; font-size: 12px;
+  background: rgb(0 0 0 / 0.34);
+  border: 1px solid var(--border);
+  color: var(--text-sub);
+  transition: all 160ms var(--ease);
+}
+.chat-expand:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: rgb(0 0 0 / 0.5);
+}
+/* ★ 调试界面下**必须把这个按钮藏起来**。
+   它是给底部对话框用的（绝对定位在 .side 右上角）；而调试界面里 .side
+   是右侧那一栏分栏，右上角正好是页签行（对话/文旅/外观/记忆/角色卡/声音），
+   于是这个 ⤢ 就**压在「声音」页签上面**，又挡字又误触。
+   它在这套布局下本来就没用（右侧分栏的高度由面板自己决定，不需要放大）。 */
+body.debug .chat-expand { display: none !important; }
+
+/* ----------------------------------------------------------------------------
+ * 对话引导气泡（js/ask-bubbles.js）—— **已删除**
+ *
+ * 「让 AI 先问我」那条分批气泡问答按需求去掉了，改为直接调用文旅模块本体
+ * （见 app.js 的 startWorkbenchInChat）。原先这一整段 .ask-* 样式
+ * （.ask-step / .ask-title / .ask-bubbles / .ask-bubble / .ask-q /
+ *  .ask-opts / .ask-opt / .ask-note / .ask-hint / .ask-next-tip / .ask-done）
+ * 也随之移除 —— 留着只会让人以为还有这个功能。
+ * --------------------------------------------------------------------------*/
+
+body.chat-tall .chat-expand {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 50%, transparent);
+}
+
+body.chat-tall:not(.debug) .side {
+  height: min(62vh, 560px);
+  transition: height 240ms var(--ease);
+}
+/* 放大后历史列表也能多露几条 —— 它原来被压到 84px，一放大就该放开 */
+body.chat-tall:not(.debug) .hist-list { max-height: 150px; }
+body.chat-tall:not(.debug) .composer { padding-bottom: 14px; }
+
+/* ----------------------------------------------------------------------------
+ * 配乐列表（外观页 → 配乐）
+ * --------------------------------------------------------------------------*/
+.aud-list { display: flex; flex-direction: column; gap: 5px; }
+.aud-empty { font-size: 11.5px; color: var(--text-dim); line-height: 1.65; padding: 6px 2px; }
+
+.aud-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 9px; border-radius: 9px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  transition: background 160ms var(--ease), border-color 160ms var(--ease);
+}
+.aud-row:hover { background: var(--surface-hover); }
+/* 正在用的那条：左侧一道强调色，和页签选中态一个语言 */
+.aud-row.on {
+  border-color: color-mix(in srgb, var(--primary) 55%, transparent);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+.aud-main { flex: 1; min-width: 0; }
+.aud-name {
+  font-size: 12.5px; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.aud-note { font-size: 10.5px; color: var(--text-dim); margin-top: 1px; }
+
+.aud-btn {
+  flex-shrink: 0; height: 26px; min-width: 30px; padding: 0 8px;
+  border-radius: 7px; cursor: pointer; font-size: 11.5px;
+  background: transparent; border: 1px solid var(--border); color: var(--text-sub);
+  transition: all 160ms var(--ease);
+}
+.aud-btn:hover { color: var(--text); border-color: var(--border-strong); }
+.aud-btn.primary {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+}
+.aud-btn.primary:hover { background: color-mix(in srgb, var(--primary) 14%, transparent); }
+/* 删除键：默认低调（避免一排红叉太吵），悬停才变红示警 */
+.aud-btn.danger { min-width: 26px; padding: 0 6px; color: var(--text-dim); }
+.aud-btn.danger:hover {
+  color: var(--err);
+  border-color: color-mix(in srgb, var(--err) 55%, transparent);
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+}
+.aud-btn.danger:disabled { opacity: .5; cursor: default; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); flex: none; }
+.dot.ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.dot.warn { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+.dot.err { background: var(--err); box-shadow: 0 0 8px var(--err); }
+.dot.busy { background: var(--primary); animation: pulse 1.1s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .28; } }
+
+.icon-btn {
+  width: 34px; height: 34px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: rgb(255 255 255 / 0.03);
+  color: var(--text-sub);
+  font-size: 15px;
+  cursor: pointer;
+  transition: all var(--dur) var(--ease);
+}
+.icon-btn:hover { background: var(--surface-hover); color: var(--text); transform: translateY(-1px); }
+.icon-btn.on { border-color: color-mix(in srgb, var(--primary) 55%, transparent); color: var(--primary); }
+
+/* ---------- 4. 舞台（背景 + Live2D + 词云 + 工具栏 + 字幕条）----------
+   布局分层（从下到上）：
+     0  背景层 .stage-bg  —— 图片 <img> 或程序化 <canvas>，两者叠放、用透明度切换
+     1  Live2D  <canvas>
+     2  词云    #wordcloud-layer（pointer-events: none，只有词本身可点）
+     3  顶部工具栏 .stage-top / 底部字幕条 .subtitle
+   关键点：工具栏与字幕条的高度会作为「安全边距」传给词云布局，
+   三者永远不会互相遮挡 —— 这是这次界面整理要解决的主要问题。
+   ---------------------------------------------------------------------- */
+.stage {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--bg);
+  overflow: hidden;
+  min-height: 0;
+}
+/* 背景层：图片与 canvas 同时存在，靠 opacity 切换，避免换背景时闪白 */
+.stage-bg { position: absolute; inset: 0; z-index: 0; overflow: hidden; }
+
+/* ---- 主界面背景视频：与开屏共用同一套「画面模式」----
+ *
+ * 开屏和主界面的片源常常是同一个文件，画面比例问题也一模一样，
+ * 所以两边用同一个设置、同一套公式（body 上的 data-vfit 由 app.js 同步）。
+ * 公式细节见下面开屏那段注释：三种模式分别是"铺满裁剪 / 完整显示 / 逆时针转 90°"，
+ * 旋转模式的宽高公式是反的（转完宽高互换）。 */
+#bg-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+body[data-vfit="auto"] #bg-video { object-fit: contain; }
+body[data-vfit="rotate"] #bg-video {
+  inset: auto; top: 50%; left: 50%;
+  width: max(100vh, calc(100vw * 9 / 16));
+  height: max(100vw, calc(100vh * 16 / 9));
+  transform: translate(-50%, -50%) rotate(-90deg);
+  object-fit: cover;
+}
+
+.stage-bg::after {
+  /* 压一层极淡的暗角 + 底部渐变，让词云与字幕在任何背景上都读得清 */
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(70% 70% at 50% 45%, transparent 40%, rgb(0 0 0 / 0.28) 100%),
+    linear-gradient(180deg, rgb(0 0 0 / 0.22) 0%, transparent 18%, transparent 74%, rgb(0 0 0 / 0.38) 100%);
+}
+.stage-bg img, .stage-bg canvas, .stage-bg video {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; display: block;
+  transition: opacity 420ms var(--ease);
+}
+#bg-image { opacity: 0; }
+#bg-canvas { opacity: 1; }
+/* 视频背景默认透明且不吃指针事件（它是纯背景，不该拦住舞台上的点击） */
+#bg-video { opacity: 0; pointer-events: none; background: #000; }
+
+/* 舞台三块画布互斥显示：谁来渲染就显示谁，其余 none。
+   #live2d-canvas 与 #lake-canvas 初始都给 none，由 showCanvas() 按当前形象决定 ——
+   默认形象是西湖船娘，所以真正显示的是 #lake-canvas。 */
+#live2d-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: none; z-index: 1; }
+/* 西湖船娘（2D 绘制）。与 Live2D 分开是因为一块 canvas 只能有一种绘图上下文 */
+#lake-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; z-index: 1; }
+/* 3D 舞台与上面两块互斥显示，默认隐藏 */
+#stage3d-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: none; z-index: 1; }
+#wordcloud-layer { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+#wordcloud-layer .wc-word { pointer-events: auto; }
+
+.stage-empty {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  text-align: center; color: var(--text-dim); font-size: 12.5px;
+  padding: 24px; z-index: 6;
+  background: rgb(10 12 14 / 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.stage-empty[hidden] { display: none; }
+
+/* ---- 顶部工具条：角色铭牌 + 外观快捷操作，收进同一条，不再四处漂 ---- */
+.stage-top {
+  position: absolute; left: 14px; right: 14px; top: 12px; z-index: 5;
+  display: flex; align-items: center; gap: 10px;
+  pointer-events: none;                       /* 只让里面的按钮可点，横条本身不挡词云 */
+}
+.stage-top > * { pointer-events: auto; }
+
+.char-plate {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 14px 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgb(16 18 20 / 0.55);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  min-width: 0;
+}
+.char-avatar {
+  width: 30px; height: 30px; flex: none; border-radius: 50%;
+  display: grid; place-items: center; font-size: 15px;
+  background: color-mix(in srgb, var(--primary) 26%, transparent);
+  border: 1px solid var(--border-strong);
+}
+.char-meta { min-width: 0; }
+.char-name { font-weight: 700; font-size: 13px; line-height: 1.25; }
+.char-tag {
+  font-size: 11px; color: var(--text-dim); line-height: 1.3;
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.stage-tools {
+  margin-left: auto;
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgb(16 18 20 / 0.55);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.tool-sep { width: 1px; height: 18px; background: var(--border-strong); margin: 0 3px; }
+.tool-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 28px; padding: 0 10px;
+  border: 1px solid transparent; border-radius: 999px;
+  background: transparent; color: var(--text-sub);
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+  transition: all 220ms var(--ease);
+}
+.tool-btn .ico { font-size: 13px; line-height: 1; }
+.tool-btn:hover { background: var(--surface-hover); color: var(--text); }
+.tool-btn.on {
+  background: color-mix(in srgb, var(--primary) 24%, transparent);
+  color: #fff;
+}
+@media (max-width: 1180px) { .tool-btn .txt { display: none; } .tool-btn { padding: 0 8px; } }
+
+/* ---- 底部字幕条：替代原来的浮动气泡 ----
+   放正中间、单行、超长省略。原来气泡浮在左下角，既压词云又容易被忽略。 */
+.subtitle {
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%) translateY(8px);
+  z-index: 5;
+  display: flex; align-items: center; gap: 10px;
+  max-width: min(720px, 78%);
+  padding: 9px 10px 9px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: rgb(14 16 18 / 0.78);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: var(--shadow);
+  opacity: 0;
+  transition: opacity 320ms var(--ease), transform 320ms var(--ease);
+  pointer-events: none;
+}
+.subtitle.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+.subtitle-who {
+  flex: none; font-size: 11.5px; font-weight: 700;
+  color: var(--primary); padding-right: 9px;
+  border-right: 1px solid var(--border);
+}
+.subtitle-text {
+  font-size: 13px; line-height: 1.5; color: var(--text);
+  /* 两行封顶。原来是单行 nowrap + 省略号，条宽只有 619px，
+     实测一条 179 字的回复 scrollWidth 2318px——73% 的字被省略号吃掉，
+     用户会以为"输出被截断了"。改成两行后可见字数翻倍，剩下的点开就能看全。 */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  word-break: break-word;
+}
+/* 内容超过两行时允许点开看全文（超长了才加这个 class，短回复点了没反应） */
+.subtitle-text.can-expand { cursor: pointer; }
+.subtitle.expanded { max-width: min(760px, 92%); border-radius: 16px; align-items: flex-start; }
+.subtitle.expanded .subtitle-text {
+  display: block; -webkit-line-clamp: unset;
+  /* 展开后一次尽量看全：857 字大约 20 行（约 390px），给到 56vh 基本不用滚 */
+  max-height: 56vh; overflow-y: auto; cursor: pointer;
+  min-width: 0; overscroll-behavior: contain;
+}
+.subtitle-close {
+  flex: none; width: 22px; height: 22px; border-radius: 50%;
+  border: none; background: transparent; color: var(--text-dim);
+  cursor: pointer; font-size: 11px; line-height: 1;
+}
+.subtitle-close:hover { background: var(--surface-hover); color: var(--text); }
+/* 打字机光标：字幕正在流式增长时显示 */
+.subtitle-text.typing::after { content: "▍"; color: var(--primary); animation: blink 1s step-end infinite; }
+
+/* ---------- 位置 HUD（② 位置功能）----------
+   放在舞台左上角：右下角是输入区与结果卡，底部是字幕条，左上只有顶栏，
+   这个位置最不容易和既有浮层打架（那是踩过坑的地方，见 README 的"三层浮层"说明）。 */
+.geo-hud {
+  position: absolute; left: 14px; top: 58px;
+  z-index: 6;
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: rgb(14 16 18 / 0.78);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: var(--shadow);
+  max-width: min(320px, 52%);
+  animation: geo-in 260ms var(--ease);
+}
+@keyframes geo-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+/* 罗盘：外圈固定，内圈箭头按方位角旋转（角度由 JS 写进 --bearing） */
+.geo-compass {
+  flex: none; position: relative;
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: rgb(255 255 255 / 0.04);
+}
+.geo-compass::after {
+  /* 正北刻度：一个小三角，给旋转的箭头提供参照 */
+  content: ""; position: absolute; left: 50%; top: 2px;
+  width: 0; height: 0; transform: translateX(-50%);
+  border-left: 3px solid transparent; border-right: 3px solid transparent;
+  border-top: 5px solid var(--complementary);
+}
+.geo-arrow {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%) rotate(var(--bearing, 0deg));
+  transform-origin: 50% 50%;
+  font-size: 13px; line-height: 1; color: var(--tertiary);
+  transition: transform 420ms var(--ease);
+}
+.geo-text { min-width: 0; }
+.geo-title { font-size: 12.5px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.geo-sub { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+.geo-close {
+  flex: none; width: 20px; height: 20px; border-radius: 50%;
+  border: none; background: transparent; color: var(--text-dim);
+  cursor: pointer; font-size: 10px; line-height: 1; align-self: flex-start;
+}
+.geo-close:hover { background: var(--surface-hover); color: var(--text); }
+
+/* ---------- 导航模式操作条 ----------
+   放在左下角，避开顶部工具条与左上角的位置 HUD —— 三者会同时出现
+   （位置 HUD 显示"你在哪"，这一条显示"要去哪"）。 */
+.nav-bar {
+  position: absolute; left: 14px; bottom: 88px;
+  z-index: 6;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: rgb(14 16 18 / 0.82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: var(--shadow);
+  max-width: min(400px, 62%);
+  animation: geo-in 260ms var(--ease);
+}
+.nav-row { display: flex; align-items: center; gap: 8px; }
+.nav-label { flex: none; font-size: 11.5px; color: var(--text-dim); }
+.nav-input, .nav-select {
+  flex: 1 1 auto; min-width: 0;
+  padding: 5px 9px;
+  font: inherit; font-size: 12px;
+  color: var(--text);
+  background: rgb(255 255 255 / 0.05);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  outline: none;
+}
+.nav-input:focus, .nav-select:focus { border-color: var(--tertiary); }
+.nav-hint { font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+.nav-hint.warn { color: var(--tertiary); }
+
+/* ---------- 全景环视模式提示 ---------- */
+.pano-hint {
+  position: absolute; left: 50%; top: 58px; transform: translateX(-50%);
+  z-index: 7;
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: rgb(14 16 18 / 0.82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: var(--shadow);
+  font-size: 12px; color: var(--text-dim);
+  cursor: pointer;
+  animation: geo-in 260ms var(--ease);
+}
+.pano-hint b { color: var(--primary); font-weight: 600; }
+.pano-hint:hover { background: rgb(20 24 28 / 0.92); }
+
+/* 窄屏下把 HUD 收到字幕条上方，避免和顶栏挤在一起 */
+@media (max-width: 720px) {
+  .geo-hud { left: 8px; top: 52px; max-width: 66%; padding: 6px 8px 6px 10px; }
+  .geo-compass { width: 28px; height: 28px; }
+  .pano-hint { top: 52px; font-size: 11px; padding: 6px 10px; }
+}
+
+/* 原来的 .bubble 浮动气泡与 .wc-bar 词云工具条已移除：
+   气泡改成底部字幕条 .subtitle，工具条并进顶部 .stage-top，
+   这样舞台上只剩「一条顶栏 + 一条字幕」，视觉上干净很多。 */
+
+/* ---------- 5. 词云 ---------- */
+
+/* 词云配色变量。
+   为什么抽出来：背景是可换的（其中有些是浅色纸张那种亮背景），
+   颜色写死的话，一换到亮背景，白字就直接看不见了。
+
+   --wc-ink 是**唯一需要改的东西**，其余颜色全部由它按比例推导出来。
+   所以在外观面板里换一个字色（自动判定 / 色板 / 取色器），
+   文字、边框、胶囊底、标签强调色会整套跟着变，不用一个一个调。
+   --wc-ink 由 app.js 写入；两种模式用 data-wc-ink 区分。 */
+#wordcloud-layer {
+  --wc-ink: #ffffff;
+  --wc-text:          color-mix(in srgb, var(--wc-ink) 64%, transparent);
+  --wc-text-mid:      color-mix(in srgb, var(--wc-ink) 80%, transparent);
+  --wc-text-strong:   color-mix(in srgb, var(--wc-ink) 94%, transparent);
+  --wc-text-hover:    var(--wc-ink);
+  --wc-border:        color-mix(in srgb, var(--wc-ink) 11%, transparent);
+  --wc-border-strong: color-mix(in srgb, var(--wc-ink) 19%, transparent);
+  --wc-fill:          color-mix(in srgb, var(--wc-ink) 4%, transparent);
+  --wc-fill-strong:   color-mix(in srgb, var(--wc-ink) 8%, transparent);
+  /* 标签色默认用主题主色（提亮过，避免和"跟随主色"的极光背景撞色） */
+  --wc-accent:        color-mix(in srgb, var(--primary) 62%, #ffffff);
+}
+/* 亮背景专用的「浅底深字」：只换 ink，后面的推导规则完全一样 */
+#wordcloud-layer[data-wc-ink="dark"] {
+  --wc-ink: #0c0f13;
+  --wc-accent: color-mix(in srgb, var(--primary) 52%, #0d1218);
+}
+/* 主人在色板/取色器里挑的颜色：标签也跟着字色走，整片保持同一个色 */
+#wordcloud-layer[data-wc-ink="custom"] {
+  --wc-accent: var(--wc-ink);
+}
+
+.wc-word {
+  position: absolute;
+  padding: 5px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--wc-border);
+  background: var(--wc-fill);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--wc-text);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 260ms var(--ease), color 260ms var(--ease),
+              border-color 260ms var(--ease), background 260ms var(--ease),
+              box-shadow 260ms var(--ease), opacity 260ms var(--ease);
+  will-change: transform;
+  animation: wcFloat var(--float-dur, 9s) ease-in-out var(--float-delay, 0s) infinite;
+}
+@keyframes wcFloat {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50%      { transform: translate3d(0, calc(-1 * var(--float-amp, 4px)), 0); }
+}
+.wc-word:hover {
+  color: var(--wc-text-strong);
+  border-color: color-mix(in srgb, var(--wc-accent) 65%, transparent);
+  background: color-mix(in srgb, var(--wc-accent) 16%, transparent);
+  box-shadow: 0 0 24px color-mix(in srgb, var(--wc-accent) 40%, transparent);
+  animation-play-state: paused;
+  z-index: 30;
+}
+/* 权重越高越亮，形成"重要性"的视觉层次 */
+.wc-word[data-tier="0"] { color: var(--wc-text-strong); border-color: var(--wc-border-strong); background: var(--wc-fill-strong); }
+.wc-word[data-tier="1"] { color: var(--wc-text-mid); }
+.wc-word[data-tier="0"]:hover,
+.wc-word[data-tier="1"]:hover { color: var(--wc-text-hover); }
+
+/* ---- 分组渐进披露 ----
+   默认只让「分组标签」和核心功能词醒目，组内成员词压淡到 0.35；
+   悬停任意词提到满血；点标签把整组点亮、其余退到背景，再点一次取消。
+   为什么这样做：词云显得"杂乱"不是词多，是所有词一样显眼、眼睛没落点。
+   这样默认一眼清爽，但一个词都没删 —— 想看细节悬停或点一下就有。
+
+   注意选择器特异性：下面 [data-role] 的属性选择器会盖过上面的 .wc-word:hover，
+   所以 hover / is-open 的规则都写得更具体（多一个属性或类名）才能生效。 */
+#wordcloud-layer .wc-word[data-role="label"] {
+  color: var(--wc-accent);
+  font-weight: 800;
+  letter-spacing: .4px;
+  border-color: color-mix(in srgb, var(--wc-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--wc-accent) 10%, transparent);
+}
+/* 组名后面挂个小三角，暗示"这里可以点开" */
+#wordcloud-layer .wc-word[data-role="label"]::after {
+  content: " ▾"; font-size: .68em; opacity: .5;
+}
+/* 成员词默认**藏起来**，只留骨架（分组标签 + 核心功能词）。
+   49 个词全摆出来，即使压到 0.35 透明度看上去还是有点满。
+   要看得靠两个具体动作：鼠标**悬停某个分组标签**（预览那一组）、或者**点它**（聚焦那一组）。
+
+   为什么用 opacity 而不是 display:none —— 藏起来的词仍然占着原来的位置，
+   露出来时是"原地淡入"，不会触发重排、词不会乱跳。 */
+#wordcloud-layer .wc-word[data-role="member"] { opacity: 0; }
+
+/* 悬停分组标签 → 那一组的成员词露出来预览 */
+#wordcloud-layer .wc-word.is-peek { opacity: .35; }
+
+/* 悬停任意词 → 提到满血（特异性要高于上面的 member 规则） */
+#wordcloud-layer .wc-word[data-role]:hover { opacity: 1; }
+
+/* 聚焦态：点开的那一组全亮；其他组的成员词保持藏着（默认就是 0，这里不用再压），
+   骨架压暗一档，让焦点更明确。 */
+#wordcloud-layer.wc-focus .wc-word[data-role="label"]:not(.is-open) { opacity: .28; }
+#wordcloud-layer.wc-focus .wc-word[data-role="core"] { opacity: .10; }
+#wordcloud-layer.wc-focus .wc-word.is-open {
+  opacity: 1;
+  color: var(--wc-text-hover);
+  border-color: color-mix(in srgb, var(--wc-accent) 70%, transparent);
+  background: color-mix(in srgb, var(--wc-accent) 18%, transparent);
+}
+#wordcloud-layer.wc-focus .wc-word[data-role]:hover { opacity: 1; }
+.wc-word.flash {
+  animation: wcFlash 700ms var(--ease);
+  color: var(--wc-text-hover);
+  border-color: var(--wc-accent);
+  background: color-mix(in srgb, var(--wc-accent) 30%, transparent);
+}
+@keyframes wcFlash {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.22); }
+  100% { transform: scale(1); }
+}
+.wc-word[hidden] { display: none; }
+
+/* ---- 带箭头的数值控件（游玩天数）----
+   结构是  ▼ 游玩天数 3天 ▲ ，直接在词云上调天数，不用跑去右侧表单。
+   左右两个箭头各自有自己的 hover 反馈，让人一看就知道"这里能点"。 */
+.wc-stepper {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 9px;
+}
+.wc-stepper .wc-step-label {
+  font-variant-numeric: tabular-nums;   /* 数字等宽，加减的时候不会左右抖 */
+}
+.wc-step {
+  display: grid; place-items: center;
+  width: 17px; height: 17px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--wc-ink) 12%, transparent);
+  font-size: 8px; line-height: 1;
+  opacity: .75;
+  transition: background 160ms var(--ease), opacity 160ms var(--ease), transform 160ms var(--ease);
+}
+.wc-step:hover {
+  background: color-mix(in srgb, var(--wc-ink) 30%, transparent);
+  opacity: 1;
+  transform: scale(1.14);
+}
+.wc-step:active { transform: scale(.9); }
+
+/* ---- 多选：选中的条件词用红框标出来 ----
+   点词云的语义已经从「立刻执行」改成「挑一个条件」，所以要能一眼看到自己组了哪些条件。
+   用 box-shadow 画框而不是 outline/border：它不占布局空间，不会把词挤歪、也就不会触发重排。
+   选择器要盖住所有会改 opacity 的规则：成员词默认藏着、聚焦时其他组压暗 ——
+   但"已经选中的条件"必须始终看得见，不然用户根本不知道自己选了什么。 */
+#wordcloud-layer .wc-word.is-sel,
+#wordcloud-layer.wc-focus .wc-word.is-sel {
+  color: var(--wc-ink);
+  border-color: #ff4d4f;
+  background: color-mix(in srgb, #ff4d4f 16%, transparent);
+  box-shadow: 0 0 0 2px #ff4d4f, 0 0 16px rgb(255 77 79 / 0.42);
+  opacity: 1;
+  z-index: 22;
+}
+
+/* ---- 词云字色的色板 + 取色器 ---- */
+.ink-swatches { display: flex; align-items: center; gap: 7px; margin-top: 9px; flex-wrap: wrap; }
+.ink-sw {
+  width: 21px; height: 21px; padding: 0;
+  border-radius: 50%; cursor: pointer;
+  background: var(--c, #fff);
+  border: 1px solid var(--border-strong);
+  transition: transform 150ms var(--ease), box-shadow 150ms var(--ease);
+}
+.ink-sw:hover { transform: scale(1.15); }
+.ink-sw.on { box-shadow: 0 0 0 2px var(--primary); transform: scale(1.1); }
+/* 系统取色器。默认那个色块太丑，这里把内部 swatch 藏掉，露出底下的彩虹渐变，
+   一看就知道"点它可以挑任意颜色"。 */
+.ink-picker {
+  width: 28px; height: 21px; padding: 0; cursor: pointer;
+  border: 1px solid var(--border-strong); border-radius: 6px;
+  background: linear-gradient(135deg, #ff6b6b, #ffd93d, #6bcb77, #4d96ff, #b16dff);
+  -webkit-appearance: none; appearance: none;
+}
+.ink-picker::-webkit-color-swatch-wrapper { padding: 0; }
+.ink-picker::-webkit-color-swatch { border: none; opacity: 0; }
+
+/* ---------- 全屏词云模式下的结果卡 ----------
+   点「个性化方案」/「营销文案」时，词云收起、这张卡从底部浮上来显示生成内容。
+
+   为什么是"底部一条、只占约 1/4"而不是铺满整个舞台：
+   Live2D 角色本身就是这个项目的一大卖点，结果卡铺满就把人挡死了。
+   现在上面 2/3 留给角色（看得见她一直在那儿），下面 1/4 出结果，两边同时看得见。
+   bottom 用 9% 是为了避开底部那条字幕条，不然字幕会被卡片压住。 */
+.result-card {
+  position: absolute;
+  left: 4%; right: 4%; bottom: 9%;
+  height: 27%;
+  min-height: 132px;
+  z-index: 700;
+  display: flex; flex-direction: column;
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  background: rgb(14 16 18 / 0.74);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  box-shadow: var(--shadow);
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 280ms var(--ease), transform 280ms var(--ease);
+  pointer-events: none;
+}
+.result-card[hidden] { display: none; }
+.result-card.show { opacity: 1; transform: none; pointer-events: auto; }
+
+.result-head {
+  flex: none;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px 8px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.result-who {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 700; color: var(--primary);
+}
+/* 名字左边一颗呼吸的小圆点，暗示"这个角色在说话" */
+.result-who::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 10px var(--primary);
+  animation: resultDot 2.2s ease-in-out infinite;
+}
+@keyframes resultDot { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+
+.result-actions { display: flex; align-items: center; gap: 6px; }
+.result-btn {
+  display: grid; place-items: center;
+  width: 27px; height: 27px; padding: 0;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); color: var(--text-sub);
+  cursor: pointer; font-size: 13px; line-height: 1;
+  transition: color 180ms var(--ease), border-color 180ms var(--ease),
+              background 180ms var(--ease), transform 180ms var(--ease);
+}
+.result-btn:hover { color: var(--text); border-color: var(--border-strong); background: var(--surface-hover); }
+.result-btn:active { transform: scale(.94); }
+/* 正在合成语音时按钮点亮，配合 ⏳ 一起表示"在忙" */
+.result-btn.on {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 55%, transparent);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+}
+.result-btn[disabled] { cursor: default; }
+
+/* 内容区。带 output 类是为了复用 .output 里那套 markdown 排版，
+   这里用更高特异性把 padding / 字号 / 行距调成卡片这种"矮而宽"的空间里合适的样子。 */
+.result-card .result-body {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: 12px 18px 14px;
+  font-size: 12.8px; line-height: 1.72;
+  /* 覆盖掉 .output 上的 white-space: pre-wrap。
+     renderMarkdown 输出的是 HTML，而 HTML 源码里标签之间天然带换行 ——
+     pre-wrap 会把这些换行也当成真换行渲染出来，于是每个块之间多空一行。
+     实测内容高度被放大整整 2 倍（2084px → 1068px），本来滚 6 屏变成滚 13 屏。 */
+  white-space: normal;
+}
+
+/* 卡片里纵向空间金贵，把 markdown 的块间距整体收紧 —— 少滚好几屏 */
+.result-card .result-body > :first-child { margin-top: 0; }
+.result-card .result-body h1,
+.result-card .result-body h2,
+.result-card .result-body h3 {
+  font-size: 12.6px;
+  margin: 9px 0 3px;
+  padding-bottom: 2px;
+}
+.result-card .result-body p { margin: 0 0 5px; }
+.result-card .result-body ul,
+.result-card .result-body ol { margin: 0 0 6px; padding-left: 18px; }
+.result-card .result-body li { margin: 0 0 2px; }
+.result-card .result-body table { margin: 5px 0; font-size: 12px; }
+
+/* A/B 两版文案并排。分列之后纵向高度直接砍半（滚 4 屏 → 2 屏），
+   而且"一次给你两版"这个卖点一眼就看得见，不用往下翻。
+   .result-pre 是两版之前的引言（比如"两版都写好了"），横跨整个宽度。 */
+.result-card .result-body.is-columns {
+  display: flex; flex-wrap: wrap; align-items: flex-start;
+  gap: 0 20px;
+}
+.result-card .result-body.is-columns .result-pre { flex: 1 1 100%; }
+.result-card .result-body.is-columns .result-col { flex: 1 1 0; min-width: 0; }
+/* 只给"第二列及以后"加分隔线 —— 用 :first-of-type 不行，
+   因为前面的 .result-pre 也是 div，第一列不是 first-of-type。 */
+.result-card .result-body.is-columns .result-col + .result-col {
+  padding-left: 20px;
+  border-left: 1px solid var(--border);
+}
+
+/* 行程方案：Day 1..N 横着排成一行，行程总览 / 费用预估 / 替代方案 各占一整行。
+   为什么要这样：那些块天生就是"并列的几天"，竖着堆一列又长又难对比；
+   而「行程总览」是个 8 列的表格，必须占满整行才不至于被挤成竖条。 */
+.result-card .result-body.is-days .result-days {
+  display: flex; align-items: flex-start;
+  gap: 0 16px;
+  margin-bottom: 6px;
+}
+.result-card .result-body.is-days .result-day { flex: 1 1 0; min-width: 0; }
+.result-card .result-body.is-days .result-day + .result-day {
+  padding-left: 16px;
+  border-left: 1px solid var(--border);
+}
+/* Day 块里的列表本来就窄，缩进收一点，别把内容挤没了 */
+.result-card .result-body.is-days .result-day ul,
+.result-card .result-body.is-days .result-day ol { padding-left: 15px; }
+
+/* 进入结果模式：词云整体收起。用 opacity 而不是 display ——
+   过渡更自然，也不动布局（词的位置不会因为收起而重排）。 */
+body.wc-result #wordcloud-layer { opacity: 0; pointer-events: none; }
+
+/* ---------- 6. 右侧面板 ---------- */
+.side {
+  display: flex; flex-direction: column; min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
+  overflow: hidden;
+}
+.tabs {
+  display: flex; gap: 3px;
+  padding: 8px 8px 0;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tab {
+  flex: 1 0 auto;
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  padding: 9px 8px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--dur) var(--ease);
+  border-radius: 9px 9px 0 0;
+}
+.tab > span { font-size: 12px; }
+.tab:hover { color: var(--text-sub); background: var(--surface); }
+.tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+.panes { flex: 1; min-height: 0; position: relative; }
+.pane {
+  position: absolute; inset: 0;
+  padding: 16px;
+  overflow-y: auto;
+  opacity: 0; pointer-events: none;
+  transform: translateY(6px);
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.pane.active { opacity: 1; pointer-events: auto; transform: none; }
+
+.pane h3 { margin: 0 0 3px; font-size: 14px; font-weight: 700; }
+.pane .sub { margin: 0 0 14px; font-size: 11.5px; color: var(--text-dim); line-height: 1.55; }
+.pane .section { margin-bottom: 16px; }
+.pane .section > .lbl {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--text-dim); margin-bottom: 8px;
+  text-transform: uppercase; letter-spacing: .8px;
+}
+.lbl-actions { margin-left: auto; display: inline-flex; gap: 6px; text-transform: none; letter-spacing: 0; }
+.hint-inline { font-size: 10.5px; color: var(--text-dim); text-transform: none; letter-spacing: 0; font-weight: 400; }
+
+/* 小按钮：用于「标签行右侧」的动作，比 .btn 更轻，不抢主按钮的注意力 */
+.mini-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 9px;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: rgb(255 255 255 / 0.04);
+  color: var(--text-sub);
+  font-family: inherit; font-size: 11px; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+  text-transform: none; letter-spacing: 0;
+  transition: all 200ms var(--ease);
+}
+.mini-btn:hover { background: var(--surface-hover); color: var(--text); border-color: var(--border-strong); }
+
+/* 分段控件（方案规划 / 营销素材）：比一排 chip 更紧凑、状态更明确 */
+.seg {
+  display: inline-flex; padding: 3px; gap: 3px;
+  border: 1px solid var(--border); border-radius: 12px;
+  background: rgb(0 0 0 / 0.22);
+}
+.seg-item {
+  padding: 7px 14px;
+  border: none; border-radius: 9px;
+  background: transparent; color: var(--text-sub);
+  font-family: inherit; font-size: 12.5px; font-weight: 600;
+  cursor: pointer;
+  transition: all 220ms var(--ease);
+}
+.seg-item:hover { color: var(--text); }
+.seg-item.on {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 88%, transparent), color-mix(in srgb, var(--complementary) 76%, transparent));
+  color: #fff;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
+/* 外观页的预览卡片（背景缩略图 / 形象立绘） */
+.look-preview {
+  display: flex; gap: 12px; align-items: center;
+  padding: 10px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: rgb(0 0 0 / 0.22);
+}
+.look-preview canvas, .look-model-thumb {
+  width: 132px; height: 92px; flex: none;
+  border-radius: 10px; overflow: hidden;
+  border: 1px solid var(--border);
+  background: rgb(0 0 0 / 0.3);
+}
+.look-preview canvas { display: block; }
+.look-model-thumb { display: grid; place-items: center; position: relative; }
+.look-model-thumb img {
+  width: 100%; height: 100%; object-fit: contain; display: block;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.06), rgb(255 255 255 / 0.01));
+}
+/* 3D 模型没有预览图时的角标（预览图生成脚本补上之后就不会显示了） */
+.look-3d-badge {
+  position: absolute; right: 6px; bottom: 6px;
+  padding: 2px 7px; border-radius: 6px;
+  font-size: 10px; font-weight: 700; letter-spacing: .5px;
+  background: color-mix(in srgb, var(--primary) 70%, transparent);
+  color: #fff;
+}
+.look-preview-meta { min-width: 0; }
+.look-preview-name { font-size: 13px; font-weight: 700; margin-bottom: 3px; }
+.look-preview-note { font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+
+/* 折叠块：把「服务状态」「关于」这类低频内容收起来，让页面不再一屏全是信息 */
+.fold {
+  margin-bottom: 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: rgb(255 255 255 / 0.02);
+  overflow: hidden;
+}
+.fold > summary {
+  padding: 10px 13px;
+  font-size: 11.5px; font-weight: 600; color: var(--text-sub);
+  cursor: pointer; list-style: none;
+  display: flex; align-items: center; gap: 7px;
+  transition: background 200ms var(--ease);
+}
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before { content: "▸"; font-size: 10px; color: var(--text-dim); transition: transform 200ms var(--ease); }
+.fold[open] > summary::before { transform: rotate(90deg); }
+.fold > summary:hover { background: var(--surface); color: var(--text); }
+.fold > *:not(summary) { padding: 0 13px; }
+.fold[open] > *:not(summary) { padding-bottom: 12px; }
+
+/* 弹层里的网格与卡片（背景选择器 / 形象选择器共用） */
+.pick-sections { display: block; }
+.pick-sections > .lbl {
+  display: block;
+  font-size: 11px; color: var(--text-dim);
+  margin: 16px 0 9px; text-transform: uppercase; letter-spacing: .8px;
+}
+.pick-sections > .lbl:first-child { margin-top: 2px; }
+.pick-grid {
+  display: grid; gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+/* 选择器要放得下更多缩略图，比默认弹层宽一些。
+   写成 .modal.modal-wide 而不是 .modal-wide：.modal 定义在后面，
+   同为单类选择器时后面的会赢，宽度就会一直是 760。这是实测踩到的坑。 */
+.modal.modal-wide { width: min(980px, 94vw); }
+.pick-card {
+  position: relative;
+  border: 2px solid var(--border); border-radius: var(--radius);
+  background: rgb(255 255 255 / 0.025);
+  padding: 8px; cursor: pointer; text-align: left;
+  font-family: inherit; color: var(--text);
+  transition: all 220ms var(--ease);
+  display: flex; flex-direction: column; gap: 7px;
+}
+.pick-card:hover { border-color: var(--border-strong); transform: translateY(-2px); background: var(--surface-hover); }
+.pick-card.active {
+  border-color: color-mix(in srgb, var(--primary) 70%, transparent);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+.pick-card canvas, .pick-card .pick-img {
+  width: 100%; height: 96px; display: block;
+  border-radius: 9px; overflow: hidden;
+  background: rgb(0 0 0 / 0.3); object-fit: cover;
+}
+.pick-card .pick-model-img { object-fit: contain; background: linear-gradient(180deg, rgb(255 255 255 / 0.07), rgb(255 255 255 / 0.015)); }
+.pick-card .pick-name { font-size: 12.5px; font-weight: 700; }
+.pick-card .pick-note { font-size: 10.5px; color: var(--text-dim); line-height: 1.45; }
+.pick-card .pick-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.pick-card .pick-tag {
+  font-size: 9.5px; padding: 2px 6px; border-radius: 999px;
+  background: rgb(255 255 255 / 0.07); color: var(--text-sub);
+}
+.pick-card .pick-del {
+  position: absolute; top: 6px; right: 6px;
+  width: 22px; height: 22px; border-radius: 50%;
+  border: none; background: rgb(0 0 0 / 0.55); color: #fff;
+  font-size: 10px; cursor: pointer; opacity: 0;
+  transition: opacity 200ms var(--ease);
+}
+.pick-card:hover .pick-del { opacity: 1; }
+.pick-card .pick-del:hover { background: var(--err); }
+
+/* ---- 视频卡片：真缩略图 + 两个"设为背景"的动作 ----
+ *
+ * 缩略图直接用 <video> 取第 1.2 秒那一帧（preload=metadata 只拉头部，不下整片）。
+ * 原来每张卡只是一枚 🎬 图标，而用户是在几张宣传片里挑 —— 看不到画面等于盲选。
+ * 卡片本体不再是 <button>：里面还有按钮，按钮套按钮在 HTML 里是非法的。 */
+.pick-card-video { display: flex; flex-direction: column; }
+.pick-card-video .pick-img {
+  aspect-ratio: 16 / 9; overflow: hidden;
+  display: block; padding: 0; background: #0d1418;
+}
+.pick-video-thumb {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.pick-card-video .pick-name,
+.pick-card-video .pick-note { padding: 0 8px; }
+.pick-card-video .pick-name { margin-top: 7px; }
+.pick-video-actions {
+  display: flex; gap: 5px; padding: 7px 8px 9px; margin-top: auto;
+  border-top: 1px solid rgb(255 255 255 / 0.07);
+}
+.pick-video-actions .mini-btn { flex: 1 1 44%; min-width: 0; padding: 5px 3px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 卡片很窄（一列里排两三张），「🖥 主界面」「🎬 开屏」两个按钮原来写死 flex:1
+   平分宽度，文字挤到互相叠字。给容器允许换行、按钮允许收缩并省略号截断。 */
+.pick-video-actions { flex-wrap: wrap; gap: 5px; }
+.pick-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+.pick-hint { font-size: 11.5px; color: var(--text-dim); line-height: 1.6; margin-bottom: 14px; }
+.pick-hint code { font-family: var(--font-mono); font-size: 11px; background: rgb(0 0 0 / 0.35); padding: 1px 5px; border-radius: 4px; }
+
+/* 聊天 */
+.chat-log { display: flex; flex-direction: column; gap: 12px; padding-bottom: 6px; }
+.msg { display: flex; gap: 9px; max-width: 100%; }
+.msg .av {
+  width: 27px; height: 27px; flex: none; border-radius: 50%;
+  display: grid; place-items: center; font-size: 13px;
+  background: var(--surface-strong); border: 1px solid var(--border);
+}
+.msg .bd {
+  padding: 9px 13px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 13px; line-height: 1.68;
+  white-space: pre-wrap; word-break: break-word;
+  max-width: 100%;
+}
+.msg.me { flex-direction: row-reverse; }
+.msg.me .bd { background: color-mix(in srgb, var(--primary) 15%, transparent); border-color: color-mix(in srgb, var(--primary) 32%, transparent); }
+.msg.sys .bd { background: transparent; border-style: dashed; color: var(--text-dim); font-size: 11.5px; }
+.msg.err .bd { background: color-mix(in srgb, var(--err) 12%, transparent); border-color: color-mix(in srgb, var(--err) 35%, transparent); }
+.msg .bd .md-table { border-collapse: collapse; margin: 7px 0; font-size: 12px; width: 100%; }
+.msg .bd .md-table th, .msg .bd .md-table td { border: 1px solid var(--border); padding: 4px 7px; text-align: left; }
+.msg .bd .md-table th { background: var(--surface); font-weight: 700; }
+.msg .bd h1, .msg .bd h2, .msg .bd h3 { font-size: 13.5px; margin: 11px 0 5px; color: var(--primary); }
+.msg .bd code { font-family: var(--font-mono); font-size: 12px; background: rgb(0 0 0 / 0.35); padding: 1px 5px; border-radius: 5px; }
+.msg .bd ul { margin: 5px 0; padding-left: 18px; }
+.typing::after { content: "▍"; animation: blink 1s step-end infinite; color: var(--primary); }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* 表单控件 */
+.field { margin-bottom: 13px; }
+.field > label { display: block; font-size: 11.5px; font-weight: 600; color: var(--text-sub); margin-bottom: 6px; }
+.row { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  padding: 5px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgb(255 255 255 / 0.03);
+  color: var(--text-sub);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 200ms var(--ease);
+}
+.chip:hover { border-color: var(--border-strong); color: var(--text); }
+.chip.on {
+  background: color-mix(in srgb, var(--primary) 22%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 55%, transparent);
+  color: #fff;
+}
+input[type="text"], input[type="number"], select, textarea {
+  width: 100%;
+  padding: 9px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: rgb(0 0 0 / 0.28);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: all 200ms var(--ease);
+}
+input:focus, select:focus, textarea:focus { outline: none; border-color: color-mix(in srgb, var(--primary) 55%, transparent); background: rgb(0 0 0 / 0.4); }
+textarea { resize: vertical; min-height: 84px; line-height: 1.6; }
+select option { background: var(--bg-elevated); }
+input[type="range"] { width: 100%; accent-color: var(--primary); }
+.inline { display: flex; gap: 8px; align-items: center; }
+.inline > input { flex: 1; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-sub); cursor: pointer; padding: 5px 0; }
+input[type="checkbox"] { accent-color: var(--primary); width: 15px; height: 15px; }
+
+/* 按钮 */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px 17px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  font-family: inherit; font-size: 12.5px; font-weight: 600;
+  color: #fff; cursor: pointer;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 88%, transparent), color-mix(in srgb, var(--complementary) 76%, transparent));
+  transition: all var(--dur) var(--ease);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--primary) 26%, transparent);
+}
+.btn:hover { transform: translateY(-1px); box-shadow: 0 10px 26px color-mix(in srgb, var(--primary) 38%, transparent); }
+.btn:active { transform: translateY(0); }
+.btn:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+.btn.ghost {
+  background: rgb(255 255 255 / 0.04);
+  border-color: var(--border);
+  color: var(--text-sub);
+  box-shadow: none;
+}
+.btn.ghost:hover { background: var(--surface-hover); color: var(--text); border-color: var(--border-strong); }
+.btn.wide { width: 100%; }
+.btn.sm { padding: 6px 11px; font-size: 11.5px; border-radius: 9px; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 5px; }
+
+/* 告警 / 提示条 */
+.warn-box {
+  padding: 11px 14px;
+  margin-bottom: 11px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  font-size: 11.8px; line-height: 1.6;
+}
+.warn-box h4 { margin: 0 0 5px; font-size: 12px; color: var(--warn); }
+.warn-box ul { margin: 0; padding-left: 17px; }
+.warn-box li { margin-bottom: 3px; }
+.info-box {
+  padding: 11px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: rgb(255 255 255 / 0.03); font-size: 11.8px; color: var(--text-sub); line-height: 1.62;
+}
+.info-box b { color: var(--text); }
+.info-box code { font-family: var(--font-mono); font-size: 11px; background: rgb(0 0 0 / 0.35); padding: 1px 5px; border-radius: 4px; }
+
+/* 记忆条目 */
+.mem-item {
+  display: flex; gap: 9px; align-items: flex-start;
+  padding: 9px 11px; margin-bottom: 7px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: rgb(255 255 255 / 0.025);
+  font-size: 12px; line-height: 1.55;
+  transition: all 200ms var(--ease);
+}
+.mem-item:hover { background: var(--surface-hover); border-color: var(--border-strong); }
+.mem-item .meta { font-size: 10.5px; color: var(--text-dim); margin-top: 3px; }
+.mem-item .txt { flex: 1; min-width: 0; word-break: break-word; }
+.mem-item .del { flex: none; opacity: .45; cursor: pointer; font-size: 13px; }
+.mem-item .del:hover { opacity: 1; color: var(--err); }
+.mem-score { font-size: 10px; color: var(--primary); font-family: var(--font-mono); }
+
+/* 角色卡 */
+.card-grid { display: grid; grid-template-columns: 1fr; gap: 9px; }
+.char-card {
+  display: flex; gap: 11px; align-items: center;
+  padding: 11px 13px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: rgb(255 255 255 / 0.028);
+  cursor: pointer;
+  transition: all var(--dur) var(--ease);
+}
+.char-card:hover { background: var(--surface-hover); transform: translateX(2px); }
+.char-card.active { border-color: color-mix(in srgb, var(--primary) 60%, transparent); background: color-mix(in srgb, var(--primary) 12%, transparent); }
+.char-card .av {
+  width: 38px; height: 38px; flex: none; border-radius: 13px;
+  display: grid; place-items: center; font-size: 19px;
+  background: var(--surface-strong); border: 1px solid var(--border);
+}
+.char-card .nm { font-weight: 700; font-size: 13px; }
+.char-card .tg { font-size: 11px; color: var(--text-dim); }
+.badge {
+  display: inline-block; padding: 2px 7px; margin-left: 5px;
+  border-radius: 999px; font-size: 9.5px; font-weight: 700;
+  background: var(--surface-strong); color: var(--text-dim); vertical-align: 1px;
+}
+.badge.builtin { background: color-mix(in srgb, var(--primary) 22%, transparent); color: var(--primary); }
+
+/* 音色列表 */
+.voice-item {
+  display: flex; gap: 10px; align-items: center;
+  padding: 9px 12px; margin-bottom: 7px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: rgb(255 255 255 / 0.025);
+  cursor: pointer; transition: all 200ms var(--ease);
+}
+.voice-item:hover { background: var(--surface-hover); }
+.voice-item.active { border-color: color-mix(in srgb, var(--primary) 55%, transparent); background: color-mix(in srgb, var(--primary) 12%, transparent); }
+
+/* 内置音色（说话人）网格：9 个音色一屏放下，点一下就能试听。
+   以前没有这一栏，用户只能看着 preset 里那句 instruct 猜音色，
+   而后端默认是个男声，于是"怎么全都是男的"。 */
+.speaker-grid {
+  display: grid; gap: 7px;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+}
+.speaker-item {
+  padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: rgb(255 255 255 / 0.025);
+  cursor: pointer; transition: all 200ms var(--ease);
+}
+.speaker-item:hover { background: var(--surface-hover); }
+.speaker-item.active { border-color: color-mix(in srgb, var(--primary) 55%, transparent); background: color-mix(in srgb, var(--primary) 12%, transparent); }
+.speaker-item .nm { font-weight: 600; font-size: 12px; }
+.speaker-item .ds { font-size: 10.5px; color: var(--text-sub); }
+.speaker-item .ds2 { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+.voice-item .nm { font-weight: 600; font-size: 12.5px; }
+.voice-item .ds { font-size: 10.8px; color: var(--text-dim); }
+
+/* 输入区 */
+.composer {
+  border-top: 1px solid var(--border);
+  padding: 11px 13px 13px;
+  display: flex; flex-direction: column; gap: 9px;
+}
+.composer-top { display: flex; gap: 7px; align-items: flex-start; }
+.composer textarea { min-height: 42px; max-height: 132px; }
+.composer-bar { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
+.composer-bar .spacer { flex: 1; }
+.hintline { font-size: 10.5px; color: var(--text-dim); }
+
+/* 图片附件预览 */
+.attach {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 10px; border: 1px dashed var(--border-strong); border-radius: 10px;
+  font-size: 11.5px; color: var(--text-sub);
+}
+.attach img { width: 40px; height: 40px; object-fit: cover; border-radius: 7px; }
+
+/* 输出区（方案 / 文案） */
+.output {
+  padding: 13px 15px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: rgb(0 0 0 / 0.22);
+  font-size: 12.8px; line-height: 1.72;
+  min-height: 90px;
+  white-space: pre-wrap; word-break: break-word;
+  overflow-x: auto;
+}
+.output:empty::before { content: "生成结果会显示在这里…"; color: var(--text-dim); }
+.output h1, .output h2 { font-size: 13.5px; color: var(--primary); margin: 11px 0 5px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+.output table { border-collapse: collapse; margin: 8px 0; font-size: 11.8px; width: 100%; }
+.output th, .output td { border: 1px solid var(--border); padding: 4px 7px; text-align: left; }
+.output th { background: var(--surface); font-weight: 700; }
+
+/* 状态徽标条 */
+.badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.mini {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 999px; font-size: 10.5px;
+  background: rgb(255 255 255 / 0.045); border: 1px solid var(--border); color: var(--text-sub);
+}
+
+/* Toast */
+.toast-wrap { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 999; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
+.toast {
+  padding: 10px 18px; border-radius: 12px;
+  background: rgb(18 18 18 / 0.9);
+  border: 1px solid var(--border-strong);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  font-size: 12.5px; box-shadow: var(--shadow);
+  animation: toastIn 320ms var(--ease);
+  max-width: 60vw;
+}
+.toast.err { border-color: color-mix(in srgb, var(--err) 55%, transparent); }
+.toast.ok { border-color: color-mix(in srgb, var(--ok) 55%, transparent); }
+@keyframes toastIn { from { opacity: 0; transform: translateY(12px) scale(.96); } to { opacity: 1; transform: none; } }
+
+/* 语音合成进度：本地 TTS 只有 0.45x 实时率，长文本要跑好几分钟，
+   必须让用户看见"在跑"和"跑了多久"，否则界面看着和卡死没区别。 */
+.speak-progress { display: flex; align-items: center; gap: 9px; }
+.speak-progress::before {
+  content: ''; flex: none;
+  width: 9px; height: 9px; border-radius: 50%;
+  border: 2px solid var(--wenlv); border-top-color: transparent;
+  animation: speakSpin 900ms linear infinite;
+}
+@keyframes speakSpin { to { transform: rotate(360deg); } }
+
+/* 弹层（角色卡编辑 / 词云放大） */
+.modal-mask {
+  position: fixed; inset: 0; z-index: 900;
+  background: rgb(0 0 0 / 0.6);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  display: grid; place-items: center;
+  padding: 24px;
+  animation: fadeIn 220ms var(--ease);
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.modal {
+  width: min(760px, 94vw); max-height: 88vh;
+  display: flex; flex-direction: column;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  animation: modalIn 320ms var(--ease);
+}
+@keyframes modalIn { from { opacity: 0; transform: translateY(16px) scale(.97); } to { opacity: 1; transform: none; } }
+.modal header { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.modal header h3 { margin: 0; font-size: 14px; }
+.modal .body { padding: 18px; overflow-y: auto; }
+.modal footer { display: flex; gap: 9px; justify-content: flex-end; padding: 13px 18px; border-top: 1px solid var(--border); }
+
+/* 全屏词云模式 */
+/* 舞台铺满整屏（词云要占满才有气势）。
+   `.side` 原来是 `visibility: hidden` —— 但默认形态下 .side 就是**底部那条对话框**，
+   连它一起藏掉，用户点「⤢ 词云全屏」后就没地方说话了（"点右上角那个箭头对话框会消失"）。
+   所以只在**调试布局**（.side 是右侧分栏）时藏；默认布局下对话框要留着。 */
+body.wc-full .stage { position: fixed; inset: 14px; z-index: 800; }
+body.wc-full.debug .side { visibility: hidden; }
+/* 词云铺到了全屏（z-index 800），对话框得压在它上面才点得到 */
+body.wc-full:not(.debug) .side { z-index: 900; }
+
+/* 响应式：窄屏把右侧面板压到下方 */
+@media (max-width: 1080px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: 58px minmax(300px, 46vh) 1fr;
+    grid-template-areas: "topbar" "stage" "side";
+  }
+  .bubble { max-width: 72%; }
+}
+@media (max-width: 620px) {
+  .app { padding: 8px; gap: 8px; }
+  .brand-sub, .status-pill span.lbl { display: none; }
+}
+
+/* ============================================================================
+ * 开屏（两套模板：视频主页 / 形象主页）
+ *
+ * 单独一段放在文件末尾，因为它是一套**并列的完整界面**，跟主界面没有共享的
+ * 布局关系 —— 插在中间只会打断主界面那部分的阅读。
+ * ==========================================================================*/
+
+.boot {
+  position: fixed; inset: 0; z-index: 2000;
+  display: grid; place-items: center;
+  /* 模板 B 要让底下的真实舞台露出来，所以底色由各模板自己决定 */
+  background: transparent;
+}
+/* 必须显式写这一条：上面那句 `display: grid` 会**顶掉** UA 样式表里
+   `[hidden] { display: none }`（作者样式优先级更高），于是 JS 里设了
+   `root.hidden = true` 也只是改了个属性，元素照样盖在最上层 ——
+   表现就是"跳转后开屏不消失、界面叠在一起"。
+   项目里 .stage-empty / .wc-word / .result-card 都踩过同一个坑，
+   各写了同样的一行，这里补上。 */
+.boot[hidden] { display: none !important; }
+
+/* ---------------- 背景媒体 ---------------- */
+
+.boot-media { position: absolute; inset: 0; overflow: hidden; background: #0a0f12; }
+.boot-media video, .boot-media canvas {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; display: block;
+  transition: opacity 520ms var(--ease);
+}
+
+/* 注意：上面那条 `.boot-media video` 的优先级是 (0,1,1)，比单纯的 `.boot-video`(0,1,0) 高。
+ * 所以下面覆盖 object-fit 时必须也带上 `.boot-media` 这一层，否则写了不生效 ——
+ * 实际踩过：竖屏片源被 cover 放大裁切，整屏只剩一团模糊漩涡。 */
+.boot-media .boot-video { object-fit: contain; }
+.boot-video { opacity: 1; }
+/* ==========================================================================
+ * 定位导航：舞台小卡片 + 整页导航
+ *
+ * 原来是让形象举一块大木牌来表示"当前目标景点"。实测太抢戏：牌子比人物还显眼、
+ * 挡住风景，而且人物的手并没有真的抬起来托住它，看着像贴上去的。
+ * 现在分成两层：
+ *   .nav-mini  —— 舞台右下角一张小卡片，只留"去哪 / 多远 / 往哪走"
+ *   .navpage   —— 点开之后的整页导航（地图 + 附近景点 + 方位 + 跳转真导航）
+ * ========================================================================*/
+
+.nav-mini {
+  position: absolute; right: 18px; bottom: 74px; z-index: 7;
+  display: flex; align-items: stretch; gap: 0;
+  max-width: 340px;
+  background: rgb(12 18 22 / 0.86);
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.4);
+  overflow: hidden;
+}
+.nav-mini-open {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; cursor: pointer; text-align: left;
+  background: none; border: 0; color: var(--text); font: inherit;
+  flex: 1; min-width: 0;
+}
+.nav-mini-open:hover { background: rgb(255 255 255 / 0.06); }
+.nav-mini-dir {
+  flex: none; width: 28px; height: 28px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 15px;
+  background: rgb(232 176 74 / 0.18); color: #e8b04a;
+  transition: transform 300ms var(--ease);
+}
+.nav-mini-text { display: flex; flex-direction: column; min-width: 0; }
+.nav-mini-text b { font-size: 13px; font-weight: 600; }
+.nav-mini-text i {
+  font-style: normal; font-size: 11.5px; color: var(--text-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.nav-mini-go { flex: none; font-size: 11.5px; color: var(--accent); }
+.nav-mini-x {
+  flex: none; width: 30px; background: none; border: 0; cursor: pointer;
+  color: var(--text-dim); font-size: 12px;
+}
+.nav-mini-x:hover { color: var(--text); background: rgb(255 255 255 / 0.06); }
+
+/* ---------------- 整页导航 ---------------- */
+
+.navpage {
+  position: fixed; inset: 0; z-index: 2400;
+  display: flex; flex-direction: column;
+  background: #0a1014;
+  animation: navpageIn 260ms var(--ease);
+}
+@keyframes navpageIn { from { opacity: 0; transform: scale(0.99); } to { opacity: 1; transform: none; } }
+body.navpage-open { overflow: hidden; }
+
+.navpage-head {
+  flex: none; display: flex; align-items: center; justify-content: space-between;
+  gap: 14px; padding: 14px 20px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.09);
+  background: rgb(10 16 20 / 0.9);
+}
+.navpage-kicker { font-size: 11.5px; color: var(--text-dim); letter-spacing: .12em; }
+.navpage-title h2 { margin: 2px 0 0; font-size: 19px; font-weight: 650; }
+.navpage-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.navpage-body { flex: 1; display: grid; grid-template-columns: 1fr 360px; min-height: 0; }
+
+.navpage-map-wrap { position: relative; min-width: 0; background: #0d1418; }
+.navpage-map { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+.navpage-map:active { cursor: grabbing; }
+.navpage-zoom {
+  position: absolute; right: 14px; top: 14px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.navpage-zoom button {
+  width: 34px; height: 34px; border-radius: 9px; cursor: pointer;
+  background: rgb(12 18 22 / 0.9); color: var(--text);
+  border: 1px solid rgb(255 255 255 / 0.16); font-size: 16px; line-height: 1;
+}
+.navpage-zoom button:hover { background: rgb(30 42 50 / 0.95); }
+.navpage-status {
+  position: absolute; left: 14px; bottom: 14px; right: 70px;
+  padding: 9px 12px; border-radius: 9px; font-size: 12.5px;
+  background: rgb(10 16 20 / 0.88); border: 1px solid rgb(255 255 255 / 0.12);
+}
+
+.navpage-side {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 14px; overflow-y: auto;
+  border-left: 1px solid rgb(255 255 255 / 0.09);
+  background: #0c1317;
+}
+.nphere, .npnav {
+  padding: 12px; border-radius: 11px;
+  background: rgb(255 255 255 / 0.045);
+  border: 1px solid rgb(255 255 255 / 0.09);
+}
+.nphere-label { font-size: 11.5px; color: var(--text-dim); }
+.nphere-value { font-size: 14px; font-weight: 600; margin-top: 3px; word-break: break-all; }
+.nphere-src { font-size: 11.5px; color: var(--text-dim); margin-top: 3px; }
+
+.npnav { display: grid; grid-template-columns: 54px 1fr; gap: 10px; align-items: start; }
+.npnav-arrow {
+  grid-row: span 2;
+  width: 48px; height: 48px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 24px;
+  background: rgb(232 176 74 / 0.16); color: #e8b04a;
+  transition: transform 420ms var(--ease);
+}
+.npnav-name { font-size: 15px; font-weight: 650; }
+.npnav-meta { font-size: 12.5px; color: var(--text-dim); line-height: 1.65; margin-top: 3px; }
+.npdeg { color: var(--text); }
+.npwarn { color: #e8a04a; }
+.npnav-links { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.npbtn {
+  padding: 6px 11px; border-radius: 8px; font-size: 12.5px; text-decoration: none;
+  color: var(--text); background: rgb(255 255 255 / 0.07);
+  border: 1px solid rgb(255 255 255 / 0.14);
+}
+.npbtn:hover { background: rgb(255 255 255 / 0.14); }
+
+.nplist-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 12.5px; color: var(--text-dim);
+}
+.nplist { display: flex; flex-direction: column; gap: 6px; }
+.npitem {
+  display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; align-items: center;
+  padding: 9px 11px; border-radius: 9px; cursor: pointer; text-align: left;
+  background: rgb(255 255 255 / 0.04); border: 1px solid rgb(255 255 255 / 0.08);
+  color: var(--text); font: inherit;
+}
+.npitem:hover { background: rgb(255 255 255 / 0.09); }
+.npitem.active { border-color: rgb(232 176 74 / 0.6); background: rgb(232 176 74 / 0.12); }
+.npitem-name { font-size: 13px; font-weight: 600; }
+.npitem-city { font-size: 11px; color: var(--text-dim); }
+.npitem-dist { font-size: 12.5px; color: var(--accent); }
+.npitem-dir { font-size: 11.5px; color: var(--text-dim); min-width: 3.4em; text-align: right; }
+.np-empty { padding: 10px; font-size: 12.5px; color: var(--text-dim); }
+
+.nppreset { margin-top: auto; padding-top: 10px; border-top: 1px solid rgb(255 255 255 / 0.08); }
+.nppreset-btns { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+.np-note { font-size: 11.5px; color: var(--text-dim); line-height: 1.7; }
+.np-note code { background: rgb(255 255 255 / 0.08); padding: 1px 5px; border-radius: 4px; }
+
+@media (max-width: 1100px) {
+  .navpage-body { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+  .navpage-side { max-height: 46vh; border-left: 0; border-top: 1px solid rgb(255 255 255 / 0.09); }
+}
+/* ---- 开屏背景视频 ----
+ *
+ * 片源常常是**竖屏**（B 站下的片子多为 9:16），而开屏窗口是横屏。
+ * 三种画面模式就是针对这件事的：
+ *   rotate（默认）  逆时针转 90° 后按 16:9 铺满 —— 片源本来是横拍、
+ *                   只是被封装成了竖屏文件时用这个
+ *   cover          宽高比不变，放大裁切铺满 —— 竖屏 MV 想填满屏幕时用
+ *   auto           模糊铺底 + 原比例完整显示 —— 不裁任何内容
+ */
+.boot-video-bg,
+.boot-video { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+.boot-video-bg {
+  object-fit: cover;
+  filter: blur(28px) saturate(1.25) brightness(0.55);
+  transform: scale(1.18);            /* 放大一点，避免模糊后边缘露白 */
+}
+
+/* 模式二：铺满裁剪（不要黑边、接受裁掉画面）
+ * 选择器写全 `.boot[data-fit] .boot-video`（0,3,0），才压得住上面那条 `.boot-media video`。 */
+.boot[data-fit="cover"] .boot-video { object-fit: cover; }
+.boot[data-fit="cover"] .boot-video-bg { display: none; }
+
+/* 模式三：旋转。
+ * **逆时针 90°**（CSS 里正角度是顺时针，所以要写 -90deg）。
+ * 用途：片源本身是横拍、却被封装成竖屏的文件 —— 转回来正好铺满横屏。
+ * 注意内容是跟着转的，正常的竖屏 MV 转了会侧着，所以这条要用户自己选。
+ *
+ * ★ 尺寸公式和另外两种模式**是反的**：元素旋转 90° 之后宽高互换，
+ *   旋转后的宽 = 元素的高，旋转后的高 = 元素的宽。
+ *   所以要"转完能盖住视口"，就得让**元素的高**至少等于视口宽、
+ *   **元素的宽**至少等于视口高。
+ *   这里踩过坑：一开始照抄了未旋转时的公式，实测视口 1576×761 时
+ *   转完只有 887 宽，左右露出黑边。 */
+.boot[data-fit="rotate"] .boot-video {
+  /* 注意声明顺序：基准规则里是 `inset: 0`，这里必须**先**把它清成 auto，
+     再设 top/left。反过来写（top/left 之后又 inset:auto）会把定位一起重置掉，
+     元素就按静态位置摆放、再被 translate 推出画面 —— 实测表现是整屏全黑。 */
+  inset: auto;
+  top: 50%; left: 50%;
+  width: max(100vh, calc(100vw * 9 / 16));    /* 转完是"高" */
+  height: max(100vw, calc(100vh * 16 / 9));   /* 转完是"宽" */
+  transform: translate(-50%, -50%) rotate(-90deg);
+  object-fit: cover;
+}
+.boot[data-fit="rotate"] .boot-video-bg { display: none; }
+
+/* 静音开关：开屏右下角那排控件里的第一个 */
+.boot-mute {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 999px; cursor: pointer;
+  font: inherit; font-size: 12.5px; color: var(--text);
+  background: rgb(255 255 255 / 0.08);
+  border: 1px solid rgb(255 255 255 / 0.16);
+  transition: background 200ms var(--ease), border-color 200ms var(--ease);
+}
+.boot-mute:hover { background: rgb(255 255 255 / 0.15); }
+.boot-mute.on {                       /* "有声"状态给一点强调，让人知道现在是有声音的 */
+  background: rgb(126 200 169 / 0.20);
+  border-color: rgb(126 200 169 / 0.5);
+}
+
+/* ---- 模板 B：只留舞台，收起主界面的操作界面 ----
+ *
+ * 模板 B 靠"透明开屏 + 露出主界面真实舞台"来展示形象，可主界面上还叠着
+ * 词云、顶栏、侧栏 —— 不藏起来，开屏就是"角色 + 一堆控件"糊在一起。
+ * 藏掉之后剩下的正好是：西湖背景 + 形象，这才是"角色展示页"。
+ * 标记由 boot.js 在显示/隐藏时成对地加上和去掉。 */
+body.boot-character .side,
+body.boot-character .topbar,
+body.boot-character .stage-top,
+body.boot-character .subtitle,
+body.boot-character .geo-hud,
+body.boot-character .nav-bar,
+body.boot-character #wordcloud-layer,
+body.boot-character .stage-empty { display: none !important; }
+body.boot-character .app {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+  grid-template-areas: "stage";
+  gap: 0; padding: 0;
+}
+/* 顶栏是靠 hover 才浮出来的（kiosk 那套），这里直接不给它留位置 */
+
+/* 压暗层：保证标题与菜单在任何画面上都读得清 */
+.boot-scrim {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(80% 70% at 50% 40%, transparent 34%, rgb(0 0 0 / 0.62) 100%),
+    linear-gradient(180deg, rgb(0 0 0 / 0.55) 0%, transparent 26%, transparent 58%, rgb(0 0 0 / 0.78) 100%);
+}
+
+/* ---------------- 主体 ---------------- */
+
+.boot-body {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center;
+  gap: clamp(16px, 2.4vh, 30px);
+  width: min(1180px, 92vw);
+  padding: clamp(18px, 3vh, 40px);
+  text-align: center;
+}
+
+.boot-head { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.boot-mark {
+  font-size: clamp(11px, 1.1vw, 14px); letter-spacing: .34em;
+  color: rgb(255 255 255 / 0.62); text-transform: uppercase;
+}
+.boot-title {
+  margin: 0;
+  font-size: clamp(38px, 6.4vw, 104px);
+  font-weight: 800; letter-spacing: .1em;
+  color: #fff;
+  text-shadow: 0 6px 34px rgb(0 0 0 / 0.6);
+}
+.boot-sub {
+  margin: 0;
+  font-size: clamp(12px, 1.35vw, 19px);
+  letter-spacing: .22em;
+  color: rgb(255 255 255 / 0.72);
+}
+
+/* ---------------- 三个入口 ---------------- */
+
+.boot-menu {
+  display: flex; flex-wrap: wrap; justify-content: center;
+  gap: clamp(10px, 1.4vw, 22px);
+  margin-top: clamp(4px, 1vh, 14px);
+}
+
+.boot-entry {
+  --i: 0;
+  display: flex; align-items: center; gap: 12px;
+  min-width: clamp(180px, 20vw, 268px);
+  padding: clamp(12px, 1.5vh, 18px) clamp(14px, 1.6vw, 22px);
+  text-align: left;
+  font: inherit; color: var(--text); cursor: pointer;
+  border: 1px solid rgb(255 255 255 / 0.20);
+  border-radius: 16px;
+  background: rgb(12 16 20 / 0.52);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: transform 220ms var(--ease), background 220ms var(--ease),
+              border-color 220ms var(--ease), box-shadow 220ms var(--ease);
+}
+.boot-entry:hover, .boot-entry:focus-visible {
+  transform: translateY(-4px);
+  background: rgb(20 28 34 / 0.76);
+  border-color: rgb(255 255 255 / 0.42);
+  box-shadow: 0 18px 44px rgb(0 0 0 / 0.5);
+  outline: none;
+}
+.boot-entry-ico { font-size: clamp(20px, 2vw, 28px); line-height: 1; }
+.boot-entry-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.boot-entry-txt b { font-size: clamp(14px, 1.25vw, 18px); font-weight: 700; }
+.boot-entry-txt i {
+  font-style: normal; font-size: clamp(11px, 1vw, 13px);
+  color: rgb(255 255 255 / 0.58);
+}
+.boot-entry-arrow {
+  margin-left: auto; font-size: 20px; color: rgb(255 255 255 / 0.4);
+  transition: transform 220ms var(--ease), color 220ms var(--ease);
+}
+.boot-entry:hover .boot-entry-arrow { transform: translateX(4px); color: #fff; }
+
+/* 落地页标签：让用户点之前就知道会去哪个页面 */
+.boot-entry-go {
+  margin-left: auto; flex: none;
+  font-size: 11.5px; letter-spacing: .04em;
+  color: rgb(255 255 255 / 0.42);
+  padding: 3px 9px; border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  white-space: nowrap;
+  transition: color 220ms var(--ease), border-color 220ms var(--ease), background 220ms var(--ease);
+}
+.boot-entry:hover .boot-entry-go {
+  color: #fff; border-color: rgb(255 255 255 / 0.38);
+  background: rgb(255 255 255 / 0.10);
+}
+
+/* ---------------- 页脚：提示 + 模板切换 ---------------- */
+
+.boot-foot {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  margin-top: clamp(2px, 1vh, 12px);
+}
+.boot-foot-row {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  gap: clamp(10px, 1.6vw, 26px);
+}
+.boot-auto {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12px; color: rgb(255 255 255 / 0.52); cursor: pointer;
+  user-select: none;
+}
+.boot-auto input { accent-color: var(--primary); cursor: pointer; }
+.boot-auto:hover { color: rgb(255 255 255 / 0.8); }
+.boot-hint {
+  min-height: 1.4em;
+  font-size: clamp(11px, 1.05vw, 14px);
+  color: rgb(255 255 255 / 0.62);
+}
+.boot-switch { display: flex; align-items: center; gap: 10px; }
+.boot-switch-label { font-size: 12px; color: rgb(255 255 255 / 0.45); }
+.boot-switch-btns {
+  display: flex; gap: 4px; padding: 3px;
+  border: 1px solid rgb(255 255 255 / 0.18);
+  border-radius: 999px;
+  background: rgb(12 16 20 / 0.5);
+}
+.boot-switch-btn {
+  font: inherit; font-size: 12px; cursor: pointer;
+  padding: 5px 14px; border: none; border-radius: 999px;
+  background: transparent; color: rgb(255 255 255 / 0.62);
+  transition: background 200ms var(--ease), color 200ms var(--ease);
+}
+.boot-switch-btn.on { background: rgb(255 255 255 / 0.16); color: #fff; }
+.boot-switch-btn:hover { color: #fff; }
+
+/* ============================ 模板 A：视频主页（默认） ============================ */
+
+.boot[data-tpl="video"] .boot-scrim { opacity: 1; }
+.boot[data-tpl="video"] .boot-body { justify-content: center; }
+
+/* ---------------- 载入遮罩 ----------------
+ * 盖住"决定播视频 → 视频真的能播"之间的几秒，别让用户看到
+ * "先闪一下程序化西湖、再硬切成视频"。
+ * --------------------------------------------------------------------------*/
+
+.boot-loading {
+  position: absolute; inset: 0; z-index: 4;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 18px;
+  /* 往下让一截：标题/副标题是 .boot-body 画的、层级在遮罩之上，
+     不让的话转圈会和副标题叠在一起。让到标题区下方，两者组成一个完整的载入屏。 */
+  padding-top: 22vh;
+  background: radial-gradient(62% 62% at 50% 45%, #0a1219 0%, #04070a 72%);
+  opacity: 1; transition: opacity 420ms var(--ease);
+}
+/* 必须显式写：上面那句 display:flex 会**顶掉** UA 样式表里的 [hidden]{display:none}，
+   于是 JS 里设了 hidden 也照样盖在最上层 —— 项目里 .boot / .stage-empty 都踩过同一个坑。 */
+.boot-loading[hidden] { display: none !important; }
+.boot-loading.bl-out { opacity: 0; }
+
+.bl-mark { position: relative; width: 76px; height: 76px; }
+.bl-mark i {
+  position: absolute; inset: 0; border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: color-mix(in srgb, var(--primary) 85%, transparent);
+  animation: blSpin 1.15s linear infinite;
+}
+.bl-mark i:nth-child(2) {
+  inset: 9px; animation-duration: 1.75s; animation-direction: reverse;
+  border-top-color: color-mix(in srgb, var(--primary) 46%, transparent);
+}
+.bl-mark i:nth-child(3) {
+  inset: 18px; animation-duration: 2.5s;
+  border-top-color: color-mix(in srgb, var(--primary) 26%, transparent);
+}
+.bl-mark b {
+  position: absolute; inset: 31px; border-radius: 50%;
+  background: color-mix(in srgb, var(--primary) 72%, transparent);
+  animation: blPulse 1.6s ease-in-out infinite;
+}
+@keyframes blSpin { to { transform: rotate(360deg); } }
+@keyframes blPulse {
+  0%, 100% { transform: scale(.7); opacity: .5; }
+  50%      { transform: scale(1);  opacity: 1; }
+}
+
+.bl-title { font-size: 13px; color: var(--text-sub); letter-spacing: .07em; }
+
+.bl-bar {
+  width: 170px; height: 3px; border-radius: 2px;
+  background: rgb(255 255 255 / .12); overflow: hidden;
+}
+.bl-bar i {
+  display: block; height: 100%; width: 0%;
+  border-radius: 2px; background: var(--primary);
+  transition: width 240ms var(--ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bl-mark i, .bl-mark b { animation: none !important; }
+}
+
+/* ============================ 模板 B：形象主页 ============================
+ *
+ * 这一套现在是**自带暗场的三维场景**：自己的画布（.boot-hanfu，见 js/boot-hanfu.js）
+ * 里画一只固定的汉服模型 + 它自带的 10 段动作，左侧压渐变给竖排菜单，角色偏右。
+ * 排版思路参考同类"角色展示型"开场界面（暗色环境、角色居侧、竖排菜单、悬停有反馈），
+ * **没有使用任何第三方游戏的素材、字体或界面元素**，全部是本项目自己的实现。
+ *
+ * 和以前最大的不同：以前是"透明层 + 露出主界面真实舞台上的形象"，
+ * 那样开屏展示的是**用户当前选的形象**（随手换成 Live2D 开屏也跟着变），
+ * 而这里要求固定展示汉服模型，所以底色必须是不透明的。
+ * 加载失败时加 .boot-hanfu-fallback，退回老的透明行为。
+ * ==========================================================================*/
+
+.boot[data-tpl="character"] {
+  background:
+    radial-gradient(125% 95% at 72% 40%, #16222e 0%, #0a1017 44%, #04070a 100%);
+}
+/* 汉服场景没起来时的退路：透出主舞台，保持和以前一样 */
+.boot[data-tpl="character"].boot-hanfu-fallback { background: transparent; }
+
+.boot[data-tpl="character"] .boot-media { background: transparent; }
+.boot[data-tpl="character"] .boot-video,
+.boot[data-tpl="character"] .boot-canvas { opacity: 0; }
+
+/* 极细横纹：暗场不做处理会"平"得像一张静态图，这一点点质感是这类开场界面的通用做法 */
+.boot[data-tpl="character"] .boot-media::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: repeating-linear-gradient(0deg, rgb(255 255 255 / 0.02) 0 1px, transparent 1px 3px);
+  mix-blend-mode: overlay; opacity: .45;
+}
+
+.boot[data-tpl="character"] .boot-scrim {
+  background:
+    /* 左暗右透：菜单要读得清，角色要看得见 */
+    linear-gradient(100deg, rgb(3 6 10 / 0.96) 0%, rgb(3 6 10 / 0.86) 30%, rgb(3 6 10 / 0.34) 55%, rgb(3 6 10 / 0.08) 76%, rgb(3 6 10 / 0.26) 100%),
+    /* 四角压暗，把视线收到角色身上 */
+    radial-gradient(58% 62% at 73% 47%, transparent 36%, rgb(0 0 0 / 0.55) 100%),
+    /* 脚下一圈冷色"地光"，人物才像站在场景里而不是浮着 */
+    radial-gradient(40% 24% at 73% 93%, rgb(122 176 214 / 0.12), transparent 72%);
+}
+/* 加载失败时退回主舞台形象，就把"地光"这类为三维场景加的东西去掉 */
+.boot[data-tpl="character"].boot-hanfu-fallback .boot-scrim {
+  background:
+    linear-gradient(100deg, rgb(4 8 12 / 0.94) 0%, rgb(4 8 12 / 0.82) 34%, rgb(4 8 12 / 0.30) 58%, rgb(4 8 12 / 0.10) 100%),
+    radial-gradient(60% 60% at 74% 52%, transparent 40%, rgb(0 0 0 / 0.42) 100%);
+}
+.boot[data-tpl="character"] .boot-body {
+  align-items: flex-start; text-align: left;
+  width: min(1320px, 94vw);
+  padding-left: clamp(20px, 6vw, 110px);
+}
+.boot[data-tpl="character"] .boot-head { align-items: flex-start; }
+.boot[data-tpl="character"] .boot-title { letter-spacing: .06em; }
+.boot[data-tpl="character"] .boot-menu {
+  flex-direction: column; flex-wrap: nowrap;
+  align-items: stretch; justify-content: flex-start;
+}
+.boot[data-tpl="character"] .boot-entry {
+  min-width: clamp(230px, 26vw, 340px);
+  /* 竖排菜单：从左侧滑入的错位感 */
+  opacity: 0; transform: translateX(-18px);
+}
+.boot[data-tpl="character"] .boot-foot { align-items: flex-start; }
+/* 模板 B 的底部提示与切换器靠左 */
+.boot[data-tpl="character"] .boot-hint { text-align: left; }
+
+/* ============================================================================
+ * 模板 B 的 2D 立绘场景（js/boot-art.js）
+ *
+ * 一张静态立绘要做到"像活的"，靠的是**分层 + 微动**，不是真的骨骼动画：
+ *   四层视差（背景浮尘 → 光晕 → 立绘 → 前景浮尘）+ 呼吸 + 摇曳 + 悬停反应。
+ * 层级：浮尘(后) 0 → 光柱 0 → 立绘组 2 → 浮尘(前) 3。
+ * 立绘组内部再分四层容器，是为了让"视差 / 悬停反应 / 入场 / 摇曳 / 呼吸"
+ * 各自用一层 transform —— 全挤在同一个元素上的话，后写的会覆盖前面的。
+ * ==========================================================================*/
+
+.boot-art {
+  position: absolute; inset: 0; overflow: hidden;
+  opacity: 1; transition: opacity 420ms var(--ease);
+}
+.boot-art.art-out { opacity: 0; }
+
+/* ---- 背景光柱：斜的柔光，两向都淡 ---- */
+.art-beam {
+  position: absolute; left: 32%; top: -14%; width: 48%; height: 124%;
+  background: linear-gradient(100deg,
+    transparent 0%, rgb(150 200 245 / 0.07) 38%,
+    rgb(186 224 255 / 0.14) 51%, rgb(150 200 245 / 0.06) 64%, transparent 100%);
+  filter: blur(46px);
+  transform: rotate(6deg);
+  pointer-events: none;
+}
+
+/* ---- 浮尘：后层小而暗、前层大而亮，两层一起才有纵深 ---- */
+.art-motes { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.art-motes-back { z-index: 0; }
+.art-motes-front { z-index: 3; }
+
+/* ---- 立绘组 ---- */
+.art-figure {
+  position: absolute; top: 0; bottom: 0; right: 6%;
+  display: flex; align-items: flex-end; justify-content: flex-end;
+  z-index: 2;
+  will-change: transform;
+}
+/* 悬停菜单时的"前倾"：朝菜单那侧挪一点并微微放大，表示她注意到了 */
+.art-react { transition: transform 420ms var(--ease); }
+.boot-art.art-reacting .art-react { transform: translateX(-14px) scale(1.012); }
+
+.art-enter { animation: artEnter 1200ms var(--ease) both; }
+@keyframes artEnter {
+  from { opacity: 0; transform: translateY(48px) scale(1.015); }
+  to   { opacity: 1; transform: none; }
+}
+.art-sway { animation: artSway 8.4s ease-in-out infinite; }
+@keyframes artSway {
+  0%, 100% { transform: rotate(-0.35deg); }
+  50%      { transform: rotate(0.35deg); }
+}
+.art-breathe { position: relative; animation: artBreathe 5.2s ease-in-out infinite; }
+@keyframes artBreathe {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50%      { transform: translateY(-7px) scale(1.006); }
+}
+
+.art-img {
+  position: relative; z-index: 1; display: block;
+  height: 94%; width: auto;
+  filter: drop-shadow(0 26px 44px rgb(0 0 0 / 0.6));
+  user-select: none; -webkit-user-drag: none;
+}
+
+/* 身后的冷色光晕：把立绘从暗场里"托"出来 */
+.art-glow {
+  position: absolute; left: 50%; top: 50%; z-index: 0;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(50% 50% at 50% 46%,
+    rgb(126 186 236 / 0.30) 0%, rgb(80 130 190 / 0.13) 44%, transparent 72%);
+  filter: blur(26px);
+  opacity: 0.85;
+  transition: opacity 520ms var(--ease);
+  pointer-events: none;
+}
+.boot-art.art-reacting .art-glow { opacity: 1; }
+/* 迎宾：进场时先亮一下 */
+.boot-art.art-greeting .art-glow { animation: artGlowPulse 1600ms var(--ease) 1; }
+@keyframes artGlowPulse {
+  0%   { opacity: 0.35; filter: blur(20px); }
+  42%  { opacity: 1;    filter: blur(32px); }
+  100% { opacity: 0.85; filter: blur(26px); }
+}
+
+/* 脚下地光：暗底上做不出"黑影"，就用一圈冷光让她站住 */
+.art-pool {
+  position: absolute; left: 50%; bottom: -1%; z-index: 0;
+  transform: translateX(-50%);
+  background: radial-gradient(50% 50% at 50% 50%,
+    rgb(150 196 236 / 0.34) 0%, rgb(90 140 190 / 0.13) 46%, transparent 74%);
+  filter: blur(14px);
+  pointer-events: none;
+}
+
+/* 悬停时扫过立绘的一道光 */
+.art-sweep {
+  position: absolute; inset: -8% -34%; z-index: 2;
+  background: linear-gradient(105deg,
+    transparent 38%, rgb(220 240 255 / 0.18) 47%,
+    rgb(255 255 255 / 0.32) 50%, rgb(220 240 255 / 0.18) 53%, transparent 62%);
+  mix-blend-mode: screen;
+  opacity: 0; pointer-events: none;
+}
+.boot-art.art-reacting .art-sweep { animation: artSweep 900ms var(--ease) 1; }
+@keyframes artSweep {
+  0%   { opacity: 0;   transform: translateX(-72%); }
+  22%  { opacity: 0.95; }
+  100% { opacity: 0;   transform: translateX(72%); }
+}
+
+/* 窄屏：立绘居中，别和菜单挤在一起 */
+@media (max-width: 900px) {
+  .art-figure { right: 0; left: 0; justify-content: center; }
+}
+
+/* 无障碍：尊重"减少动态效果" */
+@media (prefers-reduced-motion: reduce) {
+  .art-sway, .art-breathe, .art-enter, .art-beam, .art-sweep { animation: none !important; }
+  .art-enter { opacity: 1 !important; transform: none !important; }
+}
+
+/* ----------------------------------------------------------------------------
+ * 木偶版（js/boot-puppet.js）：整张立绘交给 WebGL 做分区域形变
+ *
+ * 和上面立绘版最大的排版差别：**画布铺满整个视口**，角色出现在画面右侧
+ * 是靠**正交相机的视锥左移**做的，不是靠 CSS 定位。
+ * 所以这里的 .art-figure 不再是"靠右的弹性盒"，而是一块铺满的容器；
+ * 视差仍然作用在这层上（整块画布轻微跟随鼠标）。
+ * --------------------------------------------------------------------------*/
+.boot-puppet-root .art-figure {
+  top: 0; bottom: 0; left: 0; right: 0;
+  display: block;
+  justify-content: flex-start;
+}
+.boot-puppet-root .art-react,
+.boot-puppet-root .art-enter { position: absolute; inset: 0; }
+
+.art-puppet {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%; display: block;
+}
+
+/* 木偶版的背光：位置要对准"相机视锥左移后角色出现的地方"（约 65% 宽） */
+.boot-puppet-root .art-glow {
+  left: 65%; top: 50%;
+  width: 48vw; height: 94vh;
+  background: radial-gradient(50% 50% at 50% 46%,
+    rgb(126 186 236 / 0.26) 0%, rgb(80 130 190 / 0.10) 46%, transparent 72%);
+  filter: blur(30px);
+}
+@media (max-width: 900px) {
+  .boot-puppet-root .art-glow { left: 50%; width: 84vw; }
+}
+
+/* ============================================================================
+ * 对话常驻（body.dock）
+ *
+ * 形态：舞台占满整宽、角色居中，侧栏沉到**底部变成一条对话黑框**。
+ * 这是进入之后的常驻形态；点工具排里的「⊟ 收纳」才切回原来的左右分栏。
+ *
+ * 为什么是加一个 body 类而不是改布局本身：原来的左右分栏还要留着（收纳要能切回去），
+ * 用类切换就等于两套布局共用同一份 DOM，不用维护两份结构。
+ * ==========================================================================*/
+
+/* ============================================================================
+ * 默认形态（不进 dock）：参照图那个"人物居中"的干净版面
+ *
+ * 侧栏**默认收起**，舞台铺满 → 人物居中站立，底部只有一张悬浮结果卡。
+ * 想看侧栏面板、或切到底部对话条，点设置里的「🐞 调试」。
+ * ==========================================================================*/
+/* 默认形态：侧栏收起来，但**输入区要留着** ——
+   上一版把整个 .side 都藏了，结果底部只剩一张结果卡，用户没地方打字
+   （"对话框呢"）。所以这里只藏页签和面板，把 .composer 做成底部悬浮条。 */
+body:not(.debug) .side {
+  position: fixed;
+  left: clamp(10px, 17vw, 300px);
+  right: clamp(10px, 17vw, 300px);
+  bottom: clamp(14px, 3vh, 36px);
+  /* ★ z-index 要高过 .stage-tools（工具排）。原来 31、工具排 40 上下，
+     点右上角那些控件时对话框会被压到下面 —— 看起来就是"点了就没了"。
+     现在提到 60：除了「💬 对话栏」那个开关，谁都别想把它盖掉。 */
+  z-index: 60;
+  /* 要装得下"对话输出栏 + 输入栏"，不能再是 auto 高度 */
+  height: clamp(200px, 30vh, 330px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  /* 更透一点：用户要的是"能看到人物和背景"，不是一块黑板。
+     0.58 太实了，压到 0.34；模糊也收一点，让背景还能看出形状。 */
+  background: linear-gradient(to bottom,
+    rgb(5 8 12 / 0.24) 0%,
+    rgb(5 8 12 / 0.36) 55%,
+    rgb(5 8 12 / 0.50) 100%);
+  backdrop-filter: blur(11px) saturate(1.15);
+  -webkit-backdrop-filter: blur(11px) saturate(1.15);
+  box-shadow: 0 14px 40px rgb(0 0 0 / 0.45);
+  overflow: hidden;
+}
+/* ★ 默认形态的底部卡片 = **对话输出栏 + 输入栏**。
+   上一版只留了输入栏、把 .panes 整个藏掉，于是打完字看不到任何输出，
+   展示栏也没了（"没给对话输出栏和展示栏做出来，按键没反应"）。
+   现在只藏页签和其它面板，#pane-chat（对话与方案输出）留着。 */
+body:not(.debug) .side .tabs { display: none !important; }
+body:not(.debug) .side .pane:not(#pane-chat) { display: none !important; }
+body:not(.debug) #pane-chat {
+  display: flex !important;
+  flex-direction: column;
+  min-height: 0;
+  padding: 10px 14px 0;
+}
+body:not(.debug) #pane-chat > h3,
+body:not(.debug) #pane-chat > .sub { display: none; }
+body:not(.debug) #pane-chat .chat-log {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+/* ★ 高度链必须接上。.side 是**固定高**的 flex 列，中间的 .panes 不给 flex:1 的话，
+   里面 #pane-chat 的 .chat-log 会塌成 0 高 —— 对话框其实还在、但里面是空的，
+   看起来就是"切回来对话栏没了"。这条漏了很久，是"看着没反应"的真凶。 */
+body:not(.debug) .side .panes {
+  display: block !important;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+body:not(.debug) #pane-chat { height: 100%; }
+body:not(.debug) .side .composer {
+  border-top: none;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding: 10px 14px 12px;
+}
+/* 侧栏藏了，网格也必须跟着变单列 —— 不然第二列还占着 400~520px，
+   舞台只剩 1026/1600，人物会偏在画面左边而不是居中。
+   （这条一开始漏了，量出来才发现。） */
+/* 关掉底部对话栏（大屏时想只留人物与背景就关掉它）。
+   `:not(.debug)` 是必须的：调试界面下 .side 是右侧分栏，
+   不该被这条连坐藏掉。 */
+body.no-chatbar:not(.debug) .side { display: none !important; }
+
+body:not(.debug) .app { grid-template-columns: 1fr; }
+
+body.dock .app {
+  grid-template-columns: 1fr;
+  /* ★ 只留两行：顶栏 + 舞台。
+     对话条不再占第三行，而是**盖在舞台上**（见下面 .side 的 position:fixed）。
+     区别很关键：占一行的话舞台就只剩上面那段，人物被压扁、腿永远露不出来；
+     盖上去则舞台是满高的，人物能按立绘那种竖向比例站全身，
+     半透明的对话条再让腿从底下透出来。 */
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+}
+body.dock .topbar { grid-column: 1 / -1; grid-row: 1; border-radius: 0; border: none; }
+body.dock .stage { grid-column: 1 / -1; grid-row: 2; border-radius: 0; border: none; }
+
+/* 对话条：浮在舞台上方，**半透明 + 背景模糊**。
+   全黑会把人物的下半身整个挡掉；全透又读不清字。
+   所以用毛玻璃：背景和人物从底下透出来，文字仍然清楚。 */
+body.dock .side {
+  position: fixed;
+  /* ★ 悬浮卡片，不是贴边通栏：左右下都留边、四角圆。
+     参照图里那条对话框就是这种"浮在画面上的卡片"，
+     贴边通栏会让人物下半身被齐齐切掉，也不像一块可以收起的板子。 */
+  left: clamp(10px, 2.4vw, 44px);
+  right: clamp(10px, 2.4vw, 44px);
+  /* ★ 卡片要**抬起来**，不能贴着底边。
+     Live2D 的锚点是脚底中心、位置钉在舞台高度的 99%（见 live2d.js 的 applyTransform），
+     所以人物的脚本来就在画面最底下；卡片贴底就会把小腿和脚一起盖掉。
+     抬高之后脚和小腿从卡片下方露出来 —— 这才是参照图那个比例。 */
+  bottom: clamp(46px, 9.5vh, 108px);
+  z-index: 30;
+  height: clamp(158px, 26vh, 280px);
+  border-radius: 16px;
+  border: 1px solid rgb(255 255 255 / 0.10);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 0.45);
+  overflow: hidden;
+  background: linear-gradient(to bottom,
+    rgb(5 8 12 / 0.26) 0%,
+    rgb(5 8 12 / 0.48) 46%,
+    rgb(5 8 12 / 0.66) 100%);
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+}
+
+/* 底部只留对话：页签、以及其它面板全部让位 */
+body.dock .side .tabs { display: none; }
+body.dock .side .pane:not(#pane-chat) { display: none !important; }
+body.dock #pane-chat {
+  display: flex !important;
+  flex-direction: column;
+  min-height: 0;
+  padding: 12px 16px 0;
+}
+/* 标题和说明在底部条里太占地方，去掉；只留消息和输入 */
+body.dock #pane-chat > h3,
+body.dock #pane-chat > .sub { display: none; }
+
+/* 消息气泡自己带底：对话条已经半透明了，气泡再透明就彻底糊在背景上没法读 */
+body.dock .chat-log { padding-right: 4px; }
+body.dock .chat-log .msg .bd {
+  background: rgb(4 7 11 / 0.62);
+  border-color: rgb(255 255 255 / 0.10);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+body.dock .chat-log .msg.me .bd { background: color-mix(in srgb, var(--primary) 26%, rgb(4 7 11 / 0.55)); }
+
+body.dock #pane-chat .chat-log {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+body.dock .side .composer {
+  padding: 10px 16px 12px;
+  border-top: 1px solid rgb(255 255 255 / 0.08);
+  background: rgb(4 7 11 / 0.42);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* 窄屏：底部条再矮一点，别把角色挤没 */
+@media (max-width: 900px) {
+  body.dock .side { height: clamp(150px, 34vh, 280px); }
+}
+
+/* ============================================================================
+ * 右上角工具排：收纳成一个按钮
+ * ==========================================================================*/
+
+body.tools-collapsed .stage-tools > *:not(.tools-toggle) { display: none; }
+body.tools-collapsed .stage-tools { gap: 0; padding-right: 0; }
+/* 收纳时给按钮一点提示色，让人知道"这里还能展开" */
+body.tools-collapsed .tools-toggle {
+  border-color: color-mix(in srgb, var(--primary) 50%, transparent);
+  color: var(--primary);
+}
+
+/* ---- 静音键：归在功能页的工具排里 ----
+ *
+ * 它就是个普通 .tool-btn，外观由上面那条统一给，不需要额外样式。
+ *
+ * ★ 开屏期间藏起来：开屏（主页）自己有底部那个「🔇 点击开启声音」，
+ *   右上角再来一个既重复、又跟开屏标题栏挤在一起。
+ *   用 :has() 直接读开屏的显隐属性，不额外维护 body class ——
+ *   少一处"忘记同步"的状态。
+ *
+ * 备注：它曾经是 position:fixed + z-index:2600 的悬浮层，为的是
+ * "开屏盖住工具排时也能点到"。既然开屏不该出现这个键，那个绕法就没必要了。 */
+body:has(#boot-screen:not([hidden])) #btn-mute { display: none; }
+
+/* 收纳（折叠）时，静音键和收纳键一起留在外面 —— 声音开关是现场最常按的一个，
+   藏进"设置"里要多点一次才够得着。优先级要压过上面那条通配隐藏规则。 */
+body.tools-collapsed .stage-tools > #btn-mute { display: inline-flex; }
+
+/* ---- 会转的小齿轮 ----
+ * 静态的齿轮图标看不出是齿轮，转起来一眼就知道"这是设置、而且能点"。
+ * 收起状态下转快一点当作提示；展开后慢下来，避免一排按钮里有个东西一直在动。
+ */
+.tools-toggle .ico {
+  display: inline-block;
+  animation: gearSpin 9s linear infinite;
+  transform-origin: 50% 50%;
+}
+body.tools-collapsed .tools-toggle .ico { animation-duration: 3.4s; }
+/* 悬停时明显加快：这是"可点"的即时反馈 */
+.tools-toggle:hover .ico { animation-duration: 1.1s; }
+@keyframes gearSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .tools-toggle .ico { animation: none !important; }
+}
+
+/* ============================================================================
+ * 虚拟形象显示 / 隐藏（默认显示）
+ *
+ * 用 opacity 而不是 display:none：Live2D 那套是 PIXI/WebGL，
+ * display:none 会让它下一帧拿不到正确的尺寸，重新显示时可能整块画不出来。
+ * ==========================================================================*/
+
+body.avatar-hidden #live2d-canvas,
+body.avatar-hidden #lake-canvas,
+body.avatar-hidden #stage3d-canvas {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 260ms var(--ease);
+}
+#live2d-canvas, #lake-canvas, #stage3d-canvas { transition: opacity 260ms var(--ease); }
+body.avatar-hidden #btn-avatar-hide { opacity: .55; }
+
+/* ============================================================================
+ * 对话里的可点推荐（"猜你想去"）与「让 AI 先问我」的追问样式
+ * ==========================================================================*/
+
+.chat-suggest {
+  display: flex; flex-wrap: wrap; gap: 7px;
+  margin-top: 9px;
+}
+.chat-suggest .sg {
+  padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  font-size: 12.5px; font-family: inherit;
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--primary) 45%, transparent);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  transition: background 180ms var(--ease), transform 180ms var(--ease);
+}
+.chat-suggest .sg:hover {
+  background: color-mix(in srgb, var(--primary) 28%, transparent);
+  transform: translateY(-1px);
+}
+.chat-suggest .sg .sg-note { color: var(--text-dim); margin-left: 5px; font-size: 11px; }
+
+/* 追问进行中的进度提示（第 3/8 项） */
+.chat-ask-progress {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 7px; padding: 3px 9px; border-radius: 999px;
+  font-size: 11px; color: var(--text-dim);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  border: 1px solid var(--border);
+}
+.chat-ask-progress b { color: var(--primary); font-weight: 700; }
+
+/* ---------------- 入场动画 ---------------- */
+
+@keyframes bootFadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes bootZoom {
+  from { transform: scale(1.06); }
+  to { transform: scale(1); }
+}
+@keyframes bootSlideIn {
+  from { opacity: 0; transform: translateX(-22px); }
+  to { opacity: 1; transform: none; }
+}
+
+.boot.boot-in .boot-head > * { animation: bootFadeUp 700ms var(--ease) both; }
+.boot.boot-in .boot-head > *:nth-child(2) { animation-delay: 80ms; }
+.boot.boot-in .boot-head > *:nth-child(3) { animation-delay: 160ms; }
+.boot.boot-in .boot-media { animation: bootZoom 1600ms var(--ease) both; }
+.boot.boot-in .boot-entry {
+  animation: bootFadeUp 560ms var(--ease) both;
+  animation-delay: calc(220ms + var(--i) * 90ms);
+}
+.boot[data-tpl="character"].boot-in .boot-entry { animation-name: bootSlideIn; }
+.boot.boot-in .boot-foot { animation: bootFadeUp 620ms var(--ease) 520ms both; }
+
+/* 无障碍：尊重"减少动态效果" */
+@media (prefers-reduced-motion: reduce) {
+  .boot.boot-in .boot-head > *, .boot.boot-in .boot-media,
+  .boot.boot-in .boot-entry, .boot.boot-in .boot-foot {
+    animation: none !important;
+    opacity: 1 !important; transform: none !important;
+  }
+}
+
+/* 窄屏：开屏也不能崩 */
+@media (max-width: 860px) {
+  .boot-menu { flex-direction: column; align-items: stretch; }
+  .boot-entry { min-width: 0; }
+  .boot[data-tpl="character"] .boot-body,
+  .boot[data-tpl="video"] .boot-body { padding: 18px; align-items: stretch; text-align: left; }
+}
+
+/* ============================================================================
+ * 大屏适配（展厅大屏 / 2K / 4K / Kiosk 全屏宣传）
+ *
+ * 为什么原来的"响应式"不够用：原来只有 max-width 断点（1180 / 1080 / 720 / 620），
+ * 也就是**只管窄屏**。而在 1920 以上的屏幕上：
+ *   · 字号、按钮、间距全是按 14px 基准写的，4K 上看起来像缩了一圈
+ *   · 侧栏被 minmax(360px, 460px) 钉死，大屏上有大片空白却不肯多给舞台
+ *   · 开屏标题的相对字号（vw 基准）在超宽屏上会大得离谱
+ * 这一段补的是 **min-width** 那半边。放在文件最后，确保不受窄屏规则影响。
+ * ==========================================================================*/
+
+/* ---- 基准字号随屏幕放大：所有用 rem/em 的地方一起变大 ---- */
+@media (min-width: 1600px) {
+  body { font-size: 16px; }
+  .app {
+    grid-template-columns: 1fr minmax(400px, 520px);
+    gap: 18px;
+    padding: 18px;
+    grid-template-rows: 64px 1fr;
+  }
+}
+@media (min-width: 2200px) {          /* 2K / 2560 宽 */
+  body { font-size: 18px; }
+  .app {
+    grid-template-columns: 1fr minmax(460px, 620px);
+    gap: 22px;
+    padding: 22px;
+    grid-template-rows: 74px 1fr;
+  }
+  /* 顶栏与侧栏的字号再抬一档：大屏上离得远，14px 是看不清的 */
+  .tool-btn { font-size: 15px; padding: 0 14px; }
+  .tab span { font-size: 13px; }
+}
+@media (min-width: 3200px) {          /* 4K */
+  body { font-size: 21px; }
+  .app {
+    grid-template-columns: 1fr minmax(560px, 780px);
+    gap: 28px;
+    padding: 28px;
+    grid-template-rows: 88px 1fr;
+  }
+  .tool-btn { font-size: 18px; padding: 0 18px; }
+  .tool-btn .ico { font-size: 20px; }
+  /* 词云的密度与字号也要跟着上，否则 4K 上只剩几个孤零零的词 */
+  .subtitle { font-size: 17px; }
+}
+
+/* ---- Kiosk（展厅全屏宣传）：藏掉所有"操作界面"，只留舞台与字幕 ----
+   进入方式：点顶栏的「全屏展示」，或在设置里打开。用 body.kiosk 一个开关控制，
+   因为大屏场景下用户要的是一块"会说话的展板"，不是一堆可点的设置项。 */
+/* ★ 大屏：藏掉**右侧操作面板**，但底部对话栏要留着。
+   原来写的是 `body.kiosk .side { display: none }`，把整条侧栏连对话栏一起藏了 ——
+   于是大屏变成"只放片子、没法跟观众说话"。
+   改成只对调试布局（右侧分栏）生效：默认布局下 .side 就是底部对话栏，要保留。 */
+body.kiosk.debug .side { display: none; }
+body.kiosk .app {
+  grid-template-columns: 1fr;
+  grid-template-areas: "topbar" "stage";
+  /* ★ 大屏要**铺满**：基础样式里的内边距、间距、最大宽度、圆角在展厅里
+     就是四周那圈白边，很影响观感。全部归零。 */
+  padding: 0;
+  gap: 0;
+  max-width: none;
+  width: 100%;
+  height: 100%;
+}
+body.kiosk .topbar,
+body.kiosk .stage { border-radius: 0; margin: 0; }
+/* 大屏下底部对话栏的左右留边也收窄一点，别浪费屏幕 */
+body.kiosk .side { left: clamp(8px, 1.2vw, 24px); right: clamp(8px, 1.2vw, 24px); }
+body.kiosk .topbar { opacity: 0; transition: opacity 260ms var(--ease); }
+/* ★ 必须写成"悬停到顶栏自己身上"，不能写成 `body.kiosk:hover`。
+   鼠标基本一直待在页面上，body 的 :hover 就永远成立 —— 顶栏一直是显示状态，
+   大屏模式看上去像"根本没生效"（实测确认过：kiosk 类挂上了、侧栏也藏了，
+   但顶栏还在）。opacity:0 不影响命中测试，所以改成悬停自身是有效的。 */
+body.kiosk .topbar:hover,
+body.kiosk .topbar:focus-within { opacity: 1; }
+body.kiosk .stage-tools { opacity: 0; transition: opacity 260ms var(--ease); }
+/* 这里用 :has(:focus-visible) 而不是 :focus-within：
+   鼠标点一下「大屏」会把焦点留在那个按钮上，:focus-within 立刻匹配，
+   工具排就又亮着不走了 —— 用户看到的就是"点了大屏没什么变化"。
+   :focus-visible 只在键盘导航时才成立：鼠标点完不残留，Tab 进去仍然看得见。 */
+body.kiosk .stage-tools:hover,
+body.kiosk .stage-tools:has(:focus-visible) { opacity: 1; }
+
+/* 无障碍：尊重系统的"减少动态效果" */
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  body::before { animation: none; }
+}
+
+
+
+/* ==========================================================================
+ * 行程规划工作台（组员做的 React 版界面）
+ *
+ * 这里只留挂载容器本身。工作台的组件样式由它随包带出来的 planner-embed.css
+ * 负责，两边用同一套配色：外壳给「文旅」语义留的青绿 --wenlv 作为主色。
+ *
+ * 为什么不用 iframe：iframe 里是另一个文档、另一套 body 样式，
+ * 字体/配色/背景都继承不到外壳，看起来永远是"两块拼在一起的板子"。
+ * 现在是同一个文档里直接挂载 React，共用外壳的字体与背景。
+ * ========================================================================== */
+#wenlv-planner {
+  min-height: 120px;
+  /* 外壳面板本身就有 padding，这里不再加一层，让工作台贴着面板对齐 */
+  margin: 0;
+}
+/* 对话框里的「方案」输出：直接挂文旅工作台那套 PlanView 组件，
+   所以这里只负责给它一个合适的盒子（宽度、内边距、可滚动），
+   组件本身的样式由 embed.css 的 .wenlv-scope 负责。 */
+.chat-log .msg .plan-view-host {
+  margin-top: 6px;
+  max-height: 62vh;
+  overflow-y: auto;
+  padding: 2px;
+  width: 100%;
+  min-width: 0;
+}
+.chat-log .msg .plan-view-host:empty { display: none; }
+
+/* 带方案的那条消息要**占满整行**。
+   .msg 默认是 flex（头像 + 气泡），而方案视图是有最小宽度的卡片布局 ——
+   不放开宽度的话它会被挤成几个像素宽的一条（实测 4px），等于看不见。 */
+.chat-log .msg:has(.plan-view-host) { width: 100%; }
+.chat-log .msg:has(.plan-view-host) .bd {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: none;
+  /* 方案自己带卡片底色，外面再套一层气泡底会显得脏 */
+  background: transparent;
+  border: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding: 0;
+}
+
+/* 注：气泡引导（.ask-bubbles）已按需求删除，原先针对它的两条"占满整行"规则
+   （.chat-log .msg:has(.ask-bubbles) …）一并移除。
+   工作台那条（:has(.workbench-host)）仍在，它才是现在的对话内容形态。 */
+
+/* ----------------------------------------------------------------------------
+ * 对话框里的「文旅工作台本体」（app.js → startWorkbenchInChat）
+ *
+ * 这里挂的是组员那套 React 工作台（同一棵树、同一个 bundle），不是复刻。
+ * 外壳只负责给它一个合适的盒子，组件自己的样子全由 embed.css 的 .wenlv-scope 管。
+ * -------------------------------------------------------------------------- */
+.chat-log .msg:has(.workbench-host) { width: 100%; }
+.chat-log .msg:has(.workbench-host) .bd {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: none;
+  /* 工作台自己带卡片底，外面再套一层聊天气泡的底和描边会显脏 */
+  background: transparent;
+  border: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding: 0;
+}
+
+/* ⚠ 宽度上限 940px 不是随便写的。
+ *
+ * embed.css 里给 `.wenlv-scope` 建了容器查询上下文，断点是 940px：
+ *   ≤940px → 表单列铺满一列（就是「文旅」页签里那个窄面板的样子）
+ *   >940px → 表单占 8/24、结果占 16/24 的两栏
+ *
+ * 对话框这块有 986px 宽，不设上限就会排成两栏 —— 那就和主人截图里的
+ * 「文旅」页签不是同一种样子了。限到 940 以内，两处都走"窄面板"那一支，
+ * 表单铺满、字段一行两个，跟图二一致。
+ * 两边各留 23px 是看不出来的，换来的是两处排版的确定性。
+ *
+ * 另外不设 max-height：让 .chat-log 自己滚，比给工作台再套一层
+ * 内部滚动区更好用（antd 的下拉是 portal 到 body 的，不会被裁）。
+ */
+.chat-log .msg .workbench-host {
+  width: 100%;
+  max-width: 940px;
+  margin: 0 auto;
+  min-width: 0;
+}
+
+/* ----------------------------------------------------------------------------
+ * 输出区里放"整块页面"时，把面板底色压实。
+ *
+ * `--surface` 是 `rgb(255 255 255 / 0.045)` —— 一层几乎全透的白 + 22px 模糊。
+ * 装几句对话气泡的时候没问题（那是这个外壳的玻璃质感）；但把**整张工作台表单**
+ * 放进去之后，背后的人物会从表单里透出来，字段和 placeholder 都看不清了
+ * （实测截图里人物整个叠在「目的地 / 出发地」上面）。
+ *
+ * 所以只在这一种情况下把底压实：面板里真的装了工作台或方案。
+ * 值取接近外壳本色的深灰，保留一点模糊，既不突兀、又能读字。
+ * -------------------------------------------------------------------------- */
+body:not(.debug) .side:has(.workbench-host),
+body:not(.debug) .side:has(.plan-view-host) {
+  background: rgba(9, 12, 16, 0.88);
+}
+
+/* ----------------------------------------------------------------------------
+ * 关于高度：气泡/方案这类"大块输出"需要更高的输入区。
+ *
+ * 默认（非调试）布局里 .side 是固定在底部的窄条：height clamp(200px,30vh,330px)，
+ * 1000px 高的屏幕上只有 300px。里面还要扣掉页签行和 composer（约 140px），
+ * 留给 .chat-log 的可见高度只剩 **105px** —— 而气泡引导一批就有近 400px 高。
+ * 不放大就等于"主人只能从一道缝里看"，样式改得再对也白搭。
+ *
+ * 这里**不用 CSS 强行撑高**（:has() 撑高之后，主人点右上角 ⤢ 就收不回去了，
+ * 因为规则的优先级压过他）。改成由 JS 在内容出现时调用一次自动放大，
+ * 主人自己点过 ⤢ 之后就不再多管 —— 见 app.js 的 window.WenlvChatPane。
+ * -------------------------------------------------------------------------- */
+
+/* ----------------------------------------------------------------------------
+ * 助手**普通文字回复**也统一到工作台那套表面。
+ *
+ * 原来 .msg .bd 用的是 AIRI 的 var(--surface) 深色气泡 + 14px 圆角，
+ * 而旁边刚改好的气泡卡片/方案卡片是「白 3.5% 底 + .08 描边 + 圆角 12」。
+ * 两套并排放在同一个对话框里，一眼就看出是拼的 —— 所以这里把文字气泡
+ * 也换成工作台那张卡：同样的底色、描边、圆角，字号也对齐 12.5px。
+ *
+ * 排除四类：
+ *   .me / .sys / .err —— 主人自己的话、系统提示、错误，各自有语义色，不动；
+ *   带方案 / 工作台的消息 —— 它们自己就是工作台卡片，外面再套一层会显脏
+ *     （那几条规则在文件更靠前的位置，被这条高优先级的压住就坏了）。
+ *   （原条件里还有 :not(:has(.ask-bubbles)) —— 气泡引导已按需求删除，去掉这个已死的排除项。）
+ *
+ * 也**刻意排除 body.dock**：那个模式下对话框是浮在宣传片上的，
+ * 用半透明浅底会看不清字 —— 那层的深色底是出于可读性，不是审美。
+ * -------------------------------------------------------------------------- */
+body:not(.dock) .chat-log .msg:not(.me):not(.sys):not(.err):not(:has(.plan-view-host)):not(:has(.workbench-host)) .bd {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  font-size: 12.5px;
+  line-height: 1.6;
+}

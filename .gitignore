@@ -1,0 +1,44 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+backend/.venv/
+
+# ---- 本机配置：高德 Key、模型地址等，不要提交 ----
+.env
+backend/.env
+
+# ---- 运行期数据：SQLite 计划库、角色卡、缓存等，都是本机状态 ----
+backend/data/
+# 音轨库与热点词表落在**项目根**的 data/（见 /api/audio 返回的 dir）。
+#
+# ⚠ 前面那个 `/` 不能省。gitignore 里不带前导斜杠的 `data/` 会匹配
+# **任意层级**叫 data 的目录 —— 写成 `data/` 会把 `backend/app/data/`
+# （当前项目自己的词表、能力清单、提示词）也一起忽略掉，
+# 于是那些文件根本不会被提交，别人 clone 下来就是缺文件的。
+# 加前导 `/` 才是"只锚定仓库根目录下的 data/"。
+#
+# v6.6 起**不再忽略** data/videos 与 data/audio：按需求要把演示用的
+# 宣传片与配乐一起发到仓库（自包含、clone 即有素材）。
+# 它们的著作权归属见仓库根目录的「借物表.md」，**仅限本机演示，勿商用**。
+# 若哪天要改回不提交，把下面两行注释掉即可。
+# /data/videos/
+# /data/audio/
+
+# ---- Node / 前端 ----
+node_modules/
+frontend/dist/
+frontend/dist-embed/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---- 本地自用素材（授权不允许再配布，所以永不提交）----
+# 洛天依模型：作者配布规则禁止二次配布 / 禁止商用，仅本地演示使用。
+public/models3d/luotianyi/

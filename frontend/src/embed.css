@@ -1,0 +1,141 @@
+/* ==========================================================================
+ * 嵌进 AIRI 外壳时的收口样式。
+ *
+ * 所有选择器都以 .wenlv-scope 开头 —— 只作用于这个容器，绝不碰外壳。
+ * 工作台本来是按「独立整页」设计的（maxWidth 1200 + 大标题 + 16px 外距），
+ * 塞进外壳右侧 518px 的面板里要先把这些整页级的留白收掉。
+ * ========================================================================== */
+
+.wenlv-scope {
+  color: rgba(255, 255, 255, 0.94);
+  font-size: 12.5px;
+  line-height: 1.55;
+  /* 建立容器查询上下文：下面的列宽规则按"面板有多宽"判断，
+     而不是按"浏览器窗口有多宽"。见文件末尾的说明。 */
+  container-type: inline-size;
+  container-name: wenlv;
+}
+
+/* 整页级留白：外壳的面板自己已经有 padding，这里再来一层就纯属浪费高度 */
+.wenlv-scope > div {
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* 外壳上已经写着「文旅工作台」，这里再顶一行同名大标题只是白占一屏 */
+.wenlv-scope h3.ant-typography {
+  display: none !important;
+}
+
+/* 卡片之间给点间距：原来是靠 marginTop:12 一处一处手写的，堆叠后会糊在一起 */
+.wenlv-scope .ant-row {
+  row-gap: 10px;
+  /* antd 的 Row gutter 是用"负外边距 + 子列内边距"实现的：gutter=16 时
+     Row 左右各 -8px。整页版里外层有 padding 抵消，嵌进面板后外层 padding
+     被我们收成 0，这 8px 就顶出去了（实测容器 494 / 可视 486，横向出现滚动）。
+     这里直接把负边距归零，子列的内边距照旧提供列间距。 */
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+.wenlv-scope .ant-card + .ant-card {
+  margin-top: 10px;
+}
+
+/* 让卡片更像外壳的玻璃面板，而不是一块实心板 */
+.wenlv-scope .ant-card {
+  background: rgba(255, 255, 255, 0.035);
+  border-color: rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+}
+.wenlv-scope .ant-card-head {
+  border-bottom-color: rgba(255, 255, 255, 0.07);
+  min-height: 38px;
+  padding: 0 12px;
+}
+.wenlv-scope .ant-card-head-title {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.wenlv-scope .ant-card-body {
+  padding: 12px;
+}
+
+/* 表单：外壳的字号偏小，输入控件跟着收一档，不然在 518px 里显得笨重 */
+.wenlv-scope .ant-form-item {
+  margin-bottom: 10px;
+}
+.wenlv-scope .ant-form-item-label {
+  padding-bottom: 2px;
+}
+.wenlv-scope .ant-form-item-label > label {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.62);
+  height: auto;
+}
+
+/* 提示条别那么厚 */
+.wenlv-scope .ant-alert {
+  padding: 6px 10px;
+  font-size: 11.5px;
+}
+
+/* 表单里的「生成」按钮用外壳的主色，做成整块 */
+.wenlv-scope .ant-btn-primary {
+  font-weight: 600;
+}
+
+/* ==========================================================================
+ * 按容器宽度决定列数（容器查询，不是媒体查询）
+ *
+ * 为什么必须这么做：PlannerPage 用的是 `<Col xs={24} lg={8}>` / `lg={16}`，
+ * 而 antd 的响应式断点走的是 **CSS 媒体查询**，判断依据是**浏览器视口宽度**。
+ * 嵌进外壳右侧 518px 的面板后，视口仍然是 1600px，于是 lg 命中，
+ * 两列被压成 167px / 335px —— 表单挤成一条，比不响应还糟。
+ * （之前用 iframe 时没这个问题，因为 iframe 有自己的视口，正好 518px。）
+ *
+ * 容器查询问的是「这个面板实际多宽」，所以：窄面板 → 单列堆叠；
+ * 点「⤢ 全屏」后容器变成 1518px → 恢复两列。两种模式都不用额外开关。
+ *
+ * 用 !important 是因为 antd 的样式是运行时注入到 <head> 末尾的，
+ * 同优先级下它排在后面会赢。这里选择器已经带上了容器 id，
+ * 再加 !important 才算稳。
+ * ========================================================================== */
+@container wenlv (max-width: 940px) {
+  .wenlv-scope .ant-col-lg-8,
+  .wenlv-scope .ant-col-lg-9,
+  .wenlv-scope .ant-col-lg-12,
+  .wenlv-scope .ant-col-lg-16,
+  .wenlv-scope .ant-col-lg-18,
+  .wenlv-scope .ant-col-lg-24 {
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+  }
+}
+
+/* 加载中 / 出错时的占位文字。
+   面板不允许"一声不响地空白"——分不清是在加载还是挂了。 */
+.wenlv-scope .planner-state {
+  padding: 14px 12px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.38);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  text-align: center;
+}
+.wenlv-scope .planner-state.err {
+  color: #f97770;
+  border-color: rgba(249, 119, 112, 0.35);
+  text-align: left;
+  line-height: 1.6;
+}
+
+/* 词云点产物词滚过来时的高亮：给个两秒的呼吸感，让人知道要看哪 */
+.wenlv-scope .wenlv-focus-flash {
+  animation: wenlv-focus-flash 1.6s ease-out;
+  border-radius: 8px;
+}
+@keyframes wenlv-focus-flash {
+  0%   { box-shadow: 0 0 0 3px rgba(84, 200, 177, 0.75); background-color: rgba(84, 200, 177, 0.14); }
+  100% { box-shadow: 0 0 0 0 rgba(84, 200, 177, 0);    background-color: transparent; }
+}

@@ -1,0 +1,26 @@
+{
+  "note": "随项目分发的内置背景图。图片来自 Project AIRI（MIT），版权与出处见每条的 note 字段。",
+  "items": [
+    {
+      "id": "bg-cozy-tea-corner",
+      "file": "cozy-tea-corner.avif",
+      "label": "温馨茶室",
+      "note": "来自 Project AIRI · packages/stage-ui/src/assets/backgrounds",
+      "tone": "light"
+    },
+    {
+      "id": "bg-cute-streaming-room",
+      "file": "cute-streaming-room.avif",
+      "label": "粉色直播间",
+      "note": "来自 Project AIRI · packages/stage-ui/src/assets/backgrounds",
+      "tone": "light"
+    },
+    {
+      "id": "bg-fairy-forest",
+      "file": "fairy-forest.avif",
+      "label": "精灵森林",
+      "note": "来自 Project AIRI · apps/stage-web/src/assets/backgrounds",
+      "tone": "dark"
+    }
+  ]
+}

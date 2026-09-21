@@ -1,0 +1,28 @@
+{
+  "name": "wenlv-assistant",
+  "version": "4.1.0",
+  "description": "文旅智能辅助 Skill：个性化游玩/旅居/餐饮方案规划 + 文旅营销素材生成，含输出质检",
+  "permissions": {
+    "fs": {
+      "read": ["./**"],
+      "write": ["./cache/**"]
+    },
+    "network": {
+      "allow": ["127.0.0.1", "localhost"]
+    },
+    "tools": ["read", "exec"],
+    "env": []
+  },
+  "config": {
+    "model": {
+      "type": "string",
+      "default": "qwen2.5:7b",
+      "description": "本地 Ollama 推理模型名称"
+    },
+    "port": {
+      "type": "number",
+      "default": 8000,
+      "description": "本地 Web 演示界面端口"
+    }
+  }
+}

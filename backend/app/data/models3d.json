@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "formats": {
+    ".vrm": {
+      "label": "VRM",
+      "mime": "model/gltf-binary",
+      "desc": "VRoid / VRM 虚拟形象，带骨骼与表情"
+    },
+    ".glb": {
+      "label": "GLB",
+      "mime": "model/gltf-binary",
+      "desc": "glTF 二进制单文件"
+    }
+  },
+  "bundled": [],
+  "custom": []
+}
