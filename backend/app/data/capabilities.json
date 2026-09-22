@@ -924,6 +924,55 @@
   "myVoices": [],
   "live2d": [
     {
+      "id": "hanfu",
+      "label": "汉服少女（自建）",
+      "note": "由本地立绘经 See-through 拆图 + PSD2Live 生成的分层 Live2D 模型，1024 分辨率。原画素材源自网络，仅本机演示、不得再分发；模型结构由本项目自行生成。",
+      "tags": [
+        "国风",
+        "Live2D",
+        "本地自用",
+        "自建模型"
+      ],
+      "entry": "/models/hanfu/hanfu.model3.json",
+      "source": "See-through + PSD2Live"
+    },
+    {
+      "id": "mudan",
+      "label": "唯有牡丹真国色",
+      "note": "模之屋作品《【免费模型分享】唯有牡丹真国色》。原作者：云梦泽yumoze（年年子）。规则：禁止商用 / 禁止二次配布 / 禁止修改模型 / 禁止用于制作视频之外的用途。仅本机演示，不得再分发。",
+      "tags": [
+        "国风",
+        "Live2D",
+        "本地自用",
+        "禁止二次配布"
+      ],
+      "entry": "/models/mudan/tu tuan yuan.model3.json",
+      "preview": null,
+      "expressions": [],
+      "motionGroups": [],
+      "motionCount": 0,
+      "hasLipSync": true,
+      "textureCount": 2
+    },
+    {
+      "id": "cangyixiu",
+      "label": "深闺藏衣袖",
+      "note": "模之屋作品《【Live2d免费模型】深闺藏衣袖》。原作者：云梦泽yumoze（年年子）。规则：禁止商用 / 禁止二次配布 / 禁止修改模型 / 禁止用于制作视频之外的用途。仅本机演示，不得再分发。",
+      "tags": [
+        "国风",
+        "Live2D",
+        "本地自用",
+        "禁止二次配布"
+      ],
+      "entry": "/models/cangyixiu/jingying.model3.json",
+      "preview": null,
+      "expressions": [],
+      "motionGroups": [],
+      "motionCount": 0,
+      "hasLipSync": true,
+      "textureCount": 3
+    },
+    {
       "id": "hiyori",
       "label": "桃瀬ひより",
       "note": "Live2D Inc. 官方示例模型 Hiyori，由本脚本从公开仓库 Live2D/CubismWebSamples 获取。模型版权归 Live2D Inc.，使用前请阅读 https://www.live2d.com/eula/live2d-free-material-license-agreement_cn.html",

@@ -1,4 +1,9 @@
 @echo off
+REM ★ chcp 65001 不能省：本文件是 UTF-8（无 BOM），里面有中文提示，
+REM 而中文 Windows 的控制台默认是 GBK(936) —— 不切到 65001 的话，
+REM 那些中文会以 UTF-8 字节被当成 GBK 显示，整段变成乱码
+REM （"一键部署.bat" 就是因为带了这句才正常）。原来这里少了它。
+chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 title Wenlv Assistant (HikiTravel + AIRI UI) - One-Click Deploy

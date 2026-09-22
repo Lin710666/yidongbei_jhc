@@ -450,13 +450,10 @@ body[data-vfit="rotate"] #bg-video {
 /* 视频背景默认透明且不吃指针事件（它是纯背景，不该拦住舞台上的点击） */
 #bg-video { opacity: 0; pointer-events: none; background: #000; }
 
-/* 舞台三块画布互斥显示：谁来渲染就显示谁，其余 none。
-   #live2d-canvas 与 #lake-canvas 初始都给 none，由 showCanvas() 按当前形象决定 ——
-   默认形象是西湖船娘，所以真正显示的是 #lake-canvas。 */
+/* 舞台两块画布互斥显示：谁来渲染就显示谁，其余 none。
+   两个初始都是 none，由 showCanvas() 按当前形象决定。
+   （原来还有第三块 #lake-canvas，「西湖船娘」那套形象删掉之后它也没了。） */
 #live2d-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: none; z-index: 1; }
-/* 西湖船娘（2D 绘制）。与 Live2D 分开是因为一块 canvas 只能有一种绘图上下文 */
-#lake-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; z-index: 1; }
-/* 3D 舞台与上面两块互斥显示，默认隐藏 */
 #stage3d-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: none; z-index: 1; }
 #wordcloud-layer { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
 #wordcloud-layer .wc-word { pointer-events: auto; }
@@ -2297,26 +2294,92 @@ body:not(.debug) .side {
   box-shadow: 0 14px 40px rgb(0 0 0 / 0.45);
   overflow: hidden;
 }
-/* ★ 默认形态的底部卡片 = **对话输出栏 + 输入栏**。
+/* ★ 默认形态的底部卡片 = **文旅工作台 + 方案输出 + 输入栏**。
    上一版只留了输入栏、把 .panes 整个藏掉，于是打完字看不到任何输出，
    展示栏也没了（"没给对话输出栏和展示栏做出来，按键没反应"）。
-   现在只藏页签和其它面板，#pane-chat（对话与方案输出）留着。 */
+   现在只藏页签和其它面板，#pane-tools（合并后的「文旅」）留着。
+
+   ★ 「对话」页签并进「文旅」之后这里也跟着改了：
+   原来藏的是"除 #pane-chat 以外的所有面板"，现在藏的是"除 #pane-tools 以外的"。
+   不改的话一个面板都不显示 —— 整个底部栏只剩输入框，中间一片空。 */
 body:not(.debug) .side .tabs { display: none !important; }
-body:not(.debug) .side .pane:not(#pane-chat) { display: none !important; }
-body:not(.debug) #pane-chat {
+body:not(.debug) .side .pane:not(#pane-tools) { display: none !important; }
+body:not(.debug) #pane-tools {
   display: flex !important;
   flex-direction: column;
   min-height: 0;
+  height: 100%;
   padding: 10px 14px 0;
-}
-body:not(.debug) #pane-chat > h3,
-body:not(.debug) #pane-chat > .sub { display: none; }
-body:not(.debug) #pane-chat .chat-log {
-  flex: 1 1 auto;
-  min-height: 0;
+  /* 合并之后这个面板里装了三样：工作台（表单很高）、方案输出、历史对话。
+     让**面板自己滚**，而不是让输出区抢固定高度 —— 抢高度的结果是表单被挤没，
+     用户看不到"填偏好"那一块（那是这个页签的主要入口）。 */
   overflow-y: auto;
+}
+body:not(.debug) #pane-tools > h3,
+body:not(.debug) #pane-tools > .sub { display: none; }
+/* 输出区按内容长（不再 flex:1 撑满），由面板统一滚动 */
+body:not(.debug) #pane-tools .chat-log {
+  flex: 0 0 auto;
+  min-height: 48px;
+  max-height: none;
+  overflow: visible;
   padding-right: 4px;
 }
+
+/* ★ 工作台**不许被 flex 压扁**。
+   这是"历史对话那一行叠在表单中间"的真正原因，实测数据：
+     #wenlv-planner 的盒子高 = 373px，而它内部内容高 = 854px
+   `#pane-tools` 是 flex 列容器，工作台作为 flex item 默认 flex-shrink:1，
+   于是被压到 373px；而它的内容是**溢出到盒子外面**继续画的，
+   后画的 #chat-log / #chat-hist 就正好压在溢出的表单上面 ——
+   看起来就是"历史对话 / 新对话 / 清空 那一行跑到表单中间去了"。
+   给 flex:0 0 auto 让它按自己内容高，超出部分交给面板滚动。 */
+body:not(.debug) #pane-tools #wenlv-planner,
+body.dock #pane-tools #wenlv-planner {
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: visible;
+}
+/* 历史对话那块同样不许被压扁（实测被压到 10px、内容 32px，标题和按钮叠在一起）。
+   它里面的 .hist-list 自己有 max-height + 滚动，所以不会无限长。 */
+body:not(.debug) #pane-tools .hist,
+body.dock #pane-tools .hist {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+/* ---- 工作台的展开开关 ----
+   底部面板只有 300px（用户要的"人物大"），完整工作台要约 700px，
+   直接铺开会把字段切掉、还挤掉方案结果区。所以默认折起来，只留这一行。
+   分栏布局（.debug）下不折叠：那里 520px 宽、纵向也宽松。 */
+.wb-toggle {
+  display: none;            /* 只在底部面板布局里出现，见下面的 :not(.debug) 规则 */
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  margin: 0 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: rgb(255 255 255 / 0.045);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+}
+.wb-toggle:hover { border-color: color-mix(in srgb, var(--primary) 55%, transparent); }
+.wb-toggle .wb-toggle-arrow { margin-left: auto; color: var(--text-dim); }
+.wb-toggle.open {
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  color: var(--primary);
+}
+
+body:not(.debug) .wb-toggle { display: flex; }
+/* 折叠状态：工作台收起来，只留开关那一行 */
+body:not(.debug).wb-collapsed #wenlv-planner { display: none; }
+/* 分栏布局下永远展开（开关也不显示） */
+body.debug.wb-collapsed #wenlv-planner { display: block; }
 /* ★ 高度链必须接上。.side 是**固定高**的 flex 列，中间的 .panes 不给 flex:1 的话，
    里面 #pane-chat 的 .chat-log 会塌成 0 高 —— 对话框其实还在、但里面是空的，
    看起来就是"切回来对话栏没了"。这条漏了很久，是"看着没反应"的真凶。 */
@@ -2326,7 +2389,7 @@ body:not(.debug) .side .panes {
   min-height: 0;
   overflow: hidden;
 }
-body:not(.debug) #pane-chat { height: 100%; }
+body:not(.debug) #pane-tools { height: 100%; }
 body:not(.debug) .side .composer {
   border-top: none;
   background: transparent;
@@ -2387,18 +2450,21 @@ body.dock .side {
   -webkit-backdrop-filter: blur(16px) saturate(1.2);
 }
 
-/* 底部只留对话：页签、以及其它面板全部让位 */
+/* 底部只留「文旅」（对话已并进来）：页签、以及其它面板全部让位 */
 body.dock .side .tabs { display: none; }
-body.dock .side .pane:not(#pane-chat) { display: none !important; }
-body.dock #pane-chat {
+body.dock .side .pane:not(#pane-tools) { display: none !important; }
+body.dock #pane-tools {
   display: flex !important;
   flex-direction: column;
   min-height: 0;
+  height: 100%;
   padding: 12px 16px 0;
+  /* 和默认布局同理：面板自己滚，别让输出区抢固定高度把工作台挤没 */
+  overflow-y: auto;
 }
-/* 标题和说明在底部条里太占地方，去掉；只留消息和输入 */
-body.dock #pane-chat > h3,
-body.dock #pane-chat > .sub { display: none; }
+/* 标题和说明在底部条里太占地方，去掉；只留工作台、消息和输入 */
+body.dock #pane-tools > h3,
+body.dock #pane-tools > .sub { display: none; }
 
 /* 消息气泡自己带底：对话条已经半透明了，气泡再透明就彻底糊在背景上没法读 */
 body.dock .chat-log { padding-right: 4px; }
@@ -2410,10 +2476,11 @@ body.dock .chat-log .msg .bd {
 }
 body.dock .chat-log .msg.me .bd { background: color-mix(in srgb, var(--primary) 26%, rgb(4 7 11 / 0.55)); }
 
-body.dock #pane-chat .chat-log {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
+body.dock #pane-tools .chat-log {
+  flex: 0 0 auto;
+  min-height: 48px;
+  max-height: none;
+  overflow: visible;
 }
 body.dock .side .composer {
   padding: 10px 16px 12px;
@@ -2482,13 +2549,12 @@ body.tools-collapsed .tools-toggle .ico { animation-duration: 3.4s; }
  * ==========================================================================*/
 
 body.avatar-hidden #live2d-canvas,
-body.avatar-hidden #lake-canvas,
 body.avatar-hidden #stage3d-canvas {
   opacity: 0;
   pointer-events: none;
   transition: opacity 260ms var(--ease);
 }
-#live2d-canvas, #lake-canvas, #stage3d-canvas { transition: opacity 260ms var(--ease); }
+#live2d-canvas, #stage3d-canvas { transition: opacity 260ms var(--ease); }
 body.avatar-hidden #btn-avatar-hide { opacity: .55; }
 
 /* ============================================================================
@@ -2613,9 +2679,10 @@ body.avatar-hidden #btn-avatar-hide { opacity: .55; }
   .subtitle { font-size: 17px; }
 }
 
-/* ---- Kiosk（展厅全屏宣传）：藏掉所有"操作界面"，只留舞台与字幕 ----
-   进入方式：点顶栏的「全屏展示」，或在设置里打开。用 body.kiosk 一个开关控制，
-   因为大屏场景下用户要的是一块"会说话的展板"，不是一堆可点的设置项。 */
+/* ---- Kiosk（展厅大屏）：藏掉所有"操作界面"，只留舞台与底部对话栏 ----
+   进入方式：点顶栏的「大屏」，或从开屏点「对话页」进来（默认就开）。
+   用 body.kiosk 一个开关控制，因为大屏场景下用户要的是一块"会说话的展板"，
+   不是一堆可点的设置项。 */
 /* ★ 大屏：藏掉**右侧操作面板**，但底部对话栏要留着。
    原来写的是 `body.kiosk .side { display: none }`，把整条侧栏连对话栏一起藏了 ——
    于是大屏变成"只放片子、没法跟观众说话"。
@@ -2636,18 +2703,32 @@ body.kiosk .topbar,
 body.kiosk .stage { border-radius: 0; margin: 0; }
 /* 大屏下底部对话栏的左右留边也收窄一点，别浪费屏幕 */
 body.kiosk .side { left: clamp(8px, 1.2vw, 24px); right: clamp(8px, 1.2vw, 24px); }
-body.kiosk .topbar { opacity: 0; transition: opacity 260ms var(--ease); }
-/* ★ 必须写成"悬停到顶栏自己身上"，不能写成 `body.kiosk:hover`。
-   鼠标基本一直待在页面上，body 的 :hover 就永远成立 —— 顶栏一直是显示状态，
-   大屏模式看上去像"根本没生效"（实测确认过：kiosk 类挂上了、侧栏也藏了，
-   但顶栏还在）。opacity:0 不影响命中测试，所以改成悬停自身是有效的。 */
-body.kiosk .topbar:hover,
-body.kiosk .topbar:focus-within { opacity: 1; }
+
+/* ★ 顶栏整条**藏掉**，不是淡出。
+   原来是 `opacity: 0` + "悬停到顶栏自身再亮回来"，想的是"给个退路"。
+   实际用起来的问题是：鼠标只要不小心划到屏幕顶部，那一行
+   「🏔️ 文旅智能辅助 HikiTravel-AIRI-1.3」加一排气泡就冒出来了 ——
+   大屏里观众会看到"怎么突然多了个标题栏"。
+   现在直接 display:none，彻底不出现。
+   退路改用 Esc（见 app.js 的 keydown：`if (e.key === 'Escape' && body.kiosk) setKiosk(false)`）。 */
+body.kiosk .topbar { display: none; }
+
+/* ★ 舞台左上角那条「🏔️ 小文 浙江文旅向导，陪你玩得明白…」也藏。
+   它原来**根本没被 kiosk 规则盖到**，所以大屏下一直显示着 ——
+   这才是用户截图里"说好只剩人物和对话栏、上面却还挂着一行字"的那块。
+   大屏上观众不需要知道"这是谁"。 */
+body.kiosk .char-plate { display: none; }
+
+/* ★ 但右上角那排工具**要留着**（设置 / 静音 / 词云开关 / 全屏放大词云…）。
+   保持原来"平时透明、鼠标移上去才出现"的做法：
+   · 平时看不见 → 画面干净
+   · 移过去能露出来 → 功能还在，不用先按 Esc 才有得点
+   注意这里**不能改成 display:none** —— 那会让那排按钮彻底点不到，
+   「全屏放大词云」这类功能就废了（实测踩过：验收脚本点 #wc-full 直接超时）。 */
 body.kiosk .stage-tools { opacity: 0; transition: opacity 260ms var(--ease); }
 /* 这里用 :has(:focus-visible) 而不是 :focus-within：
-   鼠标点一下「大屏」会把焦点留在那个按钮上，:focus-within 立刻匹配，
-   工具排就又亮着不走了 —— 用户看到的就是"点了大屏没什么变化"。
-   :focus-visible 只在键盘导航时才成立：鼠标点完不残留，Tab 进去仍然看得见。 */
+   鼠标点一下会把焦点留在那个按钮上，:focus-within 立刻匹配、
+   于是鼠标一移开它也不消失；:focus-visible 只在键盘导航时才成立。 */
 body.kiosk .stage-tools:hover,
 body.kiosk .stage-tools:has(:focus-visible) { opacity: 1; }
 

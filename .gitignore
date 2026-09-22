@@ -9,6 +9,9 @@ backend/.venv/
 # ---- 本机配置：高德 Key、模型地址等，不要提交 ----
 .env
 backend/.env
+# Qwen TTS WebUI 的安装位置（一行绝对路径，比如 C:\Users\xxx\Desktop\qwen-tts-webui）。
+# 那是**这台机器**的路径，别人 clone 下来没用，而且会泄露本机目录结构。
+qwen-tts-home.txt
 
 # ---- 运行期数据：SQLite 计划库、角色卡、缓存等，都是本机状态 ----
 backend/data/
@@ -20,12 +23,25 @@ backend/data/
 # 于是那些文件根本不会被提交，别人 clone 下来就是缺文件的。
 # 加前导 `/` 才是"只锚定仓库根目录下的 data/"。
 #
-# v6.6 起**不再忽略** data/videos 与 data/audio：按需求要把演示用的
-# 宣传片与配乐一起发到仓库（自包含、clone 即有素材）。
-# 它们的著作权归属见仓库根目录的「借物表.md」，**仅限本机演示，勿商用**。
-# 若哪天要改回不提交，把下面两行注释掉即可。
+# v6.6 起曾**不再忽略** data/videos 与 data/audio（当时的需求是"演示用的宣传片
+# 与配乐一起发到仓库，clone 即有素材"）；推 1.1 时又整段忽略过一次。
+#
+# ★ 2026-09-22 定稿（需求方明确要求）：**视频随仓库分发**，
+#   这样别人 clone 下来开屏/舞台背景就有动态视频，不用退回程序化西湖场景。
+#   共 126 MB；其中「风景视频素材分享」单文件 103,922,350 字节，
+#   是 GitHub 单文件硬上限（100 MB = 104,857,600 字节）的 **99.1%** ——
+#   刚好过得了，但已经贴着顶。**以后不要再往这个目录放大文件。**
+#
+# ⚠️ 授权提醒：视频著作权归各原作者 / 素材作者所有，本项目未取得授权，
+#    仅限比赛与本机演示、请勿商用。详见仓库根目录「借物表.md」第 2 节。
+#    若权利人提出异议：把下面这行取消注释（恢复忽略）、并从仓库删除该目录即可。
+#
+# 下面这行**故意注释掉** —— 注释掉 = 不忽略 = 视频会随仓库分发。
 # /data/videos/
-# /data/audio/
+
+# 配乐**不进仓库**：都是商业音乐（雨爱-杨丞琳 / 世界上的另一个我-阿肆 等），
+# 授权比视频更明确地不允许再分发。缺了它「外观 → 配乐」是空的，不影响其它功能。
+/data/audio/
 
 # ---- Node / 前端 ----
 node_modules/
@@ -39,6 +55,45 @@ frontend/dist-embed/
 .DS_Store
 Thumbs.db
 
-# ---- 本地自用素材（授权不允许再配布，所以永不提交）----
-# 洛天依模型：作者配布规则禁止二次配布 / 禁止商用，仅本地演示使用。
+# ---- Live2D 模型 ----
+#
+# ★ 2026-09-22 定稿（需求方明确要求）：**这两个模型随仓库分发**，
+#   这样别人 clone 下来的形象和本机一致（否则会退回仓库自带的 mao）。
+#   共 12.5 MB，体积代价很小。
+#
+# ⚠️ 授权提醒（很重要）：这两个都是模之屋作品，原作者发布页写明
+#   **禁止商用 / 禁止二次配布 / 禁止修改模型 / 禁止用于制作视频之外的用途**。
+#   「随公开仓库分发」在严格意义上属于二次配布 —— 这是需求方知悉后明确要求上传的。
+#   仅限比赛与本机演示、请勿商用；若原作者提出异议，把下面两行改回忽略
+#   并从仓库删除即可。
+#
+#   深闺藏衣袖       https://www.aplaybox.com/details/model/hy42BmpCDhzT
+#   唯有牡丹真国色   https://www.aplaybox.com/details/model/Fax9M3k0LVMP
+#   两位作者都是 云梦泽yumoze（年年子）。
+#   用 tools\装模型.ps1 -Live2D ... 装进来的，同一套来源。
+#
+# 下面两行**故意注释掉** —— 注释掉 = 不忽略 = 会随仓库分发。
+# 要改回"只在本地、不进仓库"，把它们取消注释、并从仓库里删除这两个目录即可。
+# public/models/cangyixiu/
+# public/models/mudan/
+
+# 洛天依（3D）：作者配布规则同样禁止二次配布，**不进仓库**。
+# （本机当前也没有这个目录，这条是为将来装进来时兜底。）
 public/models3d/luotianyi/
+
+# ---- 桌面版（Electron）构建产物 ----
+# 源码（main.js / preload.js / renderer/ / package.json / build-*.py）要进仓库，
+# 但下面这些是**本机构建出来的**，体积大且可由源码重建：
+#   node_modules   542 MB（Electron 依赖）
+#   dist           480 MB（安装包 + 解包版；安装包单个 130 MB，已超 GitHub 100 MB 单文件上限）
+#   dist-backend    27 MB（PyInstaller 打的后端 exe，可用 desktop\打包.bat 重建）
+#   .pyi-build      16 MB（PyInstaller 中间产物）
+desktop/node_modules/
+desktop/dist/
+desktop/dist-backend/
+desktop/.pyi-build/
+desktop/backend-build.json
+
+# 打包时 electron-builder 的调试输出
+desktop/builder-debug.yml
+desktop/builder-effective-config.yaml

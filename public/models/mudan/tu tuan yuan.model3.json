@@ -1,0 +1,82 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "tu tuan yuan.moc3",
+		"Textures": [
+			"tu tuan yuan.2048/texture_00.png"
+		],
+		"Physics": "tu tuan yuan.physics3.json",
+		"DisplayInfo": "tu tuan yuan.cdi3.json",
+		"Expressions": [
+			{
+				"Name": "bai yan",
+				"File": "expressions/bai yan.exp3.json"
+			},
+			{
+				"Name": "exp_43",
+				"File": "expressions/exp_43.exp3.json"
+			},
+			{
+				"Name": "hei lian",
+				"File": "expressions/hei lian.exp3.json"
+			},
+			{
+				"Name": "hua hua",
+				"File": "expressions/hua hua.exp3.json"
+			},
+			{
+				"Name": "hun tian ling",
+				"File": "expressions/hun tian ling.exp3.json"
+			},
+			{
+				"Name": "qian fa1",
+				"File": "expressions/qian fa1.exp3.json"
+			},
+			{
+				"Name": "qian fa2",
+				"File": "expressions/qian fa2.exp3.json"
+			},
+			{
+				"Name": "tong kong",
+				"File": "expressions/tong kong.exp3.json"
+			},
+			{
+				"Name": "tuan shan",
+				"File": "expressions/tuan shan.exp3.json"
+			},
+			{
+				"Name": "xin xin",
+				"File": "expressions/xin xin.exp3.json"
+			},
+			{
+				"Name": "xing xing",
+				"File": "expressions/xing xing.exp3.json"
+			}
+		],
+		"Motions": {
+			"Idle": [
+				{
+					"File": "motion_01.motion3.json"
+				}
+			]
+		}
+	},
+	"Groups": [
+		{
+			"Target": "Parameter",
+			"Name": "LipSync",
+			"Ids": [
+				"ParamMouthForm",
+				"ParamMouthOpenY"
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Name": "EyeBlink",
+			"Ids": [
+				"ParamEyeROpen",
+				"ParamEyeLOpen"
+			]
+		}
+	]
+}

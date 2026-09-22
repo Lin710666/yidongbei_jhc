@@ -39,6 +39,24 @@ function parseArgs(argv) {
   return out;
 }
 
+/**
+ * 把整段文本写到 stdout，并等它真的写完（而不是写完就退出）。
+ *
+ * 背景：Node 官方文档里写着，stdout 写**文件**时是同步的、写 **TTY** 时在
+ * Windows 上是异步的、写**管道**时在 Windows 上也是**异步**的。
+ * 而 Agent 引擎（OpenClaw 的 exec）拿到的正是管道 —— 脚本写完就结束、
+ * 事件循环里没别的活，理论上存在"缓冲区还没发完进程就退了"这一类竞态。
+ *
+ * 说明：本地实测（同一请求、新旧两种写法各跑多次、文件与管道两种捕获方式）
+ * **从未复现出截断**，输出始终完整。所以这里不是修 bug，只是把这个
+ * 平台行为用一行 `await` 兜住 —— 代价为零，也不改变任何可观察行为。
+ */
+function writeStdout(text) {
+  return new Promise((resolve, reject) => {
+    process.stdout.write(text, (err) => (err ? reject(err) : resolve()));
+  });
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const qs = new URLSearchParams({
@@ -59,7 +77,7 @@ async function main() {
       process.exitCode = 1;
       return;
     }
-    process.stdout.write(text);
+    await writeStdout(text);
   } catch (e) {
     if (e.name === 'TimeoutError' || e.name === 'AbortError') {
       console.error('【生成失败】本地模型超过 180 秒未返回，请稍后重试。');

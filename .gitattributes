@@ -1,0 +1,28 @@
+# ============================================================================
+#  换行符规则
+# ============================================================================
+#
+# 默认：仓库里一律存 LF，checkout 时按平台自动转换。
+* text=auto
+
+# ★★ .bat / .cmd **必须**是 CRLF。这不是代码风格问题 —— cmd.exe 不认 LF，
+#    一个 LF 换行的 .bat 会以各种离奇方式炸掉。
+#
+#    实测（把仓库按 core.autocrlf=false 克隆下来、直接双击运行）：
+#      检查环境.bat  → '&& was unexpected at this time.'
+#      一键部署.bat  → 'The syntax of the command is incorrect.'
+#      start.bat     → 'The system cannot find the path specified.'
+#      三个脚本全废 —— 用户看到的就是"检查、一键部署、start 都用不了"。
+#
+#    为什么会漏掉：开发机上 core.autocrlf=true 会在 checkout 时自动把 LF
+#    转成 CRLF，所以**本机永远测不出来**，只有别人 clone 下来才会踩到。
+#    仓库里当时没有 .gitattributes，四个 .bat 全以 LF 存着。
+#
+#    这里用 `-text` 关掉一切换行转换，让仓库里保存的字节**就是 CRLF**：
+#    不管对方的 core.autocrlf 设成 true / false / input，
+#    甚至不用 git 直接下 ZIP，拿到的都是 CRLF。
+*.bat -text
+*.cmd -text
+
+# PowerShell 两种换行都能跑，但 Windows 上统一成 CRLF 更省事。
+*.ps1 text eol=crlf

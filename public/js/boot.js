@@ -85,7 +85,9 @@
 
   /** 页签 id → 中文名。用在入口按钮上标出"点了会去哪" */
   const PANE_LABEL = {
-    chat: '对话页',
+    // 「对话」页签已并进「文旅」，所以这里不再有 chat 这一项。
+    // 但入口的 id 仍然叫 chat（Esc 那个 `choose('chat')` 依赖它），
+    // 只是它现在落到「文旅」页 —— 见下面 ENTRIES 里的 target。
     tools: '文旅页',
     look: '外观页',
     memory: '记忆页',
@@ -97,7 +99,7 @@
    * 三个功能入口。
    *
    * `motion` 写成"名字 + 一组降级动作组"而不是一个字符串，是因为
-   * **只有西湖船娘有「招手」这种中文动作名**：
+   * **只有程序化绘制的那套舞台才有「招手」这种中文动作名**（那套已删，这里留作降级链的例子）**：
    *   · Live2D 模型的动作名是 `00_idle`、`tap_body_01` 这种
    *   · 3D 模型是 Blender 导出的 clip 名
    * 直接按名字找在它们身上必然落空，表现就是"鼠标划过菜单、形象毫无反应"。
@@ -110,12 +112,20 @@
    *   folds    顺带展开哪些折叠区（details 的 id）
    *   scrollTo 滚到哪个元素（可选）
    *   focus    要聚焦的输入框（可选）
+   *   compact  进来时把对话输出区收回默认大小（可选，只有对话页要）
    */
   const ENTRIES = [
     {
-      id: 'chat', icon: '💬', title: '对话', desc: '问行程、问景点、问天气',
+      // id 仍叫 chat：boot.js 的 Esc 处理里写的是 `choose('chat')`（"别让用户被开屏困住"）。
+      // 但它落的页签已经改成 tools —— 「对话」并进「文旅」了。
+      id: 'chat', icon: '🧭', title: '文旅', desc: '填偏好或说一句话，出方案与地图',
       motion: { name: '招手', groups: ['TapBody', 'Idle', 'Greet'] },
-      target: { pane: 'chat', focus: '#chat-input' },
+      // compact: true —— 把对话输出区收回默认大小，人物占满一屏（用户要的"大屏"）。
+      // ⚠️ 这里**不要**写 kiosk: true：那会把顶栏和人物条藏掉，
+      //    而用户要的恰恰是"顶栏在、人物条在、底部面板矮"。kiosk 手动点才进。
+      // 落到「文旅」页签。注意**不写 focus** —— 底部输入框已按需求移除，
+      // `#chat-input` 不存在了（见 index.html 里那段说明）。
+      target: { pane: 'tools', compact: true },
     },
     {
       id: 'settings', icon: '⚙️', title: '设置', desc: '人物设定、音色、形象与背景',

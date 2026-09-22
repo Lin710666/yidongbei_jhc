@@ -25,7 +25,7 @@
       },
       "live2d": {
         "kind": "live2d",
-        "model": "mao",
+        "model": "cangyixiu",
         "scale": 1,
         "x": 0,
         "y": 0,
@@ -68,7 +68,7 @@
       },
       "live2d": {
         "kind": "live2d",
-        "model": "mao",
+        "model": "cangyixiu",
         "scale": 1,
         "x": 0,
         "y": 0,
@@ -113,7 +113,7 @@
       },
       "live2d": {
         "kind": "live2d",
-        "model": "mao",
+        "model": "cangyixiu",
         "scale": 1,
         "x": 0,
         "y": 0,

@@ -51,7 +51,11 @@
     // 当前展示的人物形象。kind 决定用哪套渲染器：
     //   'live2d' -> Live2DStage（PixiJS + Cubism）
     //   '3d'     -> ThreeDStage（three.js + three-vrm，按需懒加载）
-    display: { kind: 'live2d', id: 'mao' },
+    //
+    // id 是**兜底默认值**：启动时优先用当前角色卡里记着的形象
+    // （见 initStage()），只有卡片没指定时才用这个。
+    // 默认给「深闺藏衣袖」—— 国风形象和文旅主题更贴。
+    display: { kind: 'live2d', id: 'cangyixiu' },
     settings: {
       autospeak: false,
       memory: true,
@@ -88,7 +92,6 @@
 
   let stage = null;        // Live2DStage 实例（用到才创建）
   let stage3d = null;      // ThreeDStage 实例（选了 3D 形象才懒加载）
-  let lake = null;         // LakeAvatar 实例（西湖船娘，内置默认形象）
   let bootScreen = null;    // 开屏实例（两套模板，见 public/js/boot.js）
   let cloud = null;
   let bg = null;
@@ -126,6 +129,7 @@
     bindTabs();
     bindTopbar();
     bindComposer();
+    bindWorkbenchToggle();   // 工作台的展开/收起（底部面板里默认折叠）
     bindTools();
     bindPlanner();
     bindMemory();
@@ -172,7 +176,7 @@
     // 后面所有 await 就都不执行了 —— 包括最后的 initStage()。
     // 用户看到的是"页面在、界面也在，但舞台上什么都没有"，
     // 而真正的报错发生在几千行之外的一个渲染函数里，极难对上号。
-    // （实测踩过：renderLookPreview 读西湖船娘没有的字段抛 TypeError，
+    // （实测踩过：renderLookPreview 读某个形象没有的字段抛 TypeError，
     //   导致 initStage() 被跳过，画布停在 300×150 一个像素都没画。）
     //
     // refreshStatus 不算在内：它是状态灯的数据源，失败时本身就会降级显示。
@@ -192,14 +196,20 @@
       // 拿晚了会先闪一下兜底画面再切到视频。
       ['视频背景', loadVideos],
     ];
-    for (const [label, fn] of optionalLoads) {
+    /* ★ 并行加载（原来是 for + await 串行）。
+       这些加载之间**没有依赖**，串行等于把各自的往返时间相加 ——
+       本机后端每个请求几十到几百毫秒，11 个串起来就是明显的启动延迟。
+       改成 allSettled 并行后总耗时约等于最慢的那一个。
+       失败仍然只记一条日志、继续往下（少一个面板能用，好过形象不出现）。 */
+    await Promise.allSettled(optionalLoads.map(async ([label, fn]) => {
       try {
         await fn();
       } catch (e) {
-        // 只记一条，继续往下 —— 少一个面板能用，好过整个形象不出现
         console.error(`[boot] ${label} 加载失败（不影响其它功能）：`, e && e.message ? e.message : e);
       }
-    }
+    }));
+    // 供性能测量/自动化测试读取：数据加载阶段结束的时刻
+    window.__BOOT_DATA_MS__ = Math.round(performance.now());
     // 启动时**只做轻活**：填好开屏下拉选项即可。
     // 卡片（含 <video preload="metadata"> 缩略图）留到用户真打开「外观」页再建 ——
     // 那一页默认是隐藏的，启动时就建等于让看不见的缩略图去抢宣传片的带宽。
@@ -245,6 +255,26 @@
     }
     applyBackground(S.settings.backgroundId, { silent: true });
 
+    /* ---- 断网恢复后自动补数据 ----
+     * 启动时如果后端还没起来，上面那串 optionalLoads 会全部失败（各自记一条日志就跳过），
+     * 界面看起来正常但功能是残的：没有能力清单、没有视频清单、状态灯不对。
+     * 所以网络恢复后把这些重新拉一遍，用户不用手动刷新页面。
+     * （重连本身由 public/js/wenlv-net.js 负责，这里只订阅它的恢复事件。） */
+    if (window.WenlvNet) {
+      window.WenlvNet.onOnline(async () => {
+        try { await refreshStatus(); } catch { /* 忽略 */ }
+        // 同样并行（理由见上面 optionalLoads 那段）
+        await Promise.allSettled(optionalLoads.map(async ([label, fn]) => {
+          try { await fn(); } catch (e) {
+            console.warn(`[net] 恢复后重载「${label}」失败：`, e && e.message ? e.message : e);
+          }
+        }));
+        try { renderVideos({ grid: false }); } catch { /* 忽略 */ }
+        if (bootScreen) { try { bootScreen.notifyVideosReady(); } catch { /* 忽略 */ } }
+        if (window.toast) window.toast('后端已恢复连接，数据已自动刷新', 'ok', 3000);
+      });
+    }
+
     initStage();
     renderHistory();
     // 形象加载好之后通知开屏：模板 B 下补一个迎宾动作
@@ -254,11 +284,17 @@
     if (!S.history.length) {
       // 首次进入：让角色主动打个招呼，而不是空白一片
       setTimeout(() => say(S.card ? S.card.greeting : '你好，我是你的文旅向导。', true), 900);
-      // 再补一条对话引导：**分批气泡**。
-      // 原来是「猜你想去」三个地名，点一下就立刻生成 —— 用户反馈"没有引导作用"。
-      // 现在交给 ask-bubbles.js：一批几个问题，选完点「我选好了」才推进，
-      // 最后一批才真正去生成。
-      setTimeout(() => { try { startWorkbenchInChat(); } catch { /* 忽略 */ } }, 1800);
+
+      /* ★ 这里原来还有个 1.8 秒的定时器，作用是"把工作台挂进对话输出区"。
+         那条路已经不需要了 —— 工作台本体就在「文旅」页签里（同一页签），
+         再挂一份是重复实例（见 startWorkbenchInChat 的说明）。
+
+         而这个定时器**现在只剩副作用**：
+           · 它会调 startWorkbenchInChat() → 强行把页签切回「文旅」——
+             用户要是在这 1.8 秒里切到「外观」，会被硬拽回来
+           · 它还会 expandWorkbench()，把"工作台默认折叠"顶开，
+             于是折叠开关看起来像失效的（实测：默认状态根本没折叠）
+         所以整段去掉。 */
     }
     // 开屏已经在 boot() 开头就播了（原因见那里的注释），这里不再重复调用。
   }
@@ -392,11 +428,10 @@
   }
 
   /**
-   * 所有可选形象的统一清单：西湖船娘（内置）、Live2D、3D 混在一起，用 kind 区分。
+   * 所有可选形象的统一清单：Live2D 与 3D 混在一起，用 kind 区分。
    *
-   * 西湖船娘排在最前面 —— 它是**默认形象**。这个项目的默认场景就是西湖文旅宣传，
-   * 让用户一进来看到的是一个跟西湖无关的日系角色，与"宣传西湖"这件事是拧着的。
-   * 而且它零外部素材：不需要先跑「获取示例模型」就能看到人，首次体验好很多。
+   * 曾经还有一套程序化绘制的「西湖船娘」排在最前面当默认形象；那套已经删了。
+   * 现在的默认形象是 Live2D 的「深闺藏衣袖」（见 S.display 的注释）。
    */
   function allDisplayModels() {
     return [
@@ -724,6 +759,9 @@
           switchTab('tools');
           setTimeout(() => {
             try {
+              // 生成前先把折叠的工作台展开 —— 不然用户点完按钮、表单还折着，
+              // 看起来像"点了没反应"
+              expandWorkbench();
               api.requestGenerate();
             } catch (e) {
               toast(`工作台生成失败：${e && e.message ? e.message : e}`, 'err', 6000);
@@ -838,10 +876,20 @@
         break;
       }
 
-      case 'vision':
-        switchTab('chat');
-        $('#file-input').click();
+      case 'vision': {
+        switchTab('tools');
+        // 图片上传按钮是底部输入区的一部分，**已随输入区一起移除**了
+        // （见 index.html 的说明）。所以这里不能再直接 click 一个不存在的元素
+        // —— 那会抛 "Cannot read properties of null (reading 'click')"，
+        // 而这是角色卡动作触发的路径，用户会在切卡时莫名看到报错。
+        const fileInput = $('#file-input');
+        if (fileInput) {
+          fileInput.click();
+        } else {
+          toast('图片入口已随底部输入框一起移除；图片理解能力仍在「设置 → 视觉」里可用', 'warn', 5200);
+        }
         break;
+      }
 
       case 'speak': {
         switchTab('chat');
@@ -954,10 +1002,32 @@
     $('#subtitle-text').classList.add('typing');
     setSubtitleVisible(true);
     clearTimeout(subtitleTimer);
+
+    /* ★ 一边吐字一边让形象动嘴。
+     *
+     * 这条路径上**没有音频**：TTS 是等整段文字生成完才开始合成的
+     * （几秒到几十秒）。而字幕是从第一个字就开始出的 ——
+     * 这段时间里如果形象嘴不动，看起来就是"它在念稿但没张嘴"。
+     * 所以这里喂文本给舞台，由它按字幕节奏驱动口型。
+     * 真音频一旦就绪，speak() 接上分析器会自然接管（舞台内部按优先级分支）。
+     */
+    const st = activeStage();
+    if (st && st.talkTo) { try { st.talkTo(text); } catch { /* 忽略 */ } }
+  }
+
+  /**
+   * 结束"说话"状态：字幕定稿或出错时调。
+   * 不调的话文本驱动口型会停在最后一个字的开口量上（嘴一直张着）。
+   */
+  function endTalking() {
+    const st = activeStage();
+    if (st && st.stopTalking) { try { st.stopTalking(); } catch { /* 忽略 */ } }
   }
 
   function hideSubtitle() {
     setSubtitleVisible(false);
+    // 字幕收起来了，形象也该闭嘴 —— 否则文本驱动口型会停在最后一个字的开口量上
+    endTalking();
   }
 
   /**
@@ -1217,9 +1287,40 @@
   /* ========================================================================
    * 六、对话
    * ======================================================================*/
+
+  /**
+   * 把 S.history 铺进聊天记录。
+   *
+   * ★ 只在**日志还是空的**时候铺。
+   *
+   * 为什么必须加这个判断：boot() 里这一句排在十几个 await 之后（本机常态约 5 秒，
+   * 但只要有一条 /api/chat/stream 在飞、后端串行处理，就会被拖到 30 秒以上）。
+   * 用户在这个窗口里发消息，原来的 `log.innerHTML = ''` 就把它整条抹掉 ——
+   * 界面上的表现是"我说完话，它忙了一会儿，然后什么都没回"。
+   *
+   * 实测（MutationObserver，probe-chat-dom.mjs）：
+   *     + msg me      你好，你能做什么？
+   *     + msg         🤖                    ← 流式气泡（空）
+   *     + msg sys     🤖 正在理解需求，并检索真实景点与天气…
+   *     - msg me / - msg / - msg sys        ← 三个节点被一起删掉
+   *     + msg me      你好，你能做什么？      ← 只按 history 重建，回复没了
+   *
+   * 判据用"日志非空"而不是 S.busy，因为 S.busy 只覆盖闲聊那条路：
+   * 方案那条（runPlanWith）既不设 busy，也不把结果写进 S.history，
+   * 同样会被这次重建抹掉。而 renderHistory() 全程只在 boot() 里被调一次，
+   * 所以"日志非空"只可能意味着"已经有实时内容了"。
+   *
+   * 这里宁可**少铺一次历史**（刷新页面就正常了），也不冒抹掉用户内容的风险。
+   */
   function renderHistory() {
     const log = $('#chat-log');
-    log.innerHTML = '';
+    if (!log) return;
+    if (log.children.length) {
+      // 里面已经有实时内容（用户刚发的消息 / 正在流式的回复 / 方案卡片），
+      // 重建只会弄丢它 —— 历史等下次刷新时自然会出现。
+      scrollChat();
+      return;
+    }
     for (const m of S.history) appendMsg(m.role, m.content, { raw: true, image: m.image });
     scrollChat();
   }
@@ -1405,7 +1506,20 @@
     const said = [];
     if (typed) said.push(`「${typed}」`);
     if (Object.keys(typedFields).length) said.push('（按你说的为准）');
-    appendMsg('user', typed ? `帮我排一个方案：${typed}` : `帮我排一个方案：${overrides && overrides.city ? overrides.city : ''}${overrides && overrides.days ? ' · ' + overrides.days + ' 天' : ''}`);
+    const userLine = typed ? `帮我排一个方案：${typed}` : `帮我排一个方案：${overrides && overrides.city ? overrides.city : ''}${overrides && overrides.days ? ' · ' + overrides.days + ' 天' : ''}`;
+    appendMsg('user', userLine);
+    // 进历史。原来这条路径从不写历史，方案聊完就没了（见 sendMessage 里的注释）。
+    //
+    // 去重：从输入框发消息时，sendMessage 已经存过用户原话（「帮我排个杭州两天」），
+    // 这里那句是拼出来的（「帮我排一个方案：帮我排个杭州两天」）—— 两句都存会显得啰嗦。
+    // 判断依据是"上一句用户消息里已经包含了这次的 typed 文本"，
+    // 而工作台按钮 / 词云触发时没有上一条用户消息，照常存。
+    const prevUser = [...S.history].reverse().find((m) => m.role === 'user');
+    const dupOfPrev = !!(typed && prevUser && String(prevUser.content || '').includes(typed));
+    if (!dupOfPrev) {
+      S.history.push({ role: 'user', content: userLine });
+      saveHistory();
+    }
     const bd = appendMsg('assistant', `正在用「文旅」模块生成…${said.join('')}`);
 
     // ③ 填进工作台表单 → 触发工作台生成 → 跳到文旅页看结果
@@ -1440,6 +1554,14 @@
               bd.appendChild(chipRow([{ label: '在文旅页打开 ›', value: 'tools' }], () => {
                 gotoPlanPane();
               }));
+              /* ★ 方案本身也要进历史。
+                 方案是**组件渲染出来的**（PlanView），不是一段文本，而历史存的是纯文本，
+                 所以这里存一句"生成过什么"的摘要 —— 刷新后至少知道
+                 "我问过杭州两天、它给过我一版"，而不是像原来那样整段对话凭空消失。
+                 正文看文旅页 / 在文旅页重开那一版。 */
+              const title = (plan && (plan.summary || plan.title)) || '旅行方案';
+              S.history.push({ role: 'assistant', content: `（已生成方案：${title}）` });
+              saveHistory();
               // 方案卡片是一屏高的内容，默认那条 105px 的缝里根本看不成样
               if (window.WenlvChatPane && window.WenlvChatPane.autoExpand) {
                 window.WenlvChatPane.autoExpand();
@@ -1470,22 +1592,44 @@
   }
 
   /**
-   * 把**文旅工作台本身**挂进对话框的输出区。
+   * 把文旅工作台调到用户面前。
    *
-   * 需求原话：「我要的是文旅工作台也是图二一模一样的样子在输出框里面」。
+   * ## 这里原来做的事（以及为什么改了）
    *
-   * 所以这里**不是**照着工作台画一套像的界面，而是把组员那套 React 组件
-   * （`App` = PreferenceForm 表单 + 结果 + 地图）原样挂进这条消息里，
-   * 和「文旅」页签里挂的是同一棵树、同一个 bundle。字段顺序、下拉候选、
-   * placeholder、日期选择器的样子因此天然一致 —— 而且组员以后改表单，
-   * 这里跟着一起变，不存在"只改到一边"。
+   * 原来它会把组员那套 React 工作台**再挂一份**进对话流的消息里：
+   * `renderWorkbench(host)` 在 `.workbench-host` 里起第二个 React root。
+   * 当时是对的 —— 那会儿「对话」和「文旅」是两个页签，用户点在对话里，
+   * 得让他在原地看到工作台。
    *
-   * 为什么不再用气泡引导（js/ask-bubbles.js）：气泡是"照着工作台的问题
-   * 手搓的一套问答"，本质是仿制品，永远会有偏差（老板原话：
-   * 「这哪里一样了」）。真家伙能挂，就没有理由挂仿制品。
-   * 气泡模块保留着没删，`#btn-ask-me` 在挂载不可用时仍然会退回它。
+   * ## 现在为什么只要切页签
+   *
+   * 「对话」页签已经并进「文旅」了：**工作台本体就在这个页签里**
+   * （`#wenlv-planner`，见 index.html）。再往对话流里挂一份就是
+   * 同一个页签里出现两张一模一样的表单 —— 实测过两份各 323 个节点，
+   * 而且**状态互不相通**：在聊天里换了景点，旁边那份表单完全不知道。
+   *
+   * 所以现在只做一件事：确保停在「文旅」页签、把工作台滚进视野。
    */
   function startWorkbenchInChat() {
+    switchTab('tools');
+    expandWorkbench();          // 用户点「开始规划」= 要填表，顺手把折叠展开
+    const host = $('#wenlv-planner');
+    if (host && host.scrollIntoView) {
+      try { host.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch { /* 忽略 */ }
+    }
+    return true;
+  }
+
+  /**
+   * 【已不再使用】原来往对话流里挂第二份工作台的那段。
+   *
+   * 留在这里不删是为了好找 —— 搜索 `renderWorkbench` 会落到这里，
+   * 而不是让人以为"工作台怎么没挂进对话"。合并页签之后这条路径
+   * 只会造成重复实例，所以整段停用。
+   *
+   * @deprecated 用 startWorkbenchInChat()（切到「文旅」页签即可）
+   */
+  function _legacyWorkbenchInChat() {
     switchTab('chat');
     const log = $('#chat-log');
     if (!log) return;
@@ -1512,8 +1656,14 @@
       return;
     }
     // 这一块是一整张表单，默认那条 105px 的缝里根本看不成样
-    if (window.WenlvChatPane && window.WenlvChatPane.autoExpand) {
-      window.WenlvChatPane.autoExpand();
+    //
+    // ★ 但"从开屏点对话页进来"这一次要跳过：用户要的正是**面板矮、人物大**
+    //   那个布局（见 WenlvChatPane.collapse 的注释）。他要是想看表单，
+    //   面板右上角那个 ⤢ 一按就展开，不存在"看不到"。
+    const pane = window.WenlvChatPane;
+    const skip = pane && pane.entryCompact && pane.entryCompact();
+    if (!skip && pane && pane.autoExpand) {
+      pane.autoExpand();
     }
   }
 
@@ -1530,6 +1680,9 @@
   async function sendMessage() {
     if (S.busy) { toast('正在生成，请稍等或点停止', 'err'); return; }
     const input = $('#chat-input');
+    // 输入区已移除（见 bindComposer 的说明）：这条函数现在没有调用方，
+    // 但保留着以便"把输入框放回来"时直接可用。加一句守卫免得将来被误调时崩。
+    if (!input) return;
     const text = input.value.trim();
     const image = S.visionImage;
     if (!text && !image) return;
@@ -1551,6 +1704,14 @@
         if (dayHit) over.days = Number(dayHit[1]);
         input.value = '';
         appendMsg('user', text);
+        /* ★ 走规划这条路也要进历史。
+           原来这里只 appendMsg 画到界面上、然后直接 await runPlanWith 就 return 了 ——
+           下面那两行 push/saveHistory 永远走不到，于是**方案对话一条都不进历史**，
+           只有"你好"这种不带城市/天数的闲聊才存得下来。
+           用户看到的现象就是"对话历史不会被保存"，而方案恰恰是他最想留住的。
+           （实测：发「帮我排个杭州两天」→ localStorage 那条键全程 0 次写入。） */
+        S.history.push({ role: 'user', content: text });
+        saveHistory();
         await runPlanWith(over, text);
         return;
       }
@@ -1698,12 +1859,23 @@
       setBusy(false);
       $('#composer-hint').textContent = '';
       bd.classList.remove('typing');
+      // 这一轮说完了 → 停掉文本驱动口型。
+      // 后面如果 autospeak 开着，speakText 会接上真音频、由频谱驱动嘴型，
+      // 两条路不冲突（舞台内部按 analyser > talking 的优先级分支）。
+      endTalking();
     }
   }
 
   function setBusy(b) {
-    $('#btn-send').disabled = b;
-    $('#btn-stop').hidden = !b;
+    // 这两个按钮属于**已被移除的底部输入区**（见 index.html 那段说明）。
+    // 现在它们不存在了 —— 不判空的话，`null.disabled = ...` 会抛
+    // "Cannot set properties of null"，而 setBusy 在每次生成前后都会被调，
+    // 一抛就把生成链路整个打断（实测：词云点「个性化方案」直接失败，
+    // 结果卡里只剩一句 14 字的错误提示）。
+    const send = $('#btn-send');
+    const stop = $('#btn-stop');
+    if (send) send.disabled = b;
+    if (stop) stop.hidden = !b;
   }
 
   /* ========================================================================
@@ -2071,51 +2243,48 @@
   }
 
   /* ========================================================================
-   * 十、人物形象（西湖船娘 / Live2D / 3D 三套渲染器，按所选形象切换）
+   * 十、人物形象（Live2D / 3D 两套渲染器，按所选形象切换）
    *
-   * 为什么不把所有东西合到一个类里：西湖船娘是纯 Canvas 2D，Live2D 用 PixiJS +
-   * Cubism，3D 用 three.js + three-vrm，三套依赖完全不同。硬合会变成一个谁都不像
-   * 的抽象层，还让"只用其中一套的用户"被迫下载另外两套的运行库
+   * 为什么不把所有东西合到一个类里：Live2D 用 PixiJS + Cubism，
+   * 3D 用 three.js + three-vrm，两套依赖完全不同。硬合会变成一个谁都不像
+   * 的抽象层，还让"只用其中一套的用户"被迫下载另外一套的运行库
    * （three.js 就有 2.2MB）。
-   * 所以：三个类，各自实现同一组方法（init/load/setScale/setPosition/
+   * 所以：两个类，各自实现同一组方法（init/load/setScale/setPosition/
    * setExpression/playMotion/speak/resize/destroy，外加 startIdle/setPlacard/
    * setScenery），调用方通过 activeStage() 取。
    *
    * **新增一套舞台时最容易漏的是"同名接口"**：少一个方法，用户一切过去就会
    * 报 "xxx is not a function"。所以 test/avatar.js 里专门有一条交叉校验，
-   * 逐个确认三套舞台都实现了这组方法。
+   * 逐个确认各套舞台都实现了这组方法。
+   *
+   * 注：曾经还有第三套 ——程序化绘制的「西湖船娘」（public/js/lake.js 里的
+   * LakeAvatar）。那套人物形象已经整个删掉了；lake.js 现在只剩画西湖的景
+   * （开屏与背景在用），不再提供形象。
    * ======================================================================*/
 
   /** 当前生效的渲染器实例 */
   function activeStage() {
     if (S.display.kind === '3d') return stage3d;
-    if (S.display.kind === 'lake') return lake;
     return stage;
   }
 
   /**
-   * 三个画布互斥显示：谁来渲染就显示谁，其余藏起来省 GPU。
+   * 各画布互斥显示：谁来渲染就显示谁，其余藏起来省 GPU。
    *
    * 注意这里必须写**显式的 'block' / 'none'**，不能写空串。
    * CSS 里给 #stage3d-canvas 定了 `display: none` 作为默认值（避免首屏闪一下），
    * 如果这里设成空串，等于把内联样式删掉，CSS 的 none 又赢回来 —— 3D 画布永远不显示。
    * 这个坑实测踩过：画布其实已经渲染好了（能采样到像素），但用户看不到。
    *
-   * **西湖船娘必须有自己的画布**（#lake-canvas），不能和 Live2D 共用 ——
-   * 这是我一开始想省事犯的错：一块 canvas **只能有一种绘图上下文**。
-   * PIXI 要 WebGL（`getContext('webgl')`），西湖船娘要 2D（`getContext('2d')`），
-   * 谁先拿到，另一个就直接返回 null：
-   *   · 默认是西湖船娘 → 画布被占成 2D → 切到 Live2D 时 PIXI 拿不到 WebGL，画不出来
-   *   · 先切过 Live2D → 画布被占成 WebGL → 再切回西湖船娘时 ctx 是 null，
-   *     第一次 clearRect 就抛异常，整块空白
-   * 表现就是"新加的虚拟形象不显示"。多一块画布的开销可以忽略（同一时刻只显示一块）。
+   * **Live2D 与 3D 必须各有一块自己的画布**，不能共用 ——
+   * 一块 canvas **只能有一种绘图上下文**：PIXI 要 WebGL（`getContext('webgl')`），
+   * 谁先拿到另一个就直接返回 null，表现是"切过去一片空白"。
+   * （原来还有第三块 #lake-canvas，跟着西湖船娘一起删了。）
    */
   function showCanvas(kind) {
     const l2d = $('#live2d-canvas');
-    const lakeCv = $('#lake-canvas');
     const c3d = $('#stage3d-canvas');
     if (l2d) l2d.style.display = kind === 'live2d' ? 'block' : 'none';
-    if (lakeCv) lakeCv.style.display = kind === 'lake' ? 'block' : 'none';
     if (c3d) c3d.style.display = kind === '3d' ? 'block' : 'none';
   }
 
@@ -2176,25 +2345,7 @@
     return stage3d;
   }
 
-  /**
-   * 创建西湖船娘渲染器。
-   *
-   * 它是**唯一一套不需要任何外部运行时**的舞台：没有 PixiJS、没有 three.js，
-   * 只有一个 canvas 2D 上下文。所以它能在"什么都没装"的机器上立刻可用 ——
-   * 这正是把它设为默认形象的实际好处（首屏不至于是一片空白）。
-   */
-  async function ensureLake() {
-    if (lake) return lake;
-    if (!window.WenlvLake) {
-      throw new Error('西湖船娘渲染器没加载（public/js/lake.js）。请确认 index.html 里的 script 标签没被改动。');
-    }
-    lake = new window.WenlvLake.LakeAvatar($('#lake-canvas'));
-    lake.onTapCb = onCharacterTap;
-    await lake.init();
-    return lake;
-  }
-
-  /** 点人物：三套渲染器共用的反馈 */
+  /** 点人物：各套渲染器共用的反馈 */
   function onCharacterTap() {
     hideSubtitle();
     const st = activeStage();
@@ -2815,6 +2966,35 @@
          * ------------------------------------------------------------------ */
         window.WenlvChatPane = {
           tall: () => document.body.classList.contains('chat-tall'),
+          /**
+           * 把对话输出区收回默认大小。
+           *
+           * 谁会调它：从开屏点「对话页」进来时。用户要的"大屏"就是这个 ——
+           * **人物占满一屏、底部面板矮矮一条**，而不是输出区铺开半屏把人物挤小。
+           * （实测过：chat-tall 时 .side 占 56% 屏高，收起来只占 30%。）
+           *
+           * 和 autoExpand 相反，这里**写 localStorage** ——
+           * 这是用户明确要的默认状态，不是替内容临时腾地方。
+           */
+          collapse: () => {
+            if (!document.body.classList.contains('chat-tall')) {
+              btn.dataset.entryCompact = '1';
+              return false;
+            }
+            applyTall(false);
+            // ★ 还要拦住"挂工作台时的那次自动放大"。
+            //
+            // 为什么光 collapse 不够：工作台表单是**进入时默认就挂进输出区**的
+            // （见 startWorkbenchInChat），挂完它会 autoExpand() 一次 ——
+            // 于是我刚收起来的面板又被顶开，白忙一场（实测：点进对话页后
+            // body 从 tools-collapsed 变成 tools-collapsed chat-tall）。
+            // 这个标记让那一次自动放大跳过；真出方案时该展开还是会展开
+            // （runPlanWith 那条路不看这个标记）。
+            btn.dataset.entryCompact = '1';
+            return true;
+          },
+          /** 本次是"从开屏进对话页"进来的吗（用它决定要不要跳过挂表单时的自动放大） */
+          entryCompact: () => btn.dataset.entryCompact === '1',
           autoExpand: () => {
             if (btn.dataset.userToggled === '1') return false;
             if (document.body.classList.contains('chat-tall')) return false;
@@ -3031,6 +3211,23 @@
     try {
       const def = (window.WenlvBoot && window.WenlvBoot.ENTRIES || []).find(e => e.id === entryId);
       const t = (def && def.target) || { pane: 'chat' };
+
+      // ★ 从开屏点「对话页」进来，默认要"人物大、面板矮"那个布局。
+      //
+      // 具体就是：把对话输出区收回到默认大小（`WenlvChatPane.collapse()`）。
+      // 不做这一步的话，如果输出区处在放大状态（chat-tall，.side 占 56% 屏高），
+      // 人物会被压在屏幕中间一小块 —— 用户说的"小屏"就是这个。
+      // 收起来之后 .side 只占 30%，人物才真正铺开。
+      //
+      // ⚠️ 这里**故意不调 setKiosk()**。
+      //    我一度以为"大屏"=kiosk，进来就自动开 —— 结果把顶栏和人物条藏掉了，
+      //    而用户要的恰恰是那个样子：**顶栏在、人物条在、底部面板矮**。
+      //    「🖥️ 大屏」（kiosk）仍然保留，但要手动点顶栏那个按钮才进。
+      //
+      // 在切页签之前做，布局只重排一次，不会看到跳。
+      if (t.compact && window.WenlvChatPane && window.WenlvChatPane.collapse) {
+        try { window.WenlvChatPane.collapse(); } catch { /* 忽略 */ }
+      }
 
       switchTab(t.pane || 'chat');
 
@@ -3317,26 +3514,33 @@
   /**
    * 大屏展示模式。
    *
-   * 除了切 CSS，还要处理一件容易被忽略的事：**请求浏览器全屏**。
-   * 展厅场景下没人会去按 F11，而 `.kiosk` 只是把界面元素藏起来，
-   * 浏览器自己的地址栏、标签页还在，投影出去很难看。
-   * 全屏请求必须由用户手势触发，所以放在按钮点击里（这里就是）。
+   * ★ **只切布局，绝不请求浏览器全屏。**
+   *
+   * 这里原来会顺带调 `document.documentElement.requestFullscreen()`，
+   * 理由写在注释里（"展厅没人按 F11，投影出去带着地址栏很难看"）。
+   * 但用户的反馈很明确，而且反馈了两次：
+   *   · 「我要的是这样的大屏不是全屏」
+   *   · 「进入之后要 esc 才能退出全屏进入大屏，我不要全屏」
+   * 也就是说：点一下「大屏」，先被踢进浏览器全屏，还得按 Esc 退出来，
+   * 才看到他真正要的那个"铺满窗口的布局"——**多了一步，而且是让人慌的一步**
+   * （地址栏、标签页全没了，不熟的人会以为程序出问题了）。
+   *
+   * 所以现在：大屏 = 顶栏隐藏 + 舞台撑满 + 底部对话栏保留，
+   * 地址栏和标签页该在还在。**要真全屏请自己按 F11**（或 F11 后再点大屏）。
+   *
+   * 之前我只把"从开屏点对话页进来"那条路的全屏去掉了，按钮那条忘了 —— 
+   * 于是"真正的大屏"还是全屏。修的是这里，不是调用点。
    */
   function setKiosk(on) {
     const want = Boolean(on);
     document.body.classList.toggle('kiosk', want);
-    try {
-      if (want && document.documentElement.requestFullscreen) {
-        document.documentElement.requestFullscreen().catch(() => { /* 用户拒绝或不允许，忽略 */ });
-      } else if (!want && document.fullscreenElement && document.exitFullscreen) {
-        document.exitFullscreen().catch(() => { /* 忽略 */ });
-      }
-    } catch { /* 忽略 */ }
     const btn = $('#btn-kiosk');
     if (btn) btn.classList.toggle('on', want);
     // 切了布局要通知舞台重算尺寸，否则人物还按旧画布尺寸摆着
     setTimeout(() => { const st = activeStage(); if (st && st.resize) st.resize(); }, 120);
-    toast(want ? '已进入大屏展示模式（Esc 或再点一次退出）' : '已退出大屏展示模式', 'ok', 4000);
+    // 提示语只说 Esc —— 顶栏在大屏下是 display:none 的，
+    // 那个「大屏」按钮点不到，写"再点一次退出"会让人到处找按钮。
+    toast(want ? '已进入大屏展示模式（按 Esc 退出）' : '已退出大屏展示模式', 'ok', 4000);
   }
 
 
@@ -3593,14 +3797,12 @@
 
   /**
    * 切换当前展示的形象。
-   * @param {'lake'|'live2d'|'3d'} kind
+   * @param {'live2d'|'3d'} kind
    * @param {string} id
    */
   async function switchDisplay(kind, id, { silent } = {}) {
     const item = findDisplayModel(kind, id)
-      || (kind === '3d' ? allDisplayModels().find(m => m.kind === '3d')
-        : kind === 'lake' ? allDisplayModels().find(m => m.kind === 'lake')
-          : S.l2dModels[0]);
+      || (kind === '3d' ? allDisplayModels().find(m => m.kind === '3d') : S.l2dModels[0]);
     if (!item) {
       stageProblem(kind === '3d'
         ? '还没有可用的 3D 形象。\n\n两种办法：\n1. 双击仓库根目录的「获取示例模型.bat」下载内置的 VRM 示例模型\n2. 点外观页的「更换形象」→「上传 VRM / GLB」，用你自己的模型'
@@ -3623,22 +3825,6 @@
         // 舞台是新建的，之前画在地面上的方位标记要重新贴上去，
         // 否则"切一下形象，箭头就没了"（而 HUD 还在，看起来像功能坏了）
         applyGeoMarkerToStage(S.geo.relation);
-      } catch (e) {
-        stageProblem(e.message);
-        toast(String(e.message).split('\n')[0], 'err', 9000);
-      }
-    } else if (item.kind === 'lake') {
-      // 西湖船娘是纯代码画的，加载不会失败（没有外部文件），所以这里不需要
-      // "加载失败怎么办"的分支 —— 唯一的失败可能是脚本没加载进来。
-      try {
-        const st = await ensureLake();
-        await st.load(item.url, { label: item.label });
-        st.setScale(S.settings.l2dScale);
-        st.setPosition(S.settings.l2dX, S.settings.l2dY);
-        if (S.settings.expression && (st.expressions || []).includes(S.settings.expression)) {
-          await st.setExpression(S.settings.expression);
-        }
-        stageOk();
       } catch (e) {
         stageProblem(e.message);
         toast(String(e.message).split('\n')[0], 'err', 9000);
@@ -3727,13 +3913,10 @@
     renderLookPreview();
   }
 
-  /** 列出当前渲染器支持的表情（三套渲染器的取法不同，这里抹平） */
+  /** 列出当前渲染器支持的表情（两套渲染器的取法不同，这里抹平） */
   function currentExpressions() {
     if (S.display.kind === '3d') {
       return stage3d && stage3d.expressionNames ? stage3d.expressionNames() : [];
-    }
-    if (S.display.kind === 'lake') {
-      return (lake && lake.expressions) || [];
     }
     return (stage && stage.expressions) || [];
   }
@@ -3748,9 +3931,7 @@
     if (hint) {
       hint.textContent = S.display.kind === '3d'
         ? '3D 形象的表情由 VRM 定义，不同模型差别很大'
-        : S.display.kind === 'lake'
-          ? '西湖船娘的表情是内置的（程序化绘制）'
-          : '来自模型的 .exp3.json';
+        : '来自模型的 .exp3.json';
     }
 
     if (!names.length) {
@@ -3758,9 +3939,7 @@
         class: 'mini',
         text: S.display.kind === '3d'
           ? (stage3d ? '该 3D 模型没有可切换的表情（或不是 VRM）' : '3D 渲染器还没加载')
-          : S.display.kind === 'lake'
-            ? '西湖船娘还没加载'
-            : '该模型没有表情文件（.exp3.json）',
+          : '该模型没有表情文件（.exp3.json）',
       }));
       return;
     }
@@ -5022,6 +5201,14 @@
    * 十六、界面绑定
    * ======================================================================*/
   function switchTab(name) {
+    // ★ 'chat' 别名到 'tools'。
+    //
+    // 「对话」页签已经并进「文旅」（两个本来就是一件事的两半，而且聊天流里
+    // 还默认嵌了第二份一模一样的工作台）。但全站还有几十处 `switchTab('chat')`
+    // 和 `#pane-chat` 的引用，一次全改容易漏。留个别名在这里兜底：
+    // 就算有漏网的调用点，也只是切到「文旅」，不会切到一个不存在的页签上
+    // （那会让整个侧栏变成空白）。
+    if (name === 'chat') name = 'tools';
     $$('#tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.pane === name));
     $$('.pane').forEach(p => p.classList.toggle('active', p.id === `pane-${name}`));
     if (name === 'memory') renderMemoryList();
@@ -5039,6 +5226,55 @@
 
   function bindTabs() {
     $$('#tabs .tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.pane)));
+  }
+
+  /* ------------------------------------------------------------------------
+   * 工作台的展开 / 收起。
+   *
+   * 为什么默认收起：底部那个面板只有 300px 高（用户明确要的"人物占满一屏、
+   * 面板矮矮一条"），而完整工作台排下来要 700px 左右 —— 直接铺开会把字段切掉，
+   * 也会把方案结果区挤得看不见。所以默认只留一行「填写旅行偏好」，
+   * 点一下才铺开。
+   *
+   * 联动：
+   *   · 生成方案前（runPlanWith）会自动展开 —— 否则用户看不见表单在动
+   *   · 点「开始规划」（startWorkbenchInChat）也会展开
+   *   · 分栏布局（.debug）下 CSS 不折叠：那里 520px 宽、纵向宽松，没必要收
+   *   · 状态存 localStorage，用户手动展开过就记住
+   * ---------------------------------------------------------------------- */
+  const WB_KEY = 'wenlv.wbCollapsed';
+
+  function setWorkbenchCollapsed(on) {
+    const want = Boolean(on);
+    document.body.classList.toggle('wb-collapsed', want);
+    const btn = $('#btn-wb-toggle');
+    if (btn) {
+      btn.classList.toggle('open', !want);
+      const arrow = btn.querySelector('.wb-toggle-arrow');
+      const txt = btn.querySelector('.wb-toggle-txt');
+      if (arrow) arrow.textContent = want ? '▸' : '▾';
+      if (txt) txt.textContent = want ? '填写旅行偏好' : '收起偏好表单';
+      btn.title = want ? '展开旅行偏好表单' : '收起旅行偏好表单';
+    }
+    try { localStorage.setItem(WB_KEY, want ? '1' : '0'); } catch { /* 忽略 */ }
+    // 展开/收起会改布局，舞台要重算，否则人物还按旧画布摆着
+    setTimeout(() => { const st = activeStage(); if (st && st.resize) st.resize(); }, 120);
+  }
+
+  /** 展开（生成方案前 / 点「开始规划」时用）。已经展开就不做事。 */
+  function expandWorkbench() {
+    if (!document.body.classList.contains('wb-collapsed')) return false;
+    setWorkbenchCollapsed(false);
+    return true;
+  }
+
+  function bindWorkbenchToggle() {
+    const btn = $('#btn-wb-toggle');
+    if (btn) btn.addEventListener('click', () => setWorkbenchCollapsed(!document.body.classList.contains('wb-collapsed')));
+    let stored = null;
+    try { stored = localStorage.getItem(WB_KEY); } catch { /* 忽略 */ }
+    // 没存过就默认收起（这是需求：底部面板里工作台默认折叠）
+    setWorkbenchCollapsed(stored === null ? true : stored === '1');
   }
 
   function bindTopbar() {
@@ -5137,6 +5373,18 @@
 
   function bindComposer() {
     const input = $('#chat-input');
+    /* ★ 输入区已经按需求整个移除（"旅游辅助项目，闲聊输入框没必要留"）——
+       `#chat-input`、发送/停止/图片/摄像头/联网/语音这一排按钮都不在了。
+
+       所以这里**直接整段跳过**。不跳过的话，下面每一句
+       `$('#btn-send').addEventListener(...)` 都会在 null 上抛 TypeError，
+       而 boot() 里 bindComposer 之后还有一大串初始化（舞台、开屏、词云…），
+       一抛就全都不执行 —— 表现是"页面出来了但什么都不动"。
+
+       想让输入框回来：把 index.html 里那段注释掉的 composer 放出来即可，
+       这段绑定不用改。 */
+    if (!input) return;
+
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
     });
@@ -6055,15 +6303,8 @@
       } else if (m.kind === '3d') {
         const size = m.bytes ? `${(m.bytes / 1024 / 1024).toFixed(1)} MB` : '';
         mNote.textContent = `3D · ${(m.format || 'glb').toUpperCase()}${size ? ` · ${size}` : ''} · three.js + three-vrm 渲染`;
-      } else if (m.kind === 'lake') {
-        // 西湖船娘没有 .motion3.json 也没有 .exp3.json —— 动作和表情都是算出来的。
-        // 照 Live2D 那一套去读 m.motionGroups.length 会当场抛 TypeError，
-        // 而这个函数是在 loadCapabilities() → setActiveCard() 里被调的，
-        // 一抛就把整个 boot() 打断：后面的 initStage() 不再执行，
-        // 画布停在 300×150 一个像素都没画 —— 表现就是"新形象不显示"。
-        mNote.textContent = '内置 · 程序化绘制 · 待机 / 6 个动作 / 4 种表情 / 口型同步 / 举牌';
       } else {
-        // 老模型可能没有这些字段（第三方模型的 model3.json 千奇百怪），
+        // Live2D：老模型可能没有这些字段（第三方模型的 model3.json 千奇百怪），
         // 兜一层默认值，别让"少一个字段"升级成"整个界面起不来"。
         const groups = Array.isArray(m.motionGroups) ? m.motionGroups.length : 0;
         const cnt = Number(m.motionCount) || 0;
@@ -6324,15 +6565,10 @@
     const makeCard = (m) => {
       const active = S.display.kind === m.kind && S.display.id === m.id;
       const is3d = m.kind === '3d';
-      const isLake = m.kind === 'lake';
       const tags = (m.tags && m.tags.length) ? m.tags : [];
       const note = is3d
         ? `3D · ${(m.format || 'glb').toUpperCase()}${m.bytes ? ` · ${(m.bytes / 1024 / 1024).toFixed(1)} MB` : ''}${m.format === 'vrm' ? ' · 支持口型与眨眼' : ''}`
-        : isLake
-          // 西湖船娘没有 .motion3.json 文件，动作是算出来的；照 Live2D 那套读
-          // motionGroups/motionCount 会直接把 undefined.length 打出来
-          ? '内置 · 程序化绘制 · 支持待机/动作/口型/举牌'
-          : `${(m.motionGroups || []).length} 组动作 / ${m.motionCount || 0} 个${(m.expressions || []).length ? ` · ${(m.expressions || []).length} 个表情` : ''}${m.hasLipSync ? ' · 支持口型同步' : ''}`;
+        : `${(m.motionGroups || []).length} 组动作 / ${m.motionCount || 0} 个${(m.expressions || []).length ? ` · ${(m.expressions || []).length} 个表情` : ''}${m.hasLipSync ? ' · 支持口型同步' : ''}`;
 
       const card = el('button', {
         class: `pick-card${active ? ' active' : ''}`,
@@ -6341,13 +6577,13 @@
       }, [
         m.preview
           ? el('img', { class: 'pick-img pick-model-img', src: m.preview, alt: m.label })
-          : el('div', { class: 'pick-img', style: { display: 'grid', placeItems: 'center', fontSize: '28px' }, text: is3d ? '🧊' : isLake ? '🛶' : '🧍' }),
+          : el('div', { class: 'pick-img', style: { display: 'grid', placeItems: 'center', fontSize: '28px' }, text: is3d ? '🧊' : '🧍' }),
         el('div', { class: 'pick-name', text: m.label }),
         el('div', { class: 'pick-note', text: note }),
-        (tags.length || is3d || isLake)
+        (tags.length || is3d)
           ? el('div', { class: 'pick-tags' }, [
             ...tags.map(t => el('span', { class: 'pick-tag', text: t })),
-            el('span', { class: 'pick-tag', text: is3d ? '3D' : isLake ? '内置 2D' : '2D / Live2D' }),
+            el('span', { class: 'pick-tag', text: is3d ? '3D' : '2D / Live2D' }),
           ])
           : null,
       ]);

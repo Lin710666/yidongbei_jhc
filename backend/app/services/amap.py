@@ -4,10 +4,11 @@
 - search_poi   ：关键词搜索 POI（景点/餐厅/商场等）
 - get_weather  ：天气查询（逐日预报）
 - get_route    ：路线规划（步行 / 驾车 / 公交），含距离、耗时、打车费用
+- geocode      ：地址/城市名 → 经纬度（算城际距离用）
 
 使用前需在 .env 配置 AMAP_API_KEY（高德开放平台免费申请：https://console.amap.com/）。
 """
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import threading
 import time
@@ -76,6 +77,32 @@ class AmapClient:
     def get_weather(self, city: str, extensions: str = "all") -> Dict[str, Any]:
         """逐日天气查询。extensions="all" 返回多日预报。"""
         return self._get("/weather/weatherInfo", {"city": city, "extensions": extensions})
+
+    def geocode(self, address: str) -> Optional[Tuple[float, float]]:
+        """地址/城市名 → (纬度, 经度)。查不到返回 None。
+
+        为什么要用地理编码而不是 let 用户填坐标：用户填的是「杭州」「上海」这种
+        城市名，而算城际距离必须先变成长度单位。原来往返大交通是拍脑袋的固定值
+        （高铁一律 150 元/人），就是因为**根本不知道出发地和目的地隔多远**。
+        """
+        name = (address or "").strip()
+        if not name:
+            return None
+        try:
+            data = self._get("/geocode/geo", {"address": name})
+        except AmapError:
+            return None
+        geocodes = data.get("geocodes") or []
+        if not geocodes:
+            return None
+        loc = str(geocodes[0].get("location") or "")
+        if "," not in loc:
+            return None
+        try:
+            lng_s, lat_s = loc.split(",", 1)
+            return (float(lat_s), float(lng_s))
+        except (TypeError, ValueError):
+            return None
 
     def get_route(
         self, origin: str, destination: str, mode: str = "walking"

@@ -27,7 +27,9 @@ FastAPI 之后，两边对不上，所以这里做一层翻译：
 from __future__ import annotations
 
 import json
+import logging
 import math
+import os
 import re
 import time
 from collections import OrderedDict
@@ -35,7 +37,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 from urllib.parse import quote, unquote
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from ..cards_store import CardStore
 from ..config import settings
@@ -44,6 +46,11 @@ from ..models.preference import Travelers, UserPreference
 from ..orchestrator import get_orchestrator
 
 router = APIRouter(prefix="/api")
+# 模块级 logger。
+# ⚠ 原来这里**没有定义 log**，但下面 `/hot` 的异常分支里用了 `log.warning(...)` ——
+#   那行一旦执行就会抛 NameError（把"热点接口异常"变成"投诉处理时又炸一次"）。
+#   补上定义，两边都能用。
+log = logging.getLogger("wenlv.ui_compat")
 # 与原生 api 路由共用同一个编排器（省一次知识索引构建）
 orchestrator = get_orchestrator()
 llm = LLMClient()
@@ -130,6 +137,64 @@ L2D_DIR = PUBLIC_DIR / "models"
 M3D_DIR = PUBLIC_DIR / "models3d"
 
 
+# ---------------------------------------------------------------------------
+# 清单文件热重载
+#
+# 为什么需要：上面那几个 `_load(...)` 是**模块导入时读一次就定死**的。于是改完清单
+# 必须重启服务才生效 —— 这个坑实测踩过好几次：把模型装进 models3d.json /
+# capabilities.json 之后接口里"看不见"，一度以为是没装成功，其实是没重启。
+# （对外表现特别迷惑：文件明明改了、JSON 也合法，就是不出来。）
+#
+# 现在每次请求前对一下 mtime，变了就重读并就地换掉模块级变量，
+# 改完**刷新一下页面就行**，不用重启。
+# ---------------------------------------------------------------------------
+_MANIFESTS: Dict[str, tuple] = {
+    "capabilities": ("CATALOG", {}),
+    "backgrounds": ("BACKGROUNDS", {"ok": True, "bundled": [], "procedural": [], "custom": []}),
+    "models3d": ("MODELS3D", {"ok": True, "formats": {}, "bundled": [], "custom": []}),
+    "tts-speakers": ("SPEAKERS", {"ok": True, "speakers": []}),
+    "geo": ("GEO", {"gazetteer": [], "cityCenters": {}}),
+    "wordcloud": ("WORDCLOUD", {"groups": [], "words": []}),
+}
+#: 上次读到时的 mtime；启动时先填一遍，免得第一次请求白读一轮
+_MANIFEST_MTIME: Dict[str, float] = {}
+for _name in _MANIFESTS:
+    try:
+        _MANIFEST_MTIME[_name] = (DATA_DIR / f"{_name}.json").stat().st_mtime
+    except OSError:
+        pass
+
+
+def reload_manifests(force: bool = False) -> List[str]:
+    """清单文件变了的就重读一遍，返回这次真正重读了的清单名。
+
+    `force=True` 时不管 mtime 全部重读（给手动触发的接口用）。
+    读失败时 `_load` 会退回默认值 —— 但那样会把一份能用的清单换成一个空壳，
+    所以这里对"解析失败"额外保守一点：解析不了就保持原来那份不动。
+    """
+    global CATALOG, BACKGROUNDS, MODELS3D, SPEAKERS, GEO, WORDCLOUD
+    changed: List[str] = []
+    scope = globals()
+    for name, (varname, default) in _MANIFESTS.items():
+        path = DATA_DIR / f"{name}.json"
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue                       # 文件不在就当没这回事，保持原值
+        if not force and _MANIFEST_MTIME.get(name) == mtime:
+            continue
+        raw = None
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            # 半截文件 / 手抖写坏了 —— 别拿空壳去顶掉现在能用的那份
+            continue
+        _MANIFEST_MTIME[name] = mtime
+        scope[varname] = raw
+        changed.append(name)
+    return changed
+
+
 def _live2d() -> List[Dict[str, Any]]:
     """Live2D 清单：只留磁盘上确实装了的那几套。"""
     items = CATALOG.get("live2d") or []
@@ -207,6 +272,19 @@ def _pick_vision_model(models: List[str]) -> str:
     return cands[0]
 
 
+@router.get("/ping")
+def ping() -> Dict[str, Any]:
+    """轻量存活探测 —— 只回一句"我在"，**不做任何外部调用**。
+
+    为什么单独开一个：
+      /api/status 要探 Ollama（本机没装/没启动时，每次连接都要等完整超时，
+      实测两次探测 = 4 秒）。而"后端还在不在"这个问题不该被它拖累 ——
+      离线重连的探测每几秒就要打一次，用 status 会既慢又浪费。
+    所以重连探测走这里，恢复后再去拉 status 补全数据。
+    """
+    return {"ok": True, "pong": True}
+
+
 @router.get("/status")
 def status() -> Dict[str, Any]:
     """总状态。前端启动、状态灯、设置页都读它。"""
@@ -214,8 +292,14 @@ def status() -> Dict[str, Any]:
     try:
         import httpx
 
-        r = httpx.get(f"{settings.ollama_base_url}/api/tags", timeout=3.0)
-        models = [m.get("name", "") for m in (r.json().get("models") or [])]
+        # ★ 先做端口预检再发 HTTP 请求：Ollama 没启动时，httpx.get 到 11434
+        #   会等满超时（先试 IPv4 再试 IPv6，实测 2 秒），而这个接口每次刷新
+        #   都要调 —— 状态灯不至于为此卡 2 秒。端口没监听就直接当"没模型"。
+        from ..llm.client import _tcp_open
+
+        if _tcp_open(settings.ollama_base_url, timeout=0.15):
+            r = httpx.get(f"{settings.ollama_base_url}/api/tags", timeout=3.0)
+            models = [m.get("name", "") for m in (r.json().get("models") or [])]
     except Exception:  # noqa: BLE001 - 探测失败就当没有，不阻断页面
         models = []
     chat_model = _match_model(models, settings.ollama_model.split(":")[0]) or settings.ollama_model
@@ -292,6 +376,8 @@ def parse_preference(body: Dict[str, Any]) -> Dict[str, Any]:
 @router.get("/capabilities")
 def capabilities() -> Dict[str, Any]:
     """能力清单：词云、选项、音色、形象、角色卡。前端的词云就按它渲染。"""
+    # 改完 capabilities.json / wordcloud.json 刷新页面就能看到，不用重启服务
+    reload_manifests()
     cap = dict(CATALOG)
     cap["ok"] = True
     _apply_current_wordcloud(cap)
@@ -301,6 +387,29 @@ def capabilities() -> Dict[str, Any]:
     m3d.setdefault("custom", [])
     cap["models3d"] = m3d
     cap["myVoices"] = []
+
+    # ★ 角色卡要发**活的那份**（CARD_STORE），不能发 capabilities.json 里的静态快照。
+    #
+    # 原来没有这一段，卡片直接来自磁盘上那份导出的 JSON。后果很隐蔽：
+    #   用户在界面里改了形象 / 人设 / 音色 → PUT 写进 CARD_STORE 和 cards.json，
+    #   `/api/cards` 读得到、卡片页也显示新值，
+    #   但**前端启动时读的是这个接口**（app.js 的 loadCapabilities）。
+    #   于是"卡片页改了、刷新回来还是老样子"，而且很难找 ——
+    #   因为两处根本不是同一个数据源（一个是活仓库，一个是磁盘快照）。
+    #
+    # 实测就是这么卡住"把默认形象换成某个模型"的：
+    #   /api/cards        → 小文 的 live2d.model = cangyixiu
+    #   /api/capabilities → 小文 的 live2d.model = mao（静态文件里的老值）
+    #   前端只读后者，所以永远起 mao。
+    try:
+        listing = CARD_STORE.listing()
+        if listing.get("cards"):
+            cap["cards"] = listing["cards"]
+        active = CARD_STORE.active()
+        if active and active.get("id"):
+            cap["activeCardId"] = active["id"]
+    except Exception as exc:  # noqa: BLE001 - 读不到就退回静态快照，别把整个接口弄挂
+        log.warning("角色卡读取失败，capabilities 退回静态快照：%s", exc)
     return cap
 
 
@@ -343,6 +452,20 @@ def _apply_current_wordcloud(cap: Dict[str, Any]) -> None:
         {"id": "planb", "name": "雨天备选", "desc": "按实时天气给出室内替代，一键替换", "icon": "🌧️"},
         {"id": "rag", "name": "本地知识库", "desc": "游玩贴士来自本地 RAG，不联网", "icon": "📚"},
     ]
+
+
+@router.post("/reload-manifests")
+def reload_manifests_now() -> Dict[str, Any]:
+    """手动重读 data/ 下的清单 JSON。
+
+    正常情况下**用不到** —— 上面那几个 GET 每次请求都会自己对 mtime，
+    改完文件刷新页面就生效。这个是兜底与排查用：
+    比如想确认"到底是没重读到还是文件本身没写对"时，打一下它，
+    看 `reloaded` 里有没有你想改的那份。
+    """
+    changed = reload_manifests(force=True)
+    return {"ok": True, "reloaded": changed,
+            "manifests": sorted(_MANIFESTS.keys())}
 
 
 @router.get("/cards")
@@ -440,11 +563,13 @@ def cards_export(card_id: str) -> Any:
 
 @router.get("/backgrounds")
 def backgrounds() -> Dict[str, Any]:
+    reload_manifests()
     return BACKGROUNDS
 
 
 @router.get("/models3d")
 def models3d() -> Dict[str, Any]:
+    reload_manifests()
     out = dict(MODELS3D)
     out["bundled"] = _models3d_bundled()
     out.setdefault("custom", [])
@@ -453,6 +578,7 @@ def models3d() -> Dict[str, Any]:
 
 @router.get("/tts/speakers")
 def tts_speakers() -> Dict[str, Any]:
+    reload_manifests()
     return SPEAKERS
 
 
@@ -513,23 +639,75 @@ _VIDEO_MIME = {
 }
 
 
+#: 开屏/背景默认用哪条片的**关键词优先级**（从前往后找，命中即用）。
+#
+# ★ 这里原来只有「西湖」一个词，而 data/videos/ 里的文件名**一个都不含"西湖"** ——
+#   推荐位永远落空，于是一路退到 items[0]，也就是"按文件名排序的第一个"。
+#   实测后果：开屏放的是 `luotianyi-BV1MYCaYXEWf.mp4`（B 站的一条洛天依视频），
+#   纯粹因为拉丁字母排在汉字前面。**放哪个片由文件名首字母决定**，跟内容合不合适无关。
+#
+# 现在按"越贴合文旅演示越靠前"排：
+#   西湖 / 文旅 / 风景 / 宣传   —— 文旅主题的素材优先
+# 都没有命中时才退到文件名排序（仍然是确定的，不会随机）。
+_VIDEO_KEYWORDS: tuple = ("西湖", "文旅", "风景", "宣传", "旅行", "旅游")
+
+#: 想让某条片当默认，不用改代码：在 data/videos/ 下放一个 `首选.txt`，
+#: 里面写一行文件名即可。运营/演示前临时换片最省事。
+_VIDEO_PICK_FILE = "首选.txt"
+
+
+def _video_pick_name() -> str:
+    """读 `data/videos/首选.txt`（一行文件名）。没有就返回空串。"""
+    try:
+        f = VIDEO_DIR / _VIDEO_PICK_FILE
+        if not f.is_file():
+            return ""
+        for line in f.read_text(encoding="utf-8").splitlines():
+            s = line.strip()
+            if s and not s.startswith("#"):
+                return s
+    except OSError:
+        pass
+    return ""
+
+
 def _video_items() -> List[Dict[str, Any]]:
-    """扫一遍 data/videos/。名字带「西湖」的自动成为推荐片（赛题就是西湖宣传）。"""
+    """扫一遍 data/videos/，并标出"应该默认播哪条"。
+
+    默认片的挑选顺序（**全都是有依据的，不再看文件名首字母脸色**）：
+      1. `data/videos/首选.txt` 里点名的那条 —— 运营明确指定
+      2. 文件名里带 _VIDEO_KEYWORDS 关键词的（西湖 / 文旅 / 风景 / 宣传…）
+      3. 都没有时，按文件名排序取第一个（确定性的兜底，不是随机）
+    """
     if not VIDEO_DIR.is_dir():
         return []
+    pick = _video_pick_name()
     out: List[Dict[str, Any]] = []
     for p in sorted(VIDEO_DIR.iterdir()):
         if not p.is_file() or p.suffix.lower() not in _VIDEO_EXT:
             continue
+        # 首选文件点名的那条最大；否则看关键词；都没有就是普通片
+        rank = 0
+        if pick and p.name == pick:
+            rank = 100
+        elif not pick:
+            for i, kw in enumerate(_VIDEO_KEYWORDS):
+                if kw in p.name:
+                    rank = 50 - i          # 越靠前的关键词分越高
+                    break
         out.append({
             "id": p.name,
             "name": p.name,
             # 用文件名当 id，url 走本文件的取片接口
             "url": "/api/videos/" + quote(p.name),
             "bytes": p.stat().st_size,
-            "recommended": "西湖" in p.name,
+            "recommended": rank > 0,
+            "_rank": rank,
         })
-    out.sort(key=lambda v: (not v["recommended"], v["name"]))
+    # 推荐分高的排前面；同分按名字，保证顺序确定（不随文件系统返回顺序变）
+    out.sort(key=lambda v: (-v["_rank"], v["name"]))
+    for v in out:
+        v.pop("_rank", None)
     return out
 
 
@@ -892,6 +1070,7 @@ def _valid_coord(lat: float, lng: float) -> bool:
 
 @router.get("/geo/cities")
 def geo_cities() -> Dict[str, Any]:
+    reload_manifests()
     return {"ok": True, "cities": GEO.get("cityCenters", {})}
 
 
@@ -1031,24 +1210,250 @@ def _lookup_spot(name: str, city: str = "") -> Optional[Dict[str, Any]]:
     return None
 
 
-@router.post("/tts")
-def tts_generate() -> Any:
-    """语音合成。融合版没有接 Qwen TTS。
+# ---------------------------------------------------------------------------
+# 语音合成：代理到本机的 Qwen TTS WebUI
+#
+# 为什么是"代理"而不是自己合成：Qwen TTS 是个**独立进程**（另一个 venv、自己的
+# 启动脚本、首次启动要把权重加载进显存），对外是 http://127.0.0.1:7860 上的
+# `/qwenapi/v1/*` 几个接口。融合版最初把这一整条丢了（5.0 里在 lib/tts.js），
+# `/api/tts` 直接回 503「没有接入语音合成」—— 后果不只是"没声音"：
+# 形象那条"读音频实时频谱驱动口型"的链路**一并空转**（没有音频可分析），
+# 于是嘴一次都不会动。
+#
+# ⚠️ 一个必须记住的坑（5.0 的注释里写着，这边同样适用）：
+#   CustomVoice 模型下决定"是谁在说话"的是 **speaker**（内置音色 id），
+#   `instruct` 只管语气和节奏，**改不了性别**。speaker 留空时后端会退回
+#   音色列表第一个 = aiden（男声）—— 表现就是"不管选哪个预设，出来的都是男声"。
+#   所以卡片的 voice 里没有 speaker 时，这里必须按 presetId 补一个。
+# ---------------------------------------------------------------------------
+_TTS_BASE = (os.environ.get("QWEN_TTS_URL") or "http://127.0.0.1:7860").rstrip("/")
+_TTS_TIMEOUT = float(os.environ.get("QWEN_TTS_TIMEOUT") or "300")
 
-    这里返回 503 + 一句人话，而不是让前端撞 404：前端对 502/503/504 有专门的
-    文案分支（会提示「去起本机语音服务」），404 只会甩出一句裸的 HTTP 状态码。
+#: 预设音色 id → Qwen TTS 内置 speaker。
+#: 这张表照着 5.0 的 VOICE_PRESETS 抄 —— 别自己编，换错性别观感差别很大。
+_TTS_PRESET_SPEAKER = {
+    "wenlv-guide-female": "vivian",    # 清亮女声，通用讲解
+    "wenlv-guide-male": "uncle_fu",    # 低沉男声
+    "wenlv-sweet": "ono_anna",         # 高亮少女音
+    "wenlv-marketing": "serena",       # 沉稳女声，播报
+    "wenlv-gentle-slow": "sohee",      # 柔和女声，旁白
+}
+#: 连 presetId 都没有时用这个 —— 至少是个女声，和"文旅向导"的定位一致
+_TTS_DEFAULT_SPEAKER = "vivian"
+
+_TTS_CACHE_DIR = Path(settings.data_dir) / "tts-cache"
+
+
+def _tts_call(pathname: str, payload: Optional[Dict[str, Any]] = None,
+              timeout: float = 20.0) -> Any:
+    """调一次 TTS 服务。连不上抛异常，调用方自己决定是 503 还是别的。"""
+    import httpx
+
+    url = f"{_TTS_BASE}{pathname}"
+    if payload is None:
+        with httpx.Client(timeout=timeout) as c:
+            r = c.get(url)
+    else:
+        with httpx.Client(timeout=timeout) as c:
+            r = c.post(url, json=payload)
+    r.raise_for_status()
+    return r
+
+
+def _tts_models() -> Optional[List[Dict[str, Any]]]:
+    """服务在跑就返回模型清单，没在跑返回 None（状态与合成都要用）。"""
+    try:
+        r = _tts_call("/qwenapi/v1/models", timeout=8.0)
+        return list((r.json() or {}).get("models") or [])
+    except Exception:  # noqa: BLE001 - 连不上/超时/返回怪格式，统一当"没在跑"
+        return None
+
+
+def _tts_pick_model(mode: str, models: List[Dict[str, Any]]) -> Optional[str]:
+    """按模式挑一个本机跑得动的模型。
+
+    优先挑 **0.6B** 那一档：这台机器是 8GB 显存的笔记本卡，1.7B 的 TTS 和
+    Ollama 的 7B 同时驻留会顶爆（5.0 的注释里也写了"8GB 显存自动用 0.6B"）。
     """
-    from fastapi import HTTPException
+    def names(kind: str) -> List[str]:
+        return [str(m.get("name") or "") for m in models
+                if str(m.get("type") or "") == kind and m.get("name")]
 
-    raise HTTPException(status_code=503, detail={
-        "ok": False, "code": "NO_TTS",
-        "error": "融合版没有接入语音合成（Qwen TTS 是 5.0 的独立服务）。"
-                 "规划与文案生成不受影响。"})
+    want = "custom_voice"
+    if mode == "voice-design":
+        want = "voice_design"
+    elif mode == "voice-clone":
+        want = "voice_clone"
+
+    pool = names(want) or names("custom_voice") or [str(m.get("name") or "") for m in models]
+    pool = [p for p in pool if p]
+    if not pool:
+        return None
+    small = [p for p in pool if "0.6B" in p]
+    return (small or pool)[0]
+
+
+def _tts_resolve_voice(body: Dict[str, Any]) -> Dict[str, Any]:
+    """把卡片的音色配置整理成能直接发出去的一份。"""
+    card = None
+    cid = body.get("cardId")
+    if cid:
+        try:
+            card = CARD_STORE.get(str(cid))
+        except Exception:  # noqa: BLE001 - 卡读不到就退回默认音色
+            card = None
+    if card is None:
+        try:
+            card = CARD_STORE.active()
+        except Exception:  # noqa: BLE001
+            card = None
+
+    v = (card or {}).get("voice") if isinstance(card, dict) else None
+    v = v if isinstance(v, dict) else {}
+
+    speaker = str(body.get("speaker") or v.get("speaker") or "").strip()
+    preset = str(v.get("presetId") or "").strip()
+    if not speaker:
+        # 见本节顶部那个坑：不补 speaker 会变成男声
+        speaker = _TTS_PRESET_SPEAKER.get(preset, _TTS_DEFAULT_SPEAKER)
+    return {
+        "mode": str(body.get("mode") or v.get("mode") or "custom-voice").strip(),
+        "speaker": speaker,
+        "instruct": str(body.get("instruct") or v.get("instruct") or "").strip(),
+        "language": str(v.get("language") or "Chinese").strip(),
+    }
+
+
+def _tts_synthesize(text: str, voice: Dict[str, Any],
+                    models: List[Dict[str, Any]]) -> Any:
+    """合成一段语音。返回 (音频字节, mime, 是否命中缓存, 用的模型名)。"""
+    import hashlib
+
+    clipped = text[:600]
+    model = _tts_pick_model(voice["mode"], models)
+    if not model:
+        raise HTTPException(status_code=503, detail={
+            "ok": False, "code": "NO_TTS_MODEL",
+            "error": "本机语音服务里没有可用模型。请在 Qwen TTS WebUI 界面里下载一个模型后重试。"})
+
+    # 缓存：文案 + 音色 + 语气 + 模型一起做键。
+    # 不带 speaker 的话"换了音色还在放旧音频"，听起来就是"换了没反应"。
+    key = hashlib.sha1(json.dumps(
+        [clipped, model, voice["mode"], voice["speaker"], voice["instruct"], voice["language"]],
+        ensure_ascii=False).encode("utf-8")).hexdigest()[:20]
+    _TTS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cached_file = _TTS_CACHE_DIR / f"{key}.wav"
+    if cached_file.exists():
+        return cached_file.read_bytes(), "audio/wav", True, f"{model}(cached)"
+
+    # 模式与拿到的模型对不上时自动降级 —— 保证"能出声"而不是打成 500。
+    # （本机只有 Base 才是克隆模型、VoiceDesign 才是设计模型，其余走 CustomVoice。）
+    mode = voice["mode"]
+    if mode == "voice-design" and "VoiceDesign" not in model:
+        mode = "custom-voice"
+    if mode == "voice-clone" and "Base" not in model:
+        mode = "custom-voice"
+
+    if mode == "voice-design":
+        path, payload = "/qwenapi/v1/voice-design", {
+            "model_name": model, "text": clipped,
+            "instruct": voice["instruct"] or "用自然亲切的语气说话。",
+            "language": voice["language"], "segment_gen": False}
+    else:
+        path, payload = "/qwenapi/v1/custom-voice", {
+            "model_name": model, "text": clipped,
+            "instruct": voice["instruct"] or "用自然亲切的语气说话。",
+            "speaker": voice["speaker"],
+            "language": voice["language"], "segment_gen": False}
+
+    r = _tts_call(path, payload, timeout=_TTS_TIMEOUT)
+
+    # ★ 这个服务返回的**不是裸音频字节**，而是 JSON：
+    #     {"audio_files_base64": ["<base64 wav>", ...], "info": "成功生成 1 个音频文件, 耗时: 15.51s"}
+    #   直接拿 r.content 当音频返回的话，前端 <audio> 会拿到一坨 JSON ——
+    #   而且**不报错**，只是静静地不出声（比 500 还难查）。
+    #   所以这里必须解一层 base64。
+    import base64
+
+    ctype = (r.headers.get("content-type") or "").lower()
+    if "json" in ctype:
+        try:
+            data = r.json()
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(f"语音服务返回的不是合法 JSON：{exc}") from exc
+        parts = data.get("audio_files_base64") or []
+        if not parts:
+            raise RuntimeError(f"语音服务没有返回音频：{str(data.get('info') or data)[:200]}")
+        audio = base64.b64decode(parts[0])
+        info = str(data.get("info") or "")
+    else:
+        # 某些版本/端点可能直接回字节流 —— 两种都认，别只按一种写
+        audio = r.content
+        info = ""
+
+    if not audio:
+        raise RuntimeError("语音服务返回了空音频")
+
+    try:
+        cached_file.write_bytes(audio)   # 缓存失败不影响这次播放
+    except OSError:
+        pass
+    # ⚠ info 里带中文（"成功生成 1 个音频文件, 耗时: 15.51s"），**不能塞进响应头** ——
+    #   HTTP 头只允许 latin-1，Starlette 一编码就抛 UnicodeEncodeError，
+    #   整个请求变成 500（而且是"合成明明成功了、缓存也写进去了"的那种 500，
+    #   查起来很迷惑：第一次 500，第二次却命中缓存返回 200）。
+    #   所以 info 只写日志，头里只留 ASCII 的模型名。
+    if info:
+        log.info("TTS %s", info)
+    return audio, "audio/wav", False, model
+
+
+@router.post("/tts")
+def tts_generate(body: Dict[str, Any]) -> Any:
+    """语音合成（POST /api/tts，返回 audio 字节，前端直接塞进 <audio>）。
+
+    前端对 502/503/504 有专门的文案分支（会提示「去起本机语音服务」），
+    所以服务没起来时这里回 503 + 一句能照着做的话，而不是裸的状态码。
+    """
+    from fastapi.responses import Response
+
+    text = str(body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail={"ok": False, "code": "BAD_INPUT", "error": "合成文本为空。"})
+
+    running = _tts_models()
+    if running is None:
+        raise HTTPException(status_code=503, detail={
+            "ok": False, "code": "NO_TTS",
+            "error": f"本机语音服务没在运行（{_TTS_BASE}）。"
+                     "双击项目根目录的「start-tts.bat」把它起起来，再点一次朗读。"})
+
+    voice = _tts_resolve_voice(body)
+    try:
+        audio, mime, cached, used = _tts_synthesize(text, voice, running)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 - 让前端拿到原因，而不是空体 500
+        raise HTTPException(status_code=500, detail={
+            "ok": False, "code": "TTS_FAIL", "error": f"语音合成失败：{exc}"}) from exc
+
+    return Response(content=audio, media_type=mime,
+                    headers={"X-TTS-Cached": "1" if cached else "0",
+                             "X-TTS-Model": used,
+                             "Cache-Control": "no-store"})
 
 
 @router.get("/tts")
 def tts_status() -> Dict[str, Any]:
-    return {"ok": True, "running": False, "url": "", "models": [], "code": "NO_TTS"}
+    """语音服务状态。前端的状态灯用这个。"""
+    models = _tts_models()
+    if models is None:
+        return {"ok": True, "running": False, "url": _TTS_BASE, "models": [],
+                "code": "NO_TTS",
+                "error": "本机语音服务没在运行。双击项目根目录的「start-tts.bat」起起来。"}
+    return {"ok": True, "running": True, "url": _TTS_BASE,
+            "models": [m.get("name") for m in models],
+            "defaultModel": _tts_pick_model("custom-voice", models)}
 
 
 @router.get("/scenery/local")
@@ -1649,3 +2054,135 @@ def _user_prompt(kind: str, params: Dict[str, Any]) -> str:
                 "请按「产品名 / 目标客群 / 组合要素 / 差异化卖点 / 定价区间 / 上新理由 / 风险与前提」"
                 "输出一张产品概念卡。")
     return "我还没有提供任何需求信息，请先按规范向我集中追问（每个字段都给出可点选的候选选项）。"
+
+
+# ---------------------------------------------------------------------------
+# 四、面向 Agent 引擎（OpenClaw 等）的接口：**纯文本**
+#
+# 这一节是给 Agent 引擎用的，不是给网页用的 —— 所以刻意**不做 SSE、也不返回 JSON**。
+#
+# 为什么需要：`.agents/skills/wenlv-assistant/` 这个技能包里带了两个确定性脚本，
+# 引擎的 Agent 通过 exec 调它们：
+#
+#     node scripts/generate-plan.js --city 杭州 --days 2 --budget 舒适 --crowd 情侣
+#     node scripts/generate-marketing.js --product 景区 --platform 小红书
+#
+# 脚本再回来打本机服务的这两个地址（见脚本里的 `WENLV_ENDPOINT`，
+# 默认 http://127.0.0.1:8000）。
+#
+# ★ 融合版最初**漏了这两条**：5.0 里它们挂在 server.js 上，换成组员的 FastAPI
+#   之后没跟过来。后果是"看起来装了、其实跑不通"——
+#   技能包装得上、`openclaw skills info` 也显示 ✓ Ready、描述也注入进了上下文，
+#   但真正执行的那一步一跑就是 **HTTP 404**（实测直接 curl 两个地址都是 404）。
+#
+#   另一个必须走脚本而不是让 Agent 直接取网页的原因：OpenClaw 有防 SSRF 的既定
+#   安全策略，`web_fetch` 访问 127.0.0.1 会被拦（那份验证报告里记了，
+#   `dangerouslyAllowPrivateNetwork` 也放不开）。而技能自带的 scripts/ 由 Agent
+#   通过 exec 起成本地子进程，不受这条限制 —— 这也正是规范里 scripts/ 的用途。
+#
+# 输出格式与 5.0 保持一致，因为脚本、SKILL.md 与那份集成验证报告都按这个格式写的：
+#
+#     【由本地样本库驱动生成】目的地：杭州 · 天数：2 · 预算：舒适 · …
+#     ⚠️ 输出质检发现 N 处需要注意（已与本地样本库核对）：
+#     1. …
+#     ---------- 以下为生成结果（请原样转述，不要改写、不要复述本段说明）----------
+#     <Markdown 正文>
+#
+# 质检提示刻意放在**正文之前**：Agent 拿到的是"一段要转述给用户的话"，
+# 把"这份结果哪里可能有问题"摆在最前面，模型才更可能如实说出 warnings，
+# 而不是把一份有瑕疵的方案当完美方案念一遍。
+# ---------------------------------------------------------------------------
+
+#: 5.0 的 quick-plan 是 `Number(q.get('days')) || 2`，非法值退回 2；这里再夹到 1~7
+_QUICK_DAY_MIN, _QUICK_DAY_MAX = 1, 7
+
+
+def _quick_int(raw: Any, default: int) -> int:
+    try:
+        return int(str(raw).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def _quick_head(kind: str, params: Dict[str, Any], warnings: List[str]) -> str:
+    """拼出"给 Agent 看的说明头"。格式对齐 5.0 的 server.js。"""
+    if kind == "plan":
+        first = (f"【由本地样本库驱动生成】目的地：{params.get('city')} · "
+                 f"天数：{params.get('days')} · 预算：{params.get('budget')} · "
+                 f"同行人群：{params.get('crowd')} · 饮食禁忌：{params.get('diet')}")
+    else:
+        first = (f"【由本地样本库驱动生成】产品：{params.get('product')} · "
+                 f"平台：{params.get('platform')} · 目标客群：{params.get('audience')} · "
+                 f"风格：{params.get('style')}")
+    lines = [first]
+    if warnings:
+        lines += ["", f"⚠️ 输出质检发现 {len(warnings)} 处需要注意（已与本地样本库核对）："]
+        lines += [f"{i + 1}. {w}" for i, w in enumerate(warnings)]
+    lines += ["",
+              "---------- 以下为生成结果（请原样转述，不要改写、不要复述本段说明）----------",
+              ""]
+    return "\n".join(lines)
+
+
+def _quick_response(body: str, status: int = 200) -> Any:
+    from fastapi.responses import PlainTextResponse
+
+    # 显式写 charset：脚本是 `process.stdout.write(text)` 直接转述的，
+    # 编码说清楚，Windows 控制台与 Agent 那边才不会把中文吃成乱码。
+    return PlainTextResponse(body, status_code=status,
+                             media_type="text/plain; charset=utf-8")
+
+
+@router.get("/quick-plan")
+def quick_plan(request: Request) -> Any:
+    """给 Agent 引擎的**纯文本**方案接口。
+
+    例：`GET /api/quick-plan?city=杭州&days=2&budget=舒适&crowd=情侣&interests=自然风光,美食&diet=无`
+    """
+    q = request.query_params
+    params: Dict[str, Any] = {
+        "city": (q.get("city") or "杭州").strip() or "杭州",
+        "days": max(_QUICK_DAY_MIN, min(_quick_int(q.get("days"), 2), _QUICK_DAY_MAX)),
+        "budget": (q.get("budget") or "舒适").strip() or "舒适",
+        "crowd": (q.get("crowd") or "朋友").strip() or "朋友",
+        # 和 5.0 一样支持逗号 / 顿号 / 空白分隔，中文逗号也认
+        "interests": [x for x in re.split(r"[,，、\s]+", q.get("interests") or "") if x],
+        "diet": (q.get("diet") or "不限").strip() or "不限",
+    }
+    try:
+        plan = orchestrator.run(preference=_to_preference(params))
+        content = _render_plan_markdown(plan, params)
+        warnings = list(plan.warnings or [])
+    except Exception as exc:  # noqa: BLE001 - 引擎那边需要看到原因，不是空体 500
+        return _quick_response(f"【生成失败】{type(exc).__name__}: {exc}\n", status=500)
+    return _quick_response(_quick_head("plan", params, warnings) + content + "\n")
+
+
+@router.get("/quick-marketing")
+def quick_marketing(request: Request) -> Any:
+    """给 Agent 引擎的**纯文本**营销文案接口。
+
+    例：`GET /api/quick-marketing?product=景区&platform=小红书&audience=年轻情侣&style=种草`
+
+    这条走 2.2 引擎导出的提示词 + 本机 Ollama（HikiTravel 没有营销链路），
+    与 `/api/wenlv/generate` 的 marketing 分支同一条路 —— 这里只是换成纯文本返回。
+    """
+    q = request.query_params
+    params: Dict[str, Any] = {
+        "product": (q.get("product") or "景区").strip() or "景区",
+        "platform": (q.get("platform") or "小红书").strip() or "小红书",
+        "audience": (q.get("audience") or "年轻情侣").strip() or "年轻情侣",
+        "style": (q.get("style") or "种草").strip() or "种草",
+    }
+    system = _load_prompt("marketing", "system")
+    if not system:
+        return _quick_response("【生成失败】缺少导出的提示词，请检查 backend/app/data/prompts/\n", status=500)
+    try:
+        text = llm.chat_text(system, _user_prompt("marketing", params)) or ""
+    except Exception as exc:  # noqa: BLE001
+        return _quick_response(f"【生成失败】{type(exc).__name__}: {exc}\n", status=500)
+    if not text.strip():
+        return _quick_response("【生成失败】本机模型没有返回内容，请确认 Ollama 正在运行且已拉取对话模型。\n", status=500)
+    # 营销这条没有本地样本库质检（HikiTravel 不带样本库），所以 warnings 恒为空。
+    # 仍然走同一个头部格式：脚本与 SKILL.md 都按"有头 + 有正文"写的。
+    return _quick_response(_quick_head("marketing", params, []) + text + "\n")

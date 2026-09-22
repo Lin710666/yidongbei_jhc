@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#121212">
-<title>文旅智能辅助 v6.5 · AIRI 网页版</title>
+<title>文旅智能辅助 HikiTravel-AIRI-1.3 · AIRI 网页版</title>
 <meta name="description" content="基于 Project AIRI 交互风格重构的文旅智能辅助系统：Live2D 虚拟人物 + 可点击交互词云 + 全本地 AI 服务（Ollama / Qwen TTS）">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='88'>🏔️</text></svg>">
 <link rel="stylesheet" href="/css/airi.css?v=__ASSET_V__">
@@ -37,7 +37,7 @@
     <div class="brand">
       <div class="brand-logo">🏔️</div>
       <div class="brand-text">
-        <span class="brand-title">文旅智能辅助 <span class="ver">v6.5</span></span>
+        <span class="brand-title">文旅智能辅助 <span class="ver">HikiTravel-AIRI-1.3</span></span>
         <span class="brand-sub">Live2D 虚拟向导，全程本机运行</span>
       </div>
     </div>
@@ -61,12 +61,10 @@
       <video id="bg-video" playsinline muted loop preload="auto" aria-hidden="true"></video>
     </div>
     <canvas id="live2d-canvas"></canvas>
-    <!-- 西湖船娘（内置形象）专用画布。
-         必须与 #live2d-canvas 分开：一块 canvas 只能有一种绘图上下文，
-         PIXI 占用 WebGL 之后 `getContext('2d')` 会返回 null，
-         共用会导致其中一套形象整块画不出来。 -->
-    <canvas id="lake-canvas"></canvas>
-    <!-- 3D 舞台（VRM / GLB）。与 Live2D 画布互斥显示，用哪个由所选形象决定 -->
+    <!-- 3D 舞台（VRM / GLB）。必须与 #live2d-canvas 分开 ——
+         一块 canvas 只能有一种绘图上下文，PIXI 占用 WebGL 之后
+         `getContext('2d')` 会返回 null，共用会导致其中一套整块画不出来。
+         用哪个由所选形象决定（showCanvas()）。 -->
     <canvas id="stage3d-canvas"></canvas>
     <div id="wordcloud-layer"></div>
 
@@ -194,8 +192,7 @@
   <!-- ===================== 右侧面板 ===================== -->
   <aside class="side">
     <nav class="tabs" id="tabs">
-      <button class="tab active" data-pane="chat" title="和角色对话">💬<span>对话</span></button>
-      <button class="tab" data-pane="tools" title="方案规划与营销素材">🧭<span>文旅</span></button>
+      <button class="tab active" data-pane="tools" title="行程规划：填偏好或说一句话，出方案＋实时地图">🧭<span>文旅</span></button>
       <button class="tab" data-pane="look" title="背景、形象与词云">🎨<span>外观</span></button>
       <button class="tab" data-pane="memory" title="机体记忆">🧠<span>记忆</span></button>
       <button class="tab" data-pane="cards" title="AI 角色卡">🎭<span>角色卡</span></button>
@@ -204,10 +201,49 @@
 
     <div class="panes">
 
-      <!-- ---------- 对话 ---------- -->
-      <section class="pane active" id="pane-chat">
-        <h3>和 <span id="chat-char-name">小文</span> 说说话</h3>
+      <!-- ---------- 文旅（原「对话」+「文旅」合并成一个页签）----------
+           为什么合并：这两个页签本来就是一件事的两半 —— 「文旅」里是工作台，
+           「对话」里是输入与结果，而且**聊天流里还默认嵌了第二份一模一样的工作台**
+           （实测：两份都是 323 个节点、表单齐全、状态互不相通）。
+           现在合成一个：工作台在上、方案结果与历史在中间、输入框在底部
+           （输入框是 .side 的常驻页脚，不属于任何页签，见下面的 .composer）。
+
+           ⚠️ 页签数据名叫 `tools` 而不是 `chat`：全站几十处 `switchTab('tools')` /
+           `#pane-tools` 都是按它写的。`switchTab()` 里留了 'chat' → 'tools' 的别名，
+           万一还有漏改的调用点也不会切到一个不存在的页签上去。 -->
+      <section class="pane active" id="pane-tools">
+        <h3>文旅工作台 <span class="hint-inline">· 当前向导：<span id="chat-char-name">小文</span></span></h3>
+        <p class="sub">填偏好或说一句话，出方案＋实时地图；方案可以改景点、换餐厅，预算与地图会跟着变。</p>
         <div class="badges" id="chat-badges"></div>
+
+        <!-- 工作台的展开开关。
+             底部面板只有 300px 高（用户要的"人物大"），而完整工作台要约 700px ——
+             默认铺开会把字段切掉、还挤掉方案结果区。所以默认折起来，
+             只留这一行；点一下（或生成方案时）自动展开。
+             分栏布局（.debug）下不折叠：那里有 520px 宽、纵向也宽松。
+             见 app.js 的 bindWorkbenchToggle / CSS 的 body.wb-collapsed。 -->
+        <button class="wb-toggle" id="btn-wb-toggle" type="button"
+                title="展开 / 收起旅行偏好表单">
+          <span class="wb-toggle-ico">🗺️</span>
+          <span class="wb-toggle-txt">填写旅行偏好</span>
+          <span class="wb-toggle-arrow">▸</span>
+        </button>
+
+        <!-- 行程规划工作台。
+             不是 iframe：组员的 React 组件直接挂进这个 div，和外壳共用同一个
+             文档，才能共用字体/配色/背景，看起来是一体而不是两块拼起来的板子。
+             脚本见页面尾部的 planner-embed.js。
+
+             里面那行占位文字是故意写死在 HTML 里的：工作台挂载成功后会被 React
+             覆盖掉，万一没挂上，这行也会一直留着。面板不允许再出现「一声不响的空白」
+             —— 那样根本分不清是在加载中、还是已经挂了。 -->
+        <div id="wenlv-planner">
+          <div class="planner-state">正在载入行程规划工作台…</div>
+        </div>
+
+        <!-- 方案结果 / 对话流。
+             原「对话」页签的产物区，合并后留在这里：点上一步的「开始规划」、
+             或在底部输入框直接说一句，结果都渲染到这个容器里。 -->
         <div class="chat-log" id="chat-log"></div>
 
         <!-- ---------- 历史对话 ----------
@@ -223,25 +259,11 @@
           </div>
           <div class="hist-list" id="hist-list"></div>
         </div>
-      </section>
 
-      <!-- ---------- 文旅 ---------- -->
-      <section class="pane" id="pane-tools">
-        <h3>文旅工作台</h3>
-        <p class="sub">组员做的行程规划工作台，已按本机界面适配配色与字号。
-          填偏好或说一句话，出方案＋实时地图；方案可以改景点、换餐厅，预算与地图会跟着变。</p>
-
-        <!-- 行程规划工作台。
-             不是 iframe：组员的 React 组件直接挂进这个 div，和外壳共用同一个
-             文档，才能共用字体/配色/背景，看起来是一体而不是两块拼起来的板子。
-             脚本见页面尾部的 planner-embed.js。
-
-             里面那行占位文字是故意写死在 HTML 里的：工作台挂载成功后会被 React
-             覆盖掉，万一没挂上，这行也会一直留着。面板不允许再出现「一声不响的空白」
-             —— 那样根本分不清是在加载中、还是已经挂了。 -->
-        <div id="wenlv-planner">
-          <div class="planner-state">正在载入行程规划工作台…</div>
-        </div>
+        <!-- ⚠️ 这里原来还有第二份工作台容器（id 与上面那个相同，合并页签时漏删的）。
+             两个同 id 的容器是**真 bug**：$('#wenlv-planner') 只取第一个，
+             第二份永远是那句"正在载入…"占位、React 永远挂不上去。
+             工作台只保留上面那一份。 -->
 
         <!-- 生成结果：词云点「营销文案 / 个性化方案」时，结果会写到这里 -->
         <div class="section" id="tools-result" hidden>
@@ -998,30 +1020,19 @@
 
     </div>
 
-    <!-- ---------- 输入区 ---------- -->
-    <div class="composer">
+    <!-- ---------- 输入区：已按需求移除 ----------
+         原来这里是底部常驻的"和向导说点什么…"输入框（含发送、图片、摄像头、
+         联网、语音、开始规划等按钮）。需求是"这是个旅游辅助项目，闲聊输入框没必要留"，
+         所以整块去掉了 —— 现在一切输入走「文旅」页签里的工作台表单。
+
+         ⚠️ 但 `#composer-hint` 和 `#attach-slot` 这两个**空壳必须留着**（隐藏即可）：
+         app.js 里有十几处 `$('#composer-hint').textContent = ...` 是**不带空值保护**的
+         （朗读进度、语音识别提示、联网查证提示都往这里写），元素一没就抛 TypeError，
+         会把「朗读」「语音输入」这些跟输入框无关的功能一起弄挂。
+         留着它俩只是为了让那些写入有个容器，界面上看不见。 -->
+    <div class="composer" hidden aria-hidden="true">
       <div id="attach-slot"></div>
-      <div class="composer-top">
-        <textarea id="chat-input" placeholder="和向导说点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
-      </div>
-      <div class="composer-bar">
-        <button class="icon-btn" id="btn-image" title="上传图片，用本机视觉模型看懂它">🖼️</button>
-        <input type="file" id="file-input" accept="image/*" hidden>
-        <button class="icon-btn" id="btn-camera" title="调用摄像头拍照识景">📷</button>
-        <button class="icon-btn" id="btn-web" title="联网：让模型能搜索网页、读取正文，用最新信息回答">🌐</button>
-        <!-- 语音输入（听觉）。默认关闭，要现在「声音」页里打开「听觉」才会出现：
-             它要载一个约 1GB 的本地 Whisper 模型，不能让所有人被迫承担。 -->
-        <button class="icon-btn" id="btn-mic" title="按住说话：录一段语音，用本机 Whisper 识别成文字" hidden>🎤</button>
-        <div class="spacer"></div>
-        <span class="hintline" id="composer-hint"></span>
-        <!-- 「让 AI 先问我」已去掉：那条走的是"分批气泡问答"，是照着文旅工作台
-             手搓的仿制问答，字段与顺序都可能跟真表单对不上。
-             现在这个位置直接调**文旅模块本体** —— 点一下就把工作台那棵组件树
-             挂进对话（和「文旅」页签里挂的是同一棵树、同一个 bundle）。 -->
-        <button class="btn ghost sm" id="btn-ask-me" title="打开文旅工作台（和右侧「文旅」页是同一套表单）">🗺️ 开始规划</button>
-        <button class="btn ghost sm" id="btn-stop" hidden>■ 停止</button>
-        <button class="btn sm" id="btn-send">发送</button>
-      </div>
+      <span class="hintline" id="composer-hint"></span>
     </div>
   </aside>
 </div>
@@ -1031,6 +1042,10 @@
 <audio id="tts-audio" hidden></audio>
 
 <script src="/js/util.js?v=__ASSET_V__" defer></script>
+<!-- 离线重连：后端没起来 / 中途重启 / 断网时，前端持续探测并显示
+     「连接已断开，正在重连…（第 N 次）」，恢复后广播 wenlv:online。
+     必须排在 util.js 之后 —— util 的 api()/sse() 会向它上报失败。 -->
+<script src="/js/wenlv-net.js?v=__ASSET_V__" defer></script>
 <!-- 全局静音中枢。必须排在最前：开屏(boot.js)、配乐(bg-audio.js)、朗读(app.js)
      都要用它，晚于它们加载就会读到 undefined。 -->
 <script src="/js/audio-mute.js?v=__ASSET_V__" defer></script>
@@ -1045,7 +1060,7 @@
      必须排在 live2d.js 之前：live2d.js 会用到 window.WenlvNavVisuals。 -->
 <script src="/js/nav-visuals.js?v=__ASSET_V__" defer></script>
 <script src="/js/nav.js?v=__ASSET_V__" defer></script>
-<!-- 西湖主题：动态风景 + 程序化绘制的「西湖船娘」形象（内置默认形象，零外部素材） -->
+<!-- 西湖主题：程序化绘制的动态风景（开屏与「西湖」背景在用，零外部素材） -->
 <script src="/js/lake.js?v=__ASSET_V__" defer></script>
 <script src="/js/live2d.js?v=__ASSET_V__" defer></script>
 <!-- 语音输入：录音 + 转成 16kHz 单声道 WAV + 调 /api/stt。

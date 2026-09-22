@@ -1,12 +1,20 @@
 @echo off
+REM ★ chcp 65001 不能省：本文件是 UTF-8（无 BOM）且含中文提示，中文 Windows 的
+REM 控制台默认是 GBK(936)，不切码页中文会变成乱码。
+REM
+REM ★★ 本文件在仓库里必须是 CRLF 换行。cmd.exe 不认 LF —— LF 版会直接报
+REM    "The syntax of the command is incorrect."。靠仓库根目录的 .gitattributes
+REM    里 `*.bat -text` 保证（见那个文件里的实测记录）。
 chcp 65001 >nul
 setlocal EnableDelayedExpansion
-title 智能文旅辅助系统 v6.0 - 一键部署
+title 智能文旅辅助系统 HikiTravel-AIRI-1.3 - 一键部署
 
 echo.
 echo  ============================================================
-echo    智能文旅辅助系统 v6.0   一键部署
-echo    会安装：Python 依赖 / 前端依赖 / 本地大模型
+echo    智能文旅辅助系统 HikiTravel-AIRI-1.3   一键部署
+echo    会安装：Python 依赖 / 本地大模型
+echo.
+echo    只想检查环境不装东西：双击  检查环境.bat
 echo  ============================================================
 echo.
 
@@ -93,7 +101,11 @@ if errorlevel 1 (
 ) else (
   echo    [..] 启动 Ollama 服务...
   start "" /min ollama serve
-  timeout /t 6 /nobreak >nul
+  REM 用 ping 而不是 timeout /t 6：timeout.exe 在 stdin 不是真实控制台时
+  REM （重定向、CI、后台任务）会直接报 "Input redirection is not supported"
+  REM 并立刻返回，于是 Ollama 还没起来就去 pull 模型了。
+  REM ping -n 7 是通用的"等约 6 秒"（第一次是立即返回的）。
+  ping -n 7 127.0.0.1 >nul
 
   echo    [..] 拉取对话模型 qwen2.5:7b（约 4.4GB，首次会慢）...
   ollama pull qwen2.5:7b

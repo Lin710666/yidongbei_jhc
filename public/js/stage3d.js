@@ -51,6 +51,12 @@ export class ThreeDStage {
     this.analyser = null
     this.audioCtx = null
     this.audioSource = null
+    // 文本驱动口型（没有音频可放时用；见 update 里的分支与 talkTo）
+    this.talking = false
+    this.talkText = ''
+    this.talkIndex = 0
+    this.talkAcc = 0
+    this.lastTick = 0
 
     // 程序化待机
     this.idlePhase = Math.random() * Math.PI * 2
@@ -587,6 +593,28 @@ export class ThreeDStage {
     this._placardMesh.quaternion.copy(this.camera.quaternion)
   }
 
+  /**
+   * 文本驱动口型：开始/追加说话内容（**不播放音频**）。
+   * 与 live2d.js / lake.js 的同名方法行为一致 —— 外壳按统一接口调用。
+   */
+  talkTo(text) {
+    const s = String(text == null ? '' : text)
+    if (!s) { this.stopTalking(); return }
+    if (!this.talking || !s.startsWith(this.talkText.slice(0, this.talkIndex))) {
+      this.talkIndex = 0; this.talkAcc = 0
+    }
+    this.talkText = s
+    if (this.talkIndex > s.length) this.talkIndex = s.length
+    this.talking = true
+    if (this.idle) this.idle.speaking = true   // 说话期间不插入待机小动作
+  }
+
+  /** 停止文本驱动口型 */
+  stopTalking() {
+    this.talking = false; this.talkText = ''; this.talkIndex = 0; this.talkAcc = 0
+    if (this.idle) this.idle.speaking = false
+  }
+
   /** 用音频驱动口型：读实时频谱能量 -> aa 表情 */
   async speak(url, audioEl) {
     if (!url) return
@@ -711,7 +739,27 @@ export class ThreeDStage {
             const to = Math.min(buf.length, 48)
             for (let i = from; i < to; i++) sum += buf[i]
             this.targetMouthOpen = Math.min(1, (sum / ((to - from) * 255)) * 2.6)
+          } else if (this.talking) {
+            // 文本驱动的"假口型" —— 与 live2d.js / lake.js 同一套常量与思路。
+            // 字幕一边生成一边吐，而 TTS 要等整段写完才合成，这段时间用它顶着。
+            const nowMs = performance.now()
+            const dtTalk = this.lastTick ? Math.min(0.1, (nowMs - this.lastTick) / 1000) : 0
+            this.lastTick = nowMs
+            this.talkAcc += dtTalk
+            const CH = 0.18
+            const len = this.talkText.length
+            // 额度封顶：文本是流式的，两段之间攒下的时间不能被一次烧完，
+            // 否则新一段一到就被瞬间"读完"，嘴反而不动（live2d.js 里实测踩过）
+            if (this.talkAcc > CH) this.talkAcc = CH
+            while (this.talkAcc >= CH && this.talkIndex < len) { this.talkAcc -= CH; this.talkIndex++ }
+            const ch = this.talkIndex < len ? this.talkText[this.talkIndex] : ''
+            if (!ch || /[\s。，、！？；：…—,\.!\?;:"'（）()《》「」【】]/.test(ch)) {
+              this.targetMouthOpen = 0
+            } else {
+              this.targetMouthOpen = 0.25 + ((ch.charCodeAt(0) * 37) % 60) / 100
+            }
           } else {
+            this.lastTick = 0
             this.targetMouthOpen = 0
           }
           this.mouthOpen += (this.targetMouthOpen - this.mouthOpen) * 0.35

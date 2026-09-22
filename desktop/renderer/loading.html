@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>智能文旅辅助系统</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(1200px 600px at 50% 30%, #16202c 0%, #0b0f14 70%);
+    color: #dfe6f0;
+    font: 14px/1.7 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .card {
+    width: min(560px, 88vw); padding: 34px 32px; border-radius: 16px;
+    background: rgba(22, 30, 40, .78); border: 1px solid rgba(120, 150, 190, .18);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .45); text-align: center;
+    backdrop-filter: blur(10px);
+  }
+  h1 { font-size: 19px; margin: 0 0 6px; font-weight: 600; letter-spacing: .3px; }
+  .sub { color: #8fa3ba; font-size: 12.5px; margin-bottom: 22px; }
+  .ring {
+    width: 46px; height: 46px; margin: 0 auto 20px; border-radius: 50%;
+    border: 3px solid rgba(120, 170, 230, .18); border-top-color: #6fb4ff;
+    animation: spin .9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .stage { color: #b9cbe0; font-size: 13.5px; min-height: 22px; }
+  .dots::after { content: ''; animation: dots 1.4s steps(4, end) infinite; }
+  @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+  .err {
+    display: none; text-align: left; margin-top: 18px; padding: 14px 16px;
+    background: rgba(70, 26, 26, .55); border: 1px solid rgba(220, 110, 110, .4);
+    border-radius: 10px; color: #ffc9c9; font: 12.5px/1.65 Consolas, monospace;
+    white-space: pre-wrap; word-break: break-all; max-height: 220px; overflow: auto;
+  }
+  .row { display: flex; gap: 10px; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
+  button {
+    padding: 9px 20px; border-radius: 9px; cursor: pointer; font-size: 13px;
+    border: 1px solid rgba(120, 170, 230, .35); background: rgba(60, 110, 170, .28);
+    color: #dbe9fb; transition: background .15s, transform .05s;
+  }
+  button:hover { background: rgba(70, 130, 200, .42); }
+  button:active { transform: translateY(1px); }
+  button.ghost { background: transparent; border-color: rgba(140, 160, 190, .28); color: #a8bacd; }
+  .tip { margin-top: 16px; color: #7c8fa6; font-size: 12px; }
+  .ok { color: #7fe0b4; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="ring" id="ring"></div>
+    <h1>智能文旅辅助系统</h1>
+    <div class="sub">HikiTravel × AIRI 融合版 · 桌面端</div>
+    <div class="stage" id="stage">正在启动本地服务<span class="dots"></span></div>
+
+    <div class="err" id="err"></div>
+
+    <div class="row" id="row" style="display:none">
+      <button id="btnRetry">重试</button>
+      <button class="ghost" id="btnLog">打开日志</button>
+      <button class="ghost" id="btnDev">开发者工具</button>
+    </div>
+
+    <div class="tip" id="tip">首次启动需要几秒钟准备本地服务</div>
+  </div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const stage = $('stage');
+  const errBox = $('err');
+  const row = $('row');
+  const ring = $('ring');
+  const tip = $('tip');
+
+  function say(text, withDots) {
+    stage.innerHTML = '';
+    stage.appendChild(document.createTextNode(text));
+    if (withDots) {
+      const s = document.createElement('span');
+      s.className = 'dots';
+      stage.appendChild(s);
+    }
+  }
+
+  function showError(msg) {
+    ring.style.animation = 'none';
+    ring.style.borderTopColor = '#ff8a8a';
+    say('启动失败');
+    errBox.style.display = 'block';
+    errBox.textContent = msg || '未知错误';
+    row.style.display = 'flex';
+    tip.textContent = '可以先「重试」；若反复失败请把日志内容发出来';
+  }
+
+  async function boot() {
+    errBox.style.display = 'none';
+    row.style.display = 'none';
+    ring.style.animation = '';
+    ring.style.borderTopColor = '#6fb4ff';
+    say('正在启动本地服务', true);
+    tip.textContent = '首次启动需要几秒钟准备本地服务';
+
+    let r;
+    try {
+      r = await window.hiki.boot();
+    } catch (e) {
+      return showError('调用启动接口失败：' + (e && e.message ? e.message : e));
+    }
+    if (!r || !r.ok) return showError(r && r.error ? r.error : '后端未返回结果');
+
+    say('本地服务已就绪，正在载入界面', true);
+    try {
+      await window.hiki.goto(r.port);
+    } catch (e) {
+      showError('载入界面失败：' + (e && e.message ? e.message : e));
+    }
+  }
+
+  $('btnRetry').addEventListener('click', async () => {
+    say('正在重试', true);
+    let r;
+    try { r = await window.hiki.retry(); }
+    catch (e) { return showError('重试失败：' + (e && e.message ? e.message : e)); }
+    if (!r || !r.ok) return showError(r && r.error ? r.error : '重试后后端仍未就绪');
+    say('本地服务已就绪，正在载入界面', true);
+    await window.hiki.goto(r.port);
+  });
+
+  $('btnLog').addEventListener('click', () => window.hiki.openLog());
+  $('btnDev').addEventListener('click', () => window.hiki.openDevTools());
+
+  window.hiki.onBackendExited((info) => {
+    showError('后端进程意外退出（退出码 ' + (info && info.code) + '）。\n' +
+              '常见原因：端口被占用、杀毒软件拦截、缺少运行库。\n' +
+              '点「重试」可以再起一次，或点「打开日志」看详细信息。');
+  });
+
+  boot();
+</script>
+</body>
+</html>

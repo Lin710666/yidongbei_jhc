@@ -69,11 +69,36 @@ def _pick_static_dir() -> str:
 
     融合版里 5.0 的 public/ 是主界面，优先托管它；只有它不在时才退回
     HikiTravel 原生的 frontend/dist。这样两种前端共存，拷走哪个都能跑。
+
+    ★ 打包成 exe 之后（PyInstaller，见 desktop/build-backend.py）这个推断会失效：
+      __file__ 位于临时解包目录 _MEIxxxx 里，而前端是随 exe 放在旁边的 public/。
+      所以：
+        · 先认 STATIC_DIR 环境变量（桌面版启动 exe 时会设，指向它旁边的 public/）
+        · 再试 __file__ 推断（源码直接跑时走这条）
+        · 最后看 exe 同级目录下的 public/
     """
-    project_root = Path(__file__).resolve().parents[2]
-    airi = project_root / "public"
-    if (airi / "index.html").is_file():
-        return str(airi)
+    import os
+    import sys
+
+    # ① 显式配置优先 —— 桌面版就是这样告诉 exe 前端在哪的
+    if settings.static_dir and (Path(settings.static_dir) / "index.html").is_file():
+        return settings.static_dir
+
+    # ② 源码运行时的推断
+    if not getattr(sys, "frozen", False):
+        project_root = Path(__file__).resolve().parents[2]
+        airi = project_root / "public"
+        if (airi / "index.html").is_file():
+            return str(airi)
+
+    # ③ exe 同级目录下的 public/（安装包里的布局）
+    exe_dir = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) \
+        else Path(__file__).resolve().parents[2]
+    for cand in (exe_dir / "public", exe_dir / "_internal" / "public",
+                 Path(getattr(sys, "_MEIPASS", exe_dir)) / "public"):
+        if (cand / "index.html").is_file():
+            return str(cand)
+
     return settings.static_dir
 
 

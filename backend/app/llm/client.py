@@ -26,8 +26,11 @@
 三条加起来的效果：同一时刻显存里只有一个大模型。
 """
 import json
+import socket
 import threading
+import time
 from typing import Any, Dict, Optional, Tuple
+from urllib.parse import urlparse
 
 import httpx
 
@@ -35,6 +38,27 @@ from ..config import settings
 
 #: 本地推理串行锁。检索和生成不能同时啃显卡 —— 单卡上那不是并发，是互相抢。
 _GPU_LOCK = threading.Lock()
+
+
+def _tcp_open(url: str, timeout: float = 0.15) -> bool:
+    """极短的 TCP 端口预检：端口没人监听就立刻返回 False。
+
+    为什么需要它：Ollama 没启动时，httpx.get 到 11434 会**等满超时**才返回 ——
+    httpx 先试 IPv4 再试 IPv6，每次连接各等一遍，实测 2 秒。
+    而 /api/status 会经过两条路径各探一次，启动时白白卡 4 秒。
+
+    超时取 0.15 秒：本机连接是瞬时的（端口开着就是亚毫秒级，
+    端口关着系统会立刻回 RST）。超时只用来兜住"防火墙 DROP"这种极端情况 ——
+    那种情况下 0.15 秒和 2 秒的结论一样，但前者不拖慢页面。
+    """
+    try:
+        u = urlparse(url)
+        host = u.hostname or "127.0.0.1"
+        port = u.port or (443 if u.scheme == "https" else 80)
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 class LLMClient:
@@ -49,6 +73,8 @@ class LLMClient:
         self.cloud_key = settings.cloud_api_key or ""
         self.cloud_model = settings.cloud_model or ""
         self.policy = (settings.llm_policy or "auto").strip().lower()
+        #: Ollama 探测结果缓存 (ok, 时间戳)。见 local_ready() 的说明。
+        self._probe_cache: Optional[Tuple[bool, float]] = None
 
     # ------------------------------------------------------------------ 状态
 
@@ -58,12 +84,27 @@ class LLMClient:
         return bool(self.cloud_base and self.cloud_key and self.cloud_model)
 
     def local_ready(self) -> bool:
-        """探测 Ollama 服务是否可用。"""
-        try:
-            resp = httpx.get(f"{self.base_url}/api/tags", timeout=2.0)
-            return resp.status_code == 200
-        except httpx.HTTPError:
-            return False
+        """探测 Ollama 服务是否可用。
+
+        ★ 实测：Ollama 没运行时，原来这一步要等满 2 秒超时；而 /api/status
+          会探两次，于是**启动时白卡 4 秒**。现在先做 0.35 秒的端口预检，
+          没监听就直接返回，并加 3 秒缓存避免同一轮里重复探。
+          Ollama 真在跑时行为完全不变。
+        """
+        cached = self._probe_cache
+        if cached is not None and (time.time() - cached[1]) < 10.0:
+            return cached[0]
+
+        ok = False
+        if _tcp_open(self.base_url, timeout=0.15):
+            try:
+                resp = httpx.get(f"{self.base_url}/api/tags", timeout=2.0)
+                ok = resp.status_code == 200
+            except httpx.HTTPError:
+                ok = False
+
+        self._probe_cache = (ok, time.time())
+        return ok
 
     # 兼容旧调用点
     available = local_ready

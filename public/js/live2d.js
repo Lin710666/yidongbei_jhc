@@ -34,6 +34,12 @@
       this.audioCtx = null;
       this.audioSource = null;
       this.audioEl = null;
+      // 文本驱动口型（没有音频可放时用，见 talkTo / tick 里的分支）
+      this.talking = false;
+      this.talkText = '';
+      this.talkIndex = 0;
+      this.talkAcc = 0;
+      this.lastTick = 0;
       this.rafId = null;
       this.resizeRaf = 0;
       this.ro = null;
@@ -96,16 +102,32 @@
         preserveDrawingBuffer: true,
       });
 
-      // 鼠标移动 → 视线跟随（把屏幕坐标换算成模型坐标系的 -1..1）
-      host.addEventListener('mousemove', (e) => {
+      // 指针移动 → 视线跟随（把屏幕坐标换算成模型坐标系的 -1..1）
+      //
+      // ★ 用 pointermove 而不是 mousemove。
+      //
+      // 本项目面向**展厅大屏**（有 kiosk 模式），而大屏基本都是触屏：
+      // 只监听 mousemove 的话，手指在屏幕上划、人物眼睛一动不动 ——
+      // 观感上就是"这个形象是死的"。实测 stage3d.js 与 lake.js 本来就收
+      // pointerdown / pointermove，只有 Live2D 这一条漏了，三条舞台行为不一致。
+      //
+      // pointermove 在鼠标下也会触发，所以不需要再留 mousemove：
+      // 两个都留会让同一个移动被处理两次（focus 有平滑插值，重复调用只是浪费）。
+      const onPoint = (e) => {
         this.markPointer();
         if (!this.model) return;
         const r = host.getBoundingClientRect();
         const x = ((e.clientX - r.left) / r.width) * 2 - 1;
         const y = ((e.clientY - r.top) / r.height) * 2 - 1;
         this.model.focus(x, y);
-      });
-      host.addEventListener('mouseleave', () => { if (this.model) this.model.focus(0, 0); });
+      };
+      host.addEventListener('pointermove', onPoint, { passive: true });
+      // 触屏手指抬起后用 pointerleave 收不到（触摸不会"离开"），
+      // 所以额外在 pointerup / pointercancel 上把视线收回正前方。
+      host.addEventListener('pointerleave', () => { if (this.model) this.model.focus(0, 0); });
+      for (const ev of ['pointerup', 'pointercancel']) {
+        host.addEventListener(ev, () => { if (this.model) this.model.focus(0, 0); }, { passive: true });
+      }
 
       // 点击人物 → 交给上层做互动
       this.app.stage.interactive = true;
@@ -238,8 +260,21 @@
         for (const g of groups) {
           const gname = String(g.Name || g.name || '');
           if (/lipsync/i.test(gname)) {
-            const ids = g.Ids || g.ids || [];
-            if (ids.length) this.lipSyncParam = ids[0];
+            const ids = (g.Ids || g.ids || []).map(String);
+            if (!ids.length) continue;
+            // ★ 不要盲目取 ids[0]。
+            //
+            // Live2D 官方示例模型（以及大量商用模型）声明的 LipSync 组是：
+            //     ["ParamMouthForm", "ParamMouthOpenY"]
+            // 前者是**嘴型**（嘴角弧度，笑/不笑的形状），
+            // 后者才是**张嘴幅度** —— 频谱该往后者写。
+            //
+            // 取 ids[0] 的后果非常隐蔽：不报错、参数也确实在变、画面也在动，
+            // 只是"说话时不张嘴，而是嘴角在扭"。实测本机两个国风模型
+            // 都踩中了（`lipSyncParam` 被解析成 ParamMouthForm）。
+            // 所以这里优先挑名字里带 MouthOpen 的那个。
+            const openOne = ids.find(x => /mouthopen/i.test(x));
+            this.lipSyncParam = openOne || ids[0];
           }
         }
       } catch { /* 忽略 */ }
@@ -729,7 +764,44 @@
           for (let i = from; i < to; i++) sum += buf[i];
           const avg = sum / ((to - from) * 255);
           this.targetMouthOpen = Math.min(1, avg * 2.4);
+        } else if (this.talking) {
+          // ---- 文本驱动的"假口型"（没有音频时的退路）----
+          //
+          // 为什么需要它：字幕是一边生成一边往屏幕上吐的，而 TTS 要等整段文字
+          // 生成完才开始合成（几秒到几十秒）。这段时间里如果嘴不动，
+          // 看起来就是"它在念稿但没张嘴"。
+          //
+          // 节奏跟着字幕走：约 180ms 一个字，标点与空白闭嘴，
+          // 其余按字符码给一个有起伏的开口量（不是随机张嘴，同一个字每次一样）。
+          // 真音频一旦就绪，speak() 会把 analyser 接上，上面那个分支自动接管。
+          const now = performance.now();
+          const dt = this.lastTick ? Math.min(0.1, (now - this.lastTick) / 1000) : 0;
+          this.lastTick = now;
+          this.talkAcc += dt;
+
+          const CH_SECONDS = 0.18;
+          const len = this.talkText.length;
+          // ★ 别让"攒下的时间"一次烧完。
+          //
+          // 文本是**流式**来的：两段字幕之间可能隔几百毫秒，这段时间里
+          // talkAcc 一直在涨。等到新字进来，`while` 会一口气把它们全"读完"
+          // —— 表现就是"新的一段到了，嘴反而不动"（实测翻车的就是这里）。
+          // 把额度封顶到一个字的量，嘴就始终跟着最近到的字走。
+          if (this.talkAcc > CH_SECONDS) this.talkAcc = CH_SECONDS;
+          // 读到头了就停在末尾（保持闭嘴）—— 等 feedTalking 送来更多字再继续
+          while (this.talkAcc >= CH_SECONDS && this.talkIndex < len) {
+            this.talkAcc -= CH_SECONDS;
+            this.talkIndex++;
+          }
+          const ch = this.talkIndex < len ? this.talkText[this.talkIndex] : '';
+          if (!ch || /[\s。，、！？；：…—,\.!\?;:"'（）()《》「」【】]/.test(ch)) {
+            this.targetMouthOpen = 0;
+          } else {
+            const h = ch.charCodeAt(0);
+            this.targetMouthOpen = 0.25 + ((h * 37) % 60) / 100;   // 0.25 ~ 0.85
+          }
         } else {
+          this.lastTick = 0;
           this.targetMouthOpen = 0;
         }
         this.mouthOpen += (this.targetMouthOpen - this.mouthOpen) * 0.35;
@@ -743,6 +815,41 @@
         } catch { /* 该模型没有该参数就跳过 */ }
       };
       step();
+    }
+
+    /**
+     * 文本驱动口型：开始/追加说话内容（**不播放音频**）。
+     *
+     * 谁会调它：外壳在把回复**流式打印到字幕**的时候。这条路径上没有音频 ——
+     * TTS 是等整段文字生成完才合成的。所以这段时间用文本驱动嘴型，
+     * 等真的开始放音频，`speak()` 接上分析器后会自然接管（见 tick 里的分支顺序）。
+     *
+     * 传整段也行（幂等：内容一样就不重来），传增量也行 —— 内部就记一个下标，
+     * 按约 180ms 一个字往前推。
+     */
+    talkTo(text) {
+      const s = String(text == null ? '' : text);
+      if (!s) { this.stopTalking(); return; }
+      // 内容变了但前面没变（流式追加）→ 只把尾巴接上，不要从头重念
+      if (!this.talking || !s.startsWith(this.talkText.slice(0, this.talkIndex))) {
+        this.talkIndex = 0;
+        this.talkAcc = 0;
+      }
+      this.talkText = s;
+      if (this.talkIndex > s.length) this.talkIndex = s.length;
+      this.talking = true;
+      // 说话期间不插入待机小动作、也不自主瞟视（和 speak() 同样的理由：
+      // 否则嘴在动、身体却在换姿势，看着别扭）
+      if (this.idle) this.idle.speaking = true;
+    }
+
+    /** 停止文本驱动口型（字幕吐完了 / 要开始放真音频了） */
+    stopTalking() {
+      this.talking = false;
+      this.talkText = '';
+      this.talkIndex = 0;
+      this.talkAcc = 0;
+      if (this.idle) this.idle.speaking = false;
     }
 
     /**

@@ -1,0 +1,52 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "hanfu.moc3",
+		"Textures": [
+			"hanfu.4096/texture_00.png",
+			"hanfu.4096/texture_01.png",
+			"hanfu.4096/texture_02.png"
+		],
+		"Physics": "hanfu.physics3.json",
+		"DisplayInfo": "hanfu.cdi3.json",
+		"Motions": {
+			"Idle": [
+				{
+					"File": "hanfu.idle.motion3.json"
+				}
+			],
+			"Blink": [
+				{
+					"File": "hanfu.blink.motion3.json"
+				}
+			],
+			"Nod": [
+				{
+					"File": "hanfu.nod.motion3.json"
+				}
+			],
+			"Shake": [
+				{
+					"File": "hanfu.shake.motion3.json"
+				}
+			]
+		}
+	},
+	"Groups": [
+		{
+			"Target": "Parameter",
+			"Name": "EyeBlink",
+			"Ids": [
+				"ParamEyeLOpen",
+				"ParamEyeROpen"
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Name": "LipSync",
+			"Ids": [
+				"ParamMouthOpenY"
+			]
+		}
+	]
+}

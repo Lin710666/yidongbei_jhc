@@ -1,0 +1,72 @@
+{
+  "name": "hikitravel-airi-desktop",
+  "version": "1.3.0",
+  "description": "智能文旅辅助系统 桌面版（HikiTravel × AIRI 融合版）",
+  "main": "main.js",
+  "author": "Lin710666",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "build:backend": "node -e \"const{execSync}=require('child_process');execSync('..\\\\backend\\\\.venv\\\\Scripts\\\\python.exe -X utf8 build-backend.py',{stdio:'inherit'})\"",
+    "dist": "electron-builder --win nsis",
+    "dist:dir": "electron-builder --win dir"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.lin710666.hikitravel.airi",
+    "productName": "智能文旅辅助系统",
+    "directories": {
+      "output": "dist",
+      "buildResources": "buildResources"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "!dist-backend/**/*",
+      "!.pyi-build/**/*",
+      "!backend-build.json"
+    ],
+    "extraResources": [
+      {
+        "from": "dist-backend/hiki-backend",
+        "to": "backend",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../public",
+        "to": "public",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "智能文旅辅助系统-${version}-安装包.${ext}",
+      "sign": false,
+      "signAndEditExecutable": false
+    },
+    "forceCodeSigning": false,
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "智能文旅辅助系统",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true
+    },
+    "compression": "maximum",
+    "asar": true,
+    "npmRebuild": false
+  }
+}

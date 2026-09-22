@@ -110,13 +110,28 @@
   }
 
   /* ---------- JSON API ---------- */
+  /**
+   * 请求后端。失败时向全局网络监视器报告，由它决定是否进入"重连中"。
+   *
+   * 为什么要这一句：本项目后端是**本机服务**，它没起来 / 中途重启 / 崩了的时候，
+   * 所有请求都会以 "Failed to fetch" 失败。原来是直接抛错，用户只看到
+   * "请求失败"这种没用的话，也不知道该等还是该做什么。现在上报给
+   * WenlvNet 后，页面上会出现「连接已断开，正在重连…」并持续重试。
+   */
   async function api(path, { method = 'GET', body, timeout = 600000 } = {}) {
-    const res = await fetch(path, {
-      method,
-      headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(timeout),
-    });
+    let res;
+    try {
+      res = await fetch(path, {
+        method,
+        headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(timeout),
+      });
+    } catch (e) {
+      // 网络层失败（后端没起来/断网）：交给监视器重连
+      if (window.WenlvNet) window.WenlvNet.reportFailure(e);
+      throw e;
+    }
     const text = await res.text();
     let data;
     try { data = text ? JSON.parse(text) : {}; } catch { data = { ok: false, error: text.slice(0, 400) }; }
@@ -124,8 +139,11 @@
       const err = new Error(data.error || `请求失败（HTTP ${res.status}）`);
       err.code = data.code || `HTTP_${res.status}`;
       err.status = res.status;
+      // 5xx / 502 / 503 这类也算"后端不可用"，同样进入重连
+      if (window.WenlvNet) window.WenlvNet.reportFailure(err);
       throw err;
     }
+    if (window.WenlvNet) window.WenlvNet.reportSuccess();
     return data;
   }
 
@@ -138,20 +156,30 @@
     if (signal) signal.addEventListener('abort', () => ctrl.abort(), { once: true });
 
     const promise = (async () => {
-      const res = await fetch(path, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body || {}),
-        signal: ctrl.signal,
-      });
+      let res;
+      try {
+        res = await fetch(path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body || {}),
+          signal: ctrl.signal,
+        });
+      } catch (e) {
+        // 用户主动 abort 不算断网；其余网络失败交给监视器
+        if (!(e && e.name === 'AbortError') && window.WenlvNet) window.WenlvNet.reportFailure(e);
+        throw e;
+      }
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         let d = {};
         try { d = JSON.parse(text); } catch { /* 非 JSON 错误体 */ }
         const err = new Error(d.error || `请求失败（HTTP ${res.status}）`);
         err.code = d.code || `HTTP_${res.status}`;
+        err.status = res.status;
+        if (window.WenlvNet) window.WenlvNet.reportFailure(err);
         throw err;
       }
+      if (window.WenlvNet) window.WenlvNet.reportSuccess();
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buf = '';
