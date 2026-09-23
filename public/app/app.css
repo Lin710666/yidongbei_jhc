@@ -147,18 +147,8 @@ body[data-cols="shut"] .dock { visibility: hidden; pointer-events: none; border-
 }
 body.avatar-on #live2d-canvas { display: block; }
 
-.stage-hint {
-  position: absolute; left: 50%; top: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 3; text-align: center; line-height: 2;
-  padding: 16px 22px; border-radius: var(--r-card);
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  border: 1px solid var(--border);
-  backdrop-filter: blur(8px);
-  font-size: 13px; color: var(--dim);
-}
-.stage-hint b { color: var(--brand); font-weight: 600; }
-body.avatar-on .stage-hint { display: none; }
+/* .stage-hint 的三条规则已随那段提示一起删除（按需求去掉舞台中央的说明牌）。
+   留着空规则只会让人以为还有东西没显示。 */
 
 /* ---- 词云：左上角胶囊 + 展开层 ---- */
 .wc-pill {

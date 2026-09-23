@@ -72,10 +72,10 @@
 
     <!-- 人物层：向导模式才加载。默认关闭（focus）。 -->
     <canvas id="live2d-canvas" aria-hidden="true"></canvas>
-    <div class="stage-hint" id="stage-hint">
-      <div>当前是 <b>功能优先</b> —— 未加载虚拟人物</div>
-      <div>点顶栏 <b>「人物」</b> 可启用向导模式</div>
-    </div>
+    <!-- 这里原来有一段舞台中央的提示（「当前是功能优先 —— 未加载虚拟人物 /
+         点顶栏「人物」可启用向导模式」）。按需求去掉了：
+         舞台是给人看内容的地方，不该常驻一块说明牌。
+         要开关人物有顶栏那颗「人物」键，不需要在画面正中再解释一遍。 -->
 
     <!-- 词云：胶囊 + 展开层 -->
     <button class="wc-pill" id="wc-pill" title="展开词云">
