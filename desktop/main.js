@@ -157,6 +157,13 @@ function createWindow() {
 
   win.once('ready-to-show', () => win.show());
 
+  // 锁住窗口标题。
+  // Electron 默认会跟随网页的 <title> 更新窗口标题 —— 而那个标题是给浏览器标签页用的
+  // （原来写着「… · AIRI 网页版」），套到桌面应用上就成了"软件版却说自己网页版"。
+  // 这里显式拦掉，以后改网页标题也不会再影响软件名。
+  const APP_TITLE = '智能文旅辅助系统';
+  win.on('page-title-updated', (e) => { e.preventDefault(); win.setTitle(APP_TITLE); });
+
   // 外链一律用系统浏览器打开，别在应用窗口里把界面顶掉
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
