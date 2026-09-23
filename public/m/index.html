@@ -72,12 +72,25 @@
     </button>
   </header>
 
+  <!-- ==================================================================
+       四个 Tab 页（需求：App 式信息架构，不是"桌面缩小版"）
+         companion 陪伴 —— 智能体对话（原样保留）
+         plan      规划 —— 16 字段表单，分组手风琴 + 吸底 CTA
+         result    方案 —— 时间轴 + 预算 + 地图
+         me        我的 —— 设置列表
+       ================================================================== -->
+  <div class="m-pages" id="m-pages">
+
+  <!-- ---------- Tab ① 陪伴 ---------- -->
+  <section class="m-page active" id="m-page-companion" data-page="companion">
+
   <!-- ---------- 对话流 ---------- -->
   <main class="m-log" id="m-log"></main>
 
   <!-- ---------- 底部：功能排 + 输入区 ---------- -->
   <footer class="m-foot">
-    <!-- 功能展示排（需求方说的"对话栏上一排是有的功能展示"） -->
+    <!-- 功能展示排（需求方说的"对话栏上一排是有的功能展示"）
+         同时它也是**场景 chips**：点一下等于词云点选，走同一条对话/规划链路 -->
     <div class="m-feats" id="m-feats">
       <button class="m-feat" data-feat="fast">⚡ 快速规划</button>
       <button class="m-feat" data-feat="nearby">📍 附近景点</button>
@@ -103,62 +116,265 @@
     </div>
     <div class="m-safe"></div>
   </footer>
-</div>
+  </section><!-- /Tab ① 陪伴 -->
 
-<!-- ===================== 设置页（从左滑出） ===================== -->
-<!-- 需求方要的是"向左滑调出智能体的设置页面"——
-     所以它是从**左侧**滑入的抽屉，手势是从屏幕左边缘向右划。 -->
-<div class="m-drawer-mask" id="m-mask" hidden></div>
-<aside class="m-drawer" id="m-drawer" aria-hidden="true">
-  <div class="m-drawer-head">
-    <div class="m-drawer-title">设置</div>
-    <button class="m-icon" id="m-drawer-close" aria-label="关闭">✕</button>
-  </div>
 
-  <div class="m-drawer-body">
-    <div class="m-sec">
-      <div class="m-sec-title">对话</div>
-      <button class="m-row" id="m-new-chat">
-        <span class="m-row-ico">💬</span>
-        <span class="m-row-txt">新对话<em>清空当前这一段，重新开始</em></span>
-      </button>
-    </div>
-
-    <div class="m-sec">
-      <div class="m-sec-title">虚拟形象</div>
-      <div class="m-row m-row-sw">
-        <span class="m-row-ico">🧍</span>
-        <span class="m-row-txt">开启虚拟形象<em>默认关闭：纯色界面，最省电也最快</em></span>
-        <label class="m-switch">
-          <input type="checkbox" id="m-avatar">
-          <span class="m-slider"></span>
-        </label>
+  <!-- ---------- Tab ② 规划（16 字段表单，分组手风琴 + 吸底 CTA） ----------
+       为什么手机端不挂桌面那个 React 工作台：
+         · 它是「一列长表单」，手机上一屏看不完，且容器查询只保证了"单列"，
+           没有分组折叠与吸底按钮 —— 用户要滚回顶部才能按到生成；
+         · 它是 134 个包打包出来的 946 KB IIFE，手机上只为填 16 个字段不值当。
+       所以这里用原生表单，**字段与后端 UserPreference 一一对应**（16 个全保留），
+       提交走同一个 POST /api/plan，契约与桌面完全一致。
+       字段名见 backend/app/models/preference.py。 -->
+  <section class="m-page" id="m-page-plan" data-page="plan">
+    <div class="m-scroll">
+      <div class="m-page-head">
+        <h2>填写旅行偏好</h2>
+        <p>填得越细，方案越贴合。只有「目的地」是必填。</p>
       </div>
-      <div class="m-hint" id="m-avatar-hint">形象加载后会自动做待机动作；文字回复时口型跟着动。</div>
+
+      <div class="m-acc" id="m-acc">
+        <!-- ① 基本行程 -->
+        <details class="m-group" open>
+          <summary><span class="m-g-ico">🗺️</span><span class="m-g-t">基本行程</span>
+            <span class="m-g-sum" data-sum="basic">待填写</span><span class="m-g-arrow">▾</span></summary>
+          <div class="m-g-body">
+            <label class="m-field"><span>目的地 <b>*</b></span>
+              <input id="pf-destination" type="text" placeholder="例如：杭州" enterkeyhint="next"></label>
+            <label class="m-field"><span>出发地</span>
+              <input id="pf-origin" type="text" placeholder="例如：上海" enterkeyhint="next"></label>
+            <div class="m-field-2">
+              <label class="m-field"><span>游玩天数</span>
+                <input id="pf-days" type="number" min="1" max="30" value="2" inputmode="numeric"></label>
+              <label class="m-field"><span>出行日期</span>
+                <input id="pf-date" type="date"></label>
+            </div>
+            <div class="m-field-2">
+              <label class="m-field"><span>每天几点出发</span>
+                <input id="pf-depart" type="text" placeholder="上午 / 9:00" enterkeyhint="next"></label>
+              <label class="m-field"><span>几点回酒店</span>
+                <input id="pf-return" type="text" placeholder="晚上 / 21:00" enterkeyhint="next"></label>
+            </div>
+          </div>
+        </details>
+
+        <!-- ② 同行人群 -->
+        <details class="m-group">
+          <summary><span class="m-g-ico">👨‍👩‍👧</span><span class="m-g-t">同行人群</span>
+            <span class="m-g-sum" data-sum="people">待填写</span><span class="m-g-arrow">▾</span></summary>
+          <div class="m-g-body">
+            <div class="m-field-3">
+              <label class="m-field"><span>成人</span>
+                <input id="pf-adults" type="number" min="0" max="20" value="1" inputmode="numeric"></label>
+              <label class="m-field"><span>儿童</span>
+                <input id="pf-children" type="number" min="0" max="20" value="0" inputmode="numeric"></label>
+              <label class="m-field"><span>老人</span>
+                <input id="pf-elderly" type="number" min="0" max="20" value="0" inputmode="numeric"></label>
+            </div>
+            <label class="m-check"><input id="pf-pet" type="checkbox"><span>带宠物同行</span></label>
+          </div>
+        </details>
+
+        <!-- ③ 兴趣与节奏 -->
+        <details class="m-group">
+          <summary><span class="m-g-ico">🎯</span><span class="m-g-t">兴趣与节奏</span>
+            <span class="m-g-sum" data-sum="interest">待填写</span><span class="m-g-arrow">▾</span></summary>
+          <div class="m-g-body">
+            <div class="m-field"><span>想玩什么（可多选）</span>
+              <div class="m-chips" id="pf-prefs">
+                <button type="button" class="m-chip" data-v="美食">美食</button>
+                <button type="button" class="m-chip" data-v="摄影">摄影</button>
+                <button type="button" class="m-chip" data-v="自然风光">自然风光</button>
+                <button type="button" class="m-chip" data-v="历史人文">历史人文</button>
+                <button type="button" class="m-chip" data-v="博物馆">博物馆</button>
+                <button type="button" class="m-chip" data-v="逛街购物">逛街购物</button>
+                <button type="button" class="m-chip" data-v="亲子">亲子</button>
+                <button type="button" class="m-chip" data-v="夜生活">夜生活</button>
+              </div>
+            </div>
+            <div class="m-field"><span>必去景点（逗号分隔，可留空）</span>
+              <input id="pf-must" type="text" placeholder="例如：西湖, 灵隐寺" enterkeyhint="next"></div>
+            <div class="m-field"><span>节奏</span>
+              <div class="m-seg" id="pf-pace">
+                <button type="button" class="m-seg-b active" data-v="悠闲">悠闲</button>
+                <button type="button" class="m-seg-b" data-v="适中">适中</button>
+                <button type="button" class="m-seg-b" data-v="特种兵">特种兵</button>
+              </div></div>
+            <div class="m-field"><span>最重视</span>
+              <div class="m-seg" id="pf-priority">
+                <button type="button" class="m-seg-b" data-v="吃">吃</button>
+                <button type="button" class="m-seg-b active" data-v="玩">玩</button>
+                <button type="button" class="m-seg-b" data-v="住">住</button>
+                <button type="button" class="m-seg-b" data-v="行">行</button>
+              </div></div>
+          </div>
+        </details>
+
+        <!-- ④ 预算与交通 -->
+        <details class="m-group">
+          <summary><span class="m-g-ico">💰</span><span class="m-g-t">预算与交通</span>
+            <span class="m-g-sum" data-sum="budget">待填写</span><span class="m-g-arrow">▾</span></summary>
+          <div class="m-g-body">
+            <label class="m-field"><span>总预算（元，全体同行人）</span>
+              <input id="pf-budget" type="number" min="0" step="100" value="3000" inputmode="numeric"></label>
+            <div class="m-field"><span>交通方式</span>
+              <div class="m-seg" id="pf-trans">
+                <button type="button" class="m-seg-b active" data-v="高铁">高铁</button>
+                <button type="button" class="m-seg-b" data-v="自驾">自驾</button>
+                <button type="button" class="m-seg-b" data-v="飞机">飞机</button>
+                <button type="button" class="m-seg-b" data-v="本地">本地</button>
+              </div></div>
+          </div>
+        </details>
+
+        <!-- ⑤ 忌口与避雷 -->
+        <details class="m-group">
+          <summary><span class="m-g-ico">🚫</span><span class="m-g-t">忌口与避雷</span>
+            <span class="m-g-sum" data-sum="avoid">可留空</span><span class="m-g-arrow">▾</span></summary>
+          <div class="m-g-body">
+            <div class="m-field"><span>饮食禁忌（可多选）</span>
+              <div class="m-chips" id="pf-diet">
+                <button type="button" class="m-chip" data-v="忌辣">忌辣</button>
+                <button type="button" class="m-chip" data-v="不吃海鲜">不吃海鲜</button>
+                <button type="button" class="m-chip" data-v="素食">素食</button>
+                <button type="button" class="m-chip" data-v="清真">清真</button>
+                <button type="button" class="m-chip" data-v="过敏（花生）">过敏（花生）</button>
+              </div>
+            </div>
+            <div class="m-field"><span>不想安排（逗号分隔）</span>
+              <input id="pf-avoid" type="text" placeholder="例如：爬山, 排队, 网红打卡" enterkeyhint="done"></div>
+          </div>
+        </details>
+      </div>
+
+      <div class="m-hint" style="padding:10px 2px 6px">
+        提示：也可以在第 ① 页直接跟小文说一句话，它会替你填好大部分字段。
+      </div>
     </div>
 
-    <div class="m-sec">
-      <div class="m-sec-title">页面外观</div>
-      <div class="m-palette" id="m-palette">
-        <button class="m-swatch" data-bg="#0f1419" style="--c:#0f1419"></button>
-        <button class="m-swatch" data-bg="#141b2b" style="--c:#141b2b"></button>
-        <button class="m-swatch" data-bg="#1b1a17" style="--c:#1b1a17"></button>
-        <button class="m-swatch" data-bg="#f4f5f7" style="--c:#f4f5f7"></button>
-        <button class="m-swatch" data-bg="#eef3f0" style="--c:#eef3f0"></button>
-      </div>
-      <div class="m-hint">纯色底色，不加载任何背景素材 —— 手机流量与电量都省。</div>
+    <!-- 吸底主按钮：手机用户不该滚回去找按钮 -->
+    <div class="m-cta-bar">
+      <button class="m-cta" id="m-generate">生成我的旅行规划</button>
     </div>
+  </section><!-- /Tab ② 规划 -->
 
-    <div class="m-sec">
-      <div class="m-sec-title">关于</div>
-      <div class="m-about">
-        <div>智能文旅辅助系统 · 手机端</div>
-        <div class="m-hint" id="m-about-model">—</div>
-        <div class="m-hint" id="m-about-net">—</div>
+
+  <!-- ---------- Tab ③ 方案 ---------- -->
+  <section class="m-page" id="m-page-result" data-page="result">
+    <div class="m-scroll" id="m-result-scroll">
+      <div class="m-empty" id="m-result-empty">
+        <div class="big">🧭</div>
+        <div class="t">还没有方案</div>
+        <div class="d">去「规划」页填一下偏好，或回「陪伴」页跟小文说一句<br>「杭州两天怎么玩」。</div>
+        <div class="m-suggests">
+          <button class="m-suggest" id="m-goto-plan">去填偏好 →</button>
+        </div>
+      </div>
+      <div id="m-result-body"></div>
+    </div>
+  </section><!-- /Tab ③ 方案 -->
+
+
+  <!-- ---------- Tab ④ 我的 ---------- -->
+  <section class="m-page" id="m-page-me" data-page="me">
+    <div class="m-scroll">
+      <div class="m-page-head">
+        <h2>我的</h2>
+        <p id="m-me-host">—</p>
+      </div>
+
+      <div class="m-list">
+        <div class="m-sec-title">对话</div>
+        <button class="m-row" id="m-me-newchat">
+          <span class="m-row-ico">💬</span>
+          <span class="m-row-txt">新对话<em>清空当前这一段，重新开始</em></span>
+        </button>
+
+        <div class="m-sec-title">虚拟形象</div>
+        <div class="m-row m-row-sw">
+          <span class="m-row-ico">🧍</span>
+          <span class="m-row-txt">开启虚拟形象<em>默认关闭：纯色界面，最省电也最快</em></span>
+          <label class="m-switch">
+            <input type="checkbox" id="m-avatar">
+            <span class="m-slider"></span>
+          </label>
+        </div>
+        <div class="m-hint" id="m-avatar-hint">形象加载后会自动做待机动作；文字回复时口型跟着动。</div>
+
+        <div class="m-sec-title">页面外观</div>
+        <div class="m-palette" id="m-palette">
+          <button class="m-swatch" data-bg="#0f1419" style="--c:#0f1419"></button>
+          <button class="m-swatch" data-bg="#141b2b" style="--c:#141b2b"></button>
+          <button class="m-swatch" data-bg="#1b1a17" style="--c:#1b1a17"></button>
+          <button class="m-swatch" data-bg="#f4f5f7" style="--c:#f4f5f7"></button>
+          <button class="m-swatch" data-bg="#eef3f0" style="--c:#eef3f0"></button>
+        </div>
+        <div class="m-hint">纯色底色，不加载任何背景素材 —— 手机流量与电量都省。</div>
+
+        <div class="m-sec-title">语音</div>
+        <div class="m-row m-row-sw">
+          <span class="m-row-ico">🔊</span>
+          <span class="m-row-txt">回复自动朗读<em>用本机 Qwen TTS，默认关闭</em></span>
+          <label class="m-switch">
+            <input type="checkbox" id="m-speak">
+            <span class="m-slider"></span>
+          </label>
+        </div>
+
+        <div class="m-sec-title">关于</div>
+        <div class="m-about">
+          <div>智能文旅辅助系统 · 手机端</div>
+          <div class="m-hint" id="m-about-model">—</div>
+          <div class="m-hint" id="m-about-net">—</div>
+        </div>
       </div>
     </div>
-  </div>
-</aside>
+  </section><!-- /Tab ④ 我的 -->
+
+  </div><!-- /.m-pages -->
+
+
+  <!-- ---------- 底部 Tab 栏（56px + 安全区） ---------- -->
+  <nav class="m-tabbar" id="m-tabbar" role="tablist">
+    <button class="m-tab active" data-page="companion" role="tab">
+      <span class="m-tab-ico">💬</span><span class="m-tab-t">陪伴</span>
+    </button>
+    <button class="m-tab" data-page="plan" role="tab">
+      <span class="m-tab-ico">🗺️</span><span class="m-tab-t">规划</span>
+    </button>
+    <button class="m-tab" data-page="result" role="tab">
+      <span class="m-tab-ico">📋</span><span class="m-tab-t">方案</span>
+      <i class="m-tab-dot" id="m-tab-dot" hidden></i>
+    </button>
+    <button class="m-tab" data-page="me" role="tab">
+      <span class="m-tab-ico">👤</span><span class="m-tab-t">我的</span>
+    </button>
+  </nav>
+
+
+  <!-- ---------- 形象悬浮球（只在非「陪伴」页显示） ----------
+       陪伴页有整块舞台；其它三页要省出内容空间，所以把形象收成一颗球。
+       点它 → 弹起半屏快捷对话，不用切回第①页。 -->
+  <button class="m-orb" id="m-orb" hidden aria-label="快捷对话">
+    <span class="m-orb-ico">🧍</span>
+  </button>
+
+</div><!-- /.m-app -->
+
+<!-- ============================================================================
+     设置抽屉 —— **已删除**
+     ----------------------------------------------------------------------------
+     原来是从左侧滑出的设置抽屉（"向左滑调出智能体的设置页面"）。
+     改成底部 Tab 导航后，那些设置项**整体搬进了「我的」页**（Tab ④），
+     抽屉里的内容与它逐项重复。
+
+     两份 DOM 装同一批 id 是这个项目里踩过多次的坑（`$()` 只取第一个，
+     另一份永远不更新）—— 所以这里不是"留着备用"，是直接删掉。
+
+     原来的左滑手势保留：现在改成**从左边缘向右滑 = 切到「我的」页**，
+     交互直觉不变，但少了一整套抽屉开合状态要维护。
+     ============================================================================ -->
 
 <script src="/js/util.js?v=__ASSET_V__"></script>
 <script src="/m/mobile.js?v=__ASSET_V__"></script>
