@@ -2303,13 +2303,13 @@ body:not(.debug) .side {
    原来藏的是"除 #pane-chat 以外的所有面板"，现在藏的是"除 #pane-tools 以外的"。
    不改的话一个面板都不显示 —— 整个底部栏只剩输入框，中间一片空。 */
 body:not(.debug) .side .tabs { display: none !important; }
-body:not(.debug) .side .pane:not(#pane-tools) { display: none !important; }
-body:not(.debug) #pane-tools {
+body:not(.debug) .side .pane:not(#pane-agent) { display: none !important; }
+body:not(.debug) #pane-agent {
   display: flex !important;
   flex-direction: column;
   min-height: 0;
   height: 100%;
-  padding: 10px 14px 0;
+  padding: 10px 14px 4px;
   /* 合并之后这个面板里装了三样：工作台（表单很高）、方案输出、历史对话。
      让**面板自己滚**，而不是让输出区抢固定高度 —— 抢高度的结果是表单被挤没，
      用户看不到"填偏好"那一块（那是这个页签的主要入口）。 */
@@ -2389,7 +2389,7 @@ body:not(.debug) .side .panes {
   min-height: 0;
   overflow: hidden;
 }
-body:not(.debug) #pane-tools { height: 100%; }
+body:not(.debug) #pane-agent { height: 100%; }
 body:not(.debug) .side .composer {
   border-top: none;
   background: transparent;
@@ -2452,13 +2452,13 @@ body.dock .side {
 
 /* 底部只留「文旅」（对话已并进来）：页签、以及其它面板全部让位 */
 body.dock .side .tabs { display: none; }
-body.dock .side .pane:not(#pane-tools) { display: none !important; }
-body.dock #pane-tools {
+body.dock .side .pane:not(#pane-agent) { display: none !important; }
+body.dock #pane-agent {
   display: flex !important;
   flex-direction: column;
   min-height: 0;
   height: 100%;
-  padding: 12px 16px 0;
+  padding: 12px 16px 4px;
   /* 和默认布局同理：面板自己滚，别让输出区抢固定高度把工作台挤没 */
   overflow-y: auto;
 }
@@ -2881,3 +2881,265 @@ body:not(.dock) .chat-log .msg:not(.me):not(.sys):not(.err):not(:has(.plan-view-
   font-size: 12.5px;
   line-height: 1.6;
 }
+
+
+/* ============================================================================
+ * 智能体对话面板 + 文旅抽屉（7.0 界面改版）
+ *
+ * 需求方给的交互：
+ *   · 主界面进去后是一个**像扣子那样的智能体对话**（不是表单）
+ *   · 对话底部除了发送键，还有一个「AI 规划」键
+ *   · 点规划键，**文旅功能从右侧拉出来**（原来是挤在同一个页签里）
+ *
+ * 所以这里两大块：
+ *   ① .agent-*  智能体对话页（气泡、输入区、发送/规划键）
+ *   ② .drawer*  右侧抽屉（文旅工作台连同它的方案输出区整体搬进来）
+ * ==========================================================================*/
+
+/* ---------------------------------------------------------------- 智能体对话 */
+.agent-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 2px 2px 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+.agent-ava {
+  width: 34px; height: 34px; border-radius: 50%; flex: none;
+  display: grid; place-items: center;
+  font-size: 15px; font-weight: 600; color: #06231c;
+  background: linear-gradient(135deg, #7fe0c4, #4fb99c);
+  box-shadow: 0 2px 10px rgb(79 185 156 / 0.35);
+}
+.agent-meta { flex: 1; min-width: 0; }
+.agent-name { font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+.agent-tag {
+  font-size: 10.5px; font-weight: 400; padding: 1px 7px; border-radius: 999px;
+  color: #9fe6cf; background: rgb(79 185 156 / 0.14);
+  border: 1px solid rgb(79 185 156 / 0.28);
+}
+.agent-sub { font-size: 11.5px; color: var(--muted); margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.agent-log {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 4px 2px 12px;
+  scroll-behavior: smooth;
+}
+.agent-log::-webkit-scrollbar { width: 6px; }
+.agent-log::-webkit-scrollbar-thumb { background: rgb(255 255 255 / 0.14); border-radius: 3px; }
+
+/* 一条消息：头像 + 气泡 */
+.amsg { display: flex; gap: 9px; align-items: flex-start; }
+.amsg.me { flex-direction: row-reverse; }
+.amsg-ava {
+  width: 27px; height: 27px; border-radius: 50%; flex: none; margin-top: 2px;
+  display: grid; place-items: center; font-size: 11.5px;
+}
+.amsg.bot .amsg-ava { background: linear-gradient(135deg, #7fe0c4, #4fb99c); color: #06231c; }
+.amsg.me .amsg-ava { background: rgb(255 255 255 / 0.13); color: #dfe6f0; }
+.amsg-body { max-width: calc(100% - 46px); min-width: 0; }
+.amsg-name { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+.amsg.me .amsg-name { text-align: right; }
+.bubble {
+  padding: 9px 13px; border-radius: 13px; font-size: 12.5px; line-height: 1.72;
+  word-break: break-word; overflow-wrap: anywhere;
+}
+.amsg.bot .bubble {
+  background: rgb(255 255 255 / 0.055);
+  border: 1px solid rgb(255 255 255 / 0.085);
+  border-top-left-radius: 4px;
+}
+.amsg.me .bubble {
+  background: linear-gradient(135deg, rgb(79 185 156 / 0.28), rgb(79 185 156 / 0.16));
+  border: 1px solid rgb(79 185 156 / 0.32);
+  border-top-right-radius: 4px;
+}
+.bubble p { margin: 0 0 7px; }
+.bubble p:last-child { margin-bottom: 0; }
+.bubble ul, .bubble ol { margin: 5px 0; padding-left: 18px; }
+.bubble code {
+  font-size: 11.5px; padding: 1px 5px; border-radius: 4px;
+  background: rgb(0 0 0 / 0.32);
+}
+.bubble table { border-collapse: collapse; font-size: 11.5px; margin: 6px 0; }
+.bubble th, .bubble td { border: 1px solid rgb(255 255 255 / 0.13); padding: 4px 8px; }
+
+/* 「正在输入」的三个点 */
+.typing { display: inline-flex; gap: 4px; align-items: center; height: 16px; }
+.typing i {
+  width: 5px; height: 5px; border-radius: 50%; background: #9fe6cf;
+  animation: atyp 1.3s infinite ease-in-out;
+}
+.typing i:nth-child(2) { animation-delay: .18s; }
+.typing i:nth-child(3) { animation-delay: .36s; }
+@keyframes atyp { 0%,60%,100% { opacity: .28; transform: translateY(0); }
+                  30% { opacity: 1; transform: translateY(-3px); } }
+
+/* 空状态 */
+.agent-empty { text-align: center; color: var(--muted); padding: 26px 12px; }
+.agent-empty .big { font-size: 30px; margin-bottom: 10px; }
+.agent-empty .t { font-size: 13px; margin-bottom: 6px; color: #cfd9e6; }
+.agent-empty .d { font-size: 11.5px; line-height: 1.7; }
+.agent-chips { display: flex; flex-wrap: wrap; gap: 7px; justify-content: center; margin-top: 14px; }
+.agent-chip {
+  font-size: 11.5px; padding: 5px 11px; border-radius: 999px; cursor: pointer;
+  color: #cfe8f5; background: rgb(255 255 255 / 0.055);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  transition: background .15s, border-color .15s;
+}
+.agent-chip:hover { background: rgb(79 185 156 / 0.18); border-color: rgb(79 185 156 / 0.42); }
+
+/* ---------------------------------------------------------------- 输入区 */
+.agent-composer {
+  flex: none; padding: 10px 0 2px; border-top: 1px solid var(--border);
+}
+.agent-composer textarea {
+  width: 100%; resize: none; max-height: 132px;
+  padding: 10px 12px; border-radius: 11px;
+  font: inherit; font-size: 12.5px; line-height: 1.6;
+  color: #e6edf6; background: rgb(255 255 255 / 0.045);
+  border: 1px solid rgb(255 255 255 / 0.11);
+  outline: none; box-sizing: border-box;
+  transition: border-color .15s;
+}
+.agent-composer textarea:focus { border-color: rgb(79 185 156 / 0.5); }
+.agent-composer textarea::placeholder { color: rgb(255 255 255 / 0.32); }
+.agent-bar { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.agent-hint { flex: 1; font-size: 11px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-ico {
+  width: 28px; height: 28px; border-radius: 8px; flex: none; cursor: pointer;
+  color: #cfd9e6; background: rgb(255 255 255 / 0.055);
+  border: 1px solid rgb(255 255 255 / 0.11);
+}
+.agent-ico:hover { background: rgb(255 255 255 / 0.1); }
+.agent-send {
+  width: 30px; height: 30px; border-radius: 9px; flex: none; cursor: pointer;
+  font-size: 14px; color: #06231c;
+  background: linear-gradient(135deg, #7fe0c4, #4fb99c);
+  border: none; box-shadow: 0 2px 10px rgb(79 185 156 / 0.32);
+}
+.agent-send:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
+.agent-send:hover:not(:disabled) { filter: brightness(1.08); }
+
+/* ★ 规划键：放在发送键下方、占满一行（需求方的示意图里它就在输入区这一块） */
+.agent-plan {
+  width: 100%; margin-top: 8px; cursor: pointer;
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 13px; border-radius: 11px;
+  font-size: 12.5px; font-weight: 600; color: #d9f5ea;
+  background: linear-gradient(135deg, rgb(79 185 156 / 0.24), rgb(79 185 156 / 0.12));
+  border: 1px solid rgb(79 185 156 / 0.4);
+  transition: background .16s, border-color .16s, transform .06s;
+}
+.agent-plan:hover { background: linear-gradient(135deg, rgb(79 185 156 / 0.36), rgb(79 185 156 / 0.2)); }
+.agent-plan:active { transform: translateY(1px); }
+.agent-plan-tip {
+  margin-left: auto; font-weight: 400; font-size: 11px; color: rgb(159 230 207 / 0.72);
+}
+
+/* ---------------------------------------------------------------- 右侧抽屉 */
+/* 抽屉是 fixed 定位，盖在 .side 上面 —— 与 .side 同宽同高，看起来就像从右边拉出来。 */
+.drawer {
+  position: fixed;
+  top: var(--drawer-top, 66px);
+  right: var(--drawer-right, 14px);
+  /* 宽度跟着 .side 那列走（grid 里是 minmax(360px,460px)），再留点余量；
+     窄屏时不会超出视口。 */
+  width: var(--drawer-w, clamp(340px, 40vw, 520px));
+  max-width: calc(100vw - 40px);
+  bottom: var(--drawer-bottom, 14px);
+  z-index: 60;
+  display: flex; flex-direction: column; min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: linear-gradient(to bottom,
+    rgb(9 13 18 / 0.94) 0%, rgb(7 10 14 / 0.97) 100%);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  box-shadow: -18px 0 46px rgb(0 0 0 / 0.5);
+  overflow: hidden;
+  transform: translateX(calc(100% + 24px));
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 260ms var(--ease), opacity 200ms var(--ease);
+}
+body.drawer-open .drawer {
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+.drawer-head {
+  flex: none; display: flex; align-items: center; gap: 9px;
+  padding: 12px 14px; border-bottom: 1px solid var(--border);
+}
+.drawer-title { font-size: 13.5px; font-weight: 600; flex: none; }
+.drawer-sub {
+  flex: 1; min-width: 0; font-size: 11.5px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.drawer-close {
+  width: 26px; height: 26px; border-radius: 8px; flex: none; cursor: pointer;
+  color: #cfd9e6; background: rgb(255 255 255 / 0.055);
+  border: 1px solid rgb(255 255 255 / 0.11);
+}
+.drawer-close:hover { background: rgb(255 80 80 / 0.22); border-color: rgb(255 120 120 / 0.4); }
+.drawer-body {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: 12px 14px 18px;
+}
+.drawer-body::-webkit-scrollbar { width: 7px; }
+.drawer-body::-webkit-scrollbar-thumb { background: rgb(255 255 255 / 0.14); border-radius: 4px; }
+
+.drawer-mask {
+  position: fixed; inset: 0; z-index: 55;
+  background: rgb(0 0 0 / 0.34);
+  opacity: 0; pointer-events: none;
+  transition: opacity 220ms var(--ease);
+}
+body.drawer-open .drawer-mask { opacity: 1; pointer-events: auto; }
+/* 宽屏下遮罩会挡着看人物，所以只在窄屏才压暗 */
+@media (min-width: 1100px) {
+  body.drawer-open .drawer-mask { background: rgb(0 0 0 / 0.18); }
+}
+
+/* 抽屉里的「文旅」面板：原来那套默认视图的约束（只显示 #pane-tools、
+   藏页签、滚动规则）都不适用了 —— 抽屉自己滚，面板按内容长。 */
+/* ★ 抽屉里的「文旅」面板不再走 .pane 那套"绝对定位 + active 类切换"：
+   它在抽屉里是唯一内容，用 static 正常流即可。
+   不改的话 switchTab() 会把它的 active 清掉（它已不在页签里），
+   于是 opacity:0 / pointer-events:none 生效 —— 看起来抽屉是空的、还点不动。 */
+.drawer-body #pane-tools {
+  position: static !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  transform: none !important;
+  display: block !important;
+  height: auto !important;
+  min-height: 0;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+.drawer-body #pane-tools > h3 { margin-top: 0; }
+.drawer-body .chat-log { max-height: none; }
+
+/* ------------------------------------------------- 默认视图：显示智能体页 */
+/* 原来这里是 `:not(#pane-tools)` —— 文旅搬进抽屉后要改成智能体页，
+   否则默认视图一个面板都不显示，底部栏中间会是一片空。 */
+body:not(.debug) .side .pane:not(#pane-agent) { display: none !important; }
+body:not(.debug) #pane-agent {
+  display: flex !important;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  padding: 10px 14px 4px;
+  overflow: hidden;          /* 滚动交给 .agent-log 自己，输入区要钉在底部 */
+}
+/* 调试/分栏视图（.debug）下所有面板都在页签里，智能体页也照常显示；
+   它不在 .tabs 里，所以给它一个可点的入口在顶栏（见 index.html 的 btn-agent）。 */
+body.debug .side .pane { display: none; }
+body.debug .side .pane.active { display: flex; flex-direction: column; min-height: 0; }
+
+/* 等待期间的状态行（后端 notice 事件）*/
+.agent-notice { color: var(--muted); font-size: 12px; font-style: italic; }

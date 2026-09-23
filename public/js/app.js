@@ -130,6 +130,7 @@
     bindTopbar();
     bindComposer();
     bindWorkbenchToggle();   // 工作台的展开/收起（底部面板里默认折叠）
+    bindDrawer();            // 文旅抽屉的开合（对话页点「AI 规划」拉出来）
     bindTools();
     bindPlanner();
     bindMemory();
@@ -5216,14 +5217,27 @@
   function switchTab(name) {
     // ★ 'chat' 别名到 'tools'。
     //
-    // 「对话」页签已经并进「文旅」（两个本来就是一件事的两半，而且聊天流里
-    // 还默认嵌了第二份一模一样的工作台）。但全站还有几十处 `switchTab('chat')`
-    // 和 `#pane-chat` 的引用，一次全改容易漏。留个别名在这里兜底：
-    // 就算有漏网的调用点，也只是切到「文旅」，不会切到一个不存在的页签上
-    // （那会让整个侧栏变成空白）。
+    // 「对话」页签曾经并进「文旅」。全站还有几十处 `switchTab('chat')`
+    // 和 `#pane-chat` 的引用，一次全改容易漏，所以留个别名兜底。
     if (name === 'chat') name = 'tools';
+
+    /* ★ 7.0 界面改版：默认视图下 `tools` 重定向到 `agent`。
+     *
+     * 文旅面板已经搬进右侧抽屉（不在页签里了），而全站还有 13 处
+     * `switchTab('tools')` —— 它们原来的意图都是"让结果区可见"。
+     * 在默认视图下那个面板根本不在 .side 里，切过去只会把对话页
+     * 的 active 摘掉、让底部栏变成一片空白。
+     *
+     * 所以在这里一次性重定向，而不是去改那 13 个调用点：
+     *   · 默认视图（body:not(.debug)）→ 切到「对话」页
+     *   · 分栏调试视图（.debug）→ 旅游面板确实在页签里，照旧切过去
+     */
+    if (name === 'tools' && !document.body.classList.contains('debug')) name = 'agent';
+
     $$('#tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.pane === name));
-    $$('.pane').forEach(p => p.classList.toggle('active', p.id === `pane-${name}`));
+    // 抽屉里的 #pane-tools 不参与页签切换（它靠 .drawer-open 显示），
+    // 所以这里只对 .panes 里的面板切 active。
+    $$('.side .panes .pane').forEach(p => p.classList.toggle('active', p.id === `pane-${name}`));
     if (name === 'memory') renderMemoryList();
     if (name === 'cards') renderCards();
     if (name === 'look') {
@@ -6801,6 +6815,74 @@
    * 脚本调用它们走的是**和用户点选完全相同的代码路径**（不是绕过逻辑的后门），
    * 只是省掉了"找到那个按钮"的脆弱环节。
    */
+  /* ==========================================================================
+   * 文旅抽屉（7.0 界面改版）
+   *
+   * 需求方要的交互：对话页点「AI 规划」→ 文旅功能**从右侧拉出来**，
+   * 而不是把表单塞进对话框里。
+   *
+   * 实现上就是把原来侧栏里的 `#pane-tools` 整个搬进 `#wenlv-drawer`，
+   * 靠 body.drawer-open 这个类做滑入/滑出（动画在 CSS 里）。
+   * 用类而不是直接改 style：动画、遮罩、指针事件都由 CSS 一处管，
+   * JS 只负责"开/关"这一个语义。
+   * ========================================================================*/
+
+  /** 打开文旅抽屉。opts.focusPlan 为真时顺带把方案表单展开并聚焦到目的地 */
+  function openDrawer({ focusPlan = true } = {}) {
+    document.body.classList.add('drawer-open');
+    const d = $('#wenlv-drawer');
+    if (d) d.setAttribute('aria-hidden', 'false');
+    const m = $('#drawer-mask');
+    if (m) m.hidden = false;
+    if (focusPlan) {
+      // 工作台默认是折起来的（底部面板矮，铺开会把字段切掉）。
+      // 用户是明确点了「AI 规划」进来的，那就直接铺开 —— 让他看见要填什么。
+      try { expandWorkbench(); } catch { /* 忽略 */ }
+      const city = $('#plan-city');
+      if (city) setTimeout(() => { try { city.focus({ preventScroll: true }); } catch { } }, 260);
+    }
+  }
+
+  function closeDrawer() {
+    document.body.classList.remove('drawer-open');
+    const d = $('#wenlv-drawer');
+    if (d) d.setAttribute('aria-hidden', 'true');
+    const m = $('#drawer-mask');
+    if (m) m.hidden = true;
+  }
+
+  function toggleDrawer(force) {
+    const open = force != null ? !!force : !document.body.classList.contains('drawer-open');
+    if (open) openDrawer(); else closeDrawer();
+    return open;
+  }
+
+  function bindDrawer() {
+    const close = $('#drawer-close');
+    if (close) close.addEventListener('click', () => closeDrawer());
+    const mask = $('#drawer-mask');
+    if (mask) mask.addEventListener('click', () => closeDrawer());
+    // Esc 收起。只在真的开着的时候拦，免得抢了别的 Esc 用途（开屏也是 Esc）。
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && document.body.classList.contains('drawer-open')) {
+        e.stopPropagation();
+        closeDrawer();
+      }
+    }, true);
+  }
+
+  /** 把抽屉滚到方案输出区（生成完方案后让用户直接看到结果） */
+  function scrollToResult() {
+    const body = $('#drawer-body');
+    const log = $('#chat-log');
+    if (!body) return false;
+    if (!log) { body.scrollTop = body.scrollHeight; return true; }
+    const top = log.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop;
+    try { body.scrollTo({ top: Math.max(0, top - 12), behavior: 'smooth' }); }
+    catch { body.scrollTop = Math.max(0, top - 12); }
+    return true;
+  }
+
   window.__wenlv = {
     get state() { return S; },
     switchDisplay,
@@ -6814,6 +6896,27 @@
     // 结果卡的排版函数。验收脚本可以直接塞一段假 HTML 进来验证排版规则，
     // 不用每次都真跑一遍模型（跑一次要几十秒，定位排版问题太慢）。
     layoutResultBlock,
+    // ------------------------------------------------------------------
+    // 给 public/js/agent.js（智能体对话页）用的接口。
+    //
+    // 为什么单开一个文件而不是全塞进 app.js：app.js 已经 6800 行了，
+    // 对话页是一块独立的界面逻辑（气泡渲染、流式、抽屉联动），
+    // 分开放好维护；但它要复用 app.js 里的这几位，所以在这里显式导出，
+    // 而不是让 agent.js 去猜内部实现。
+    agent: {
+      say,                       // 让形象说话（走 TTS/口型那条链）
+      sayStreaming,              // 流式文本 → 口型
+      toast,                     // 右下角提示
+      switchTab,
+      openDrawer: (...a) => openDrawer(...a),
+      closeDrawer: () => closeDrawer(),
+      runPlanWith,               // 按偏好出方案（和词云点「个性化方案」同一路径）
+      scrollToResult,            // 把抽屉滚到方案结果
+      card: () => (S.card || null),
+      history: () => S.history,
+      pushHistory: (m) => { S.history.push(m); saveHistory(); },
+      clearHistory: () => { S.history.length = 0; saveHistory(); },
+    },
   };
 })();
 
