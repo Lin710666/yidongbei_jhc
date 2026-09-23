@@ -7,6 +7,15 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="文旅助手">
+<meta name="description" content="本机大模型驱动的文旅向导：填偏好或说一句话，出可执行行程、预算与地图。">
+<!-- PWA：添加到主屏幕后全屏启动、有图标。
+     scope 是 /m/，但 SW 里还缓存了 /js/util.js —— 它在 scope 之外。
+     这不影响预缓存（预缓存走 fetch，不受 scope 限制），
+     但那个请求发生时不会被本 SW 拦截，属预期。 -->
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/icons/favicon.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <title>智能文旅辅助系统</title>
 <!--
   ============================================================================

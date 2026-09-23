@@ -1,0 +1,36 @@
+{
+  "name": "智能文旅辅助系统",
+  "short_name": "文旅助手",
+  "description": "本机大模型驱动的文旅向导：填偏好或说一句话，出可执行行程、预算与地图。",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "start_url": "/m/",
+  "scope": "/m/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#0f1419",
+  "theme_color": "#0f1419",
+  "categories": ["travel", "productivity", "utilities"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "开始规划",
+      "short_name": "规划",
+      "description": "直接打开规划表单",
+      "url": "/m/?tab=plan",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "看方案",
+      "short_name": "方案",
+      "description": "直接看最近的方案",
+      "url": "/m/?tab=result",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

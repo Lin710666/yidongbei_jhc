@@ -832,6 +832,22 @@
     marketing: '帮我写一段杭州的营销文案',
   };
 
+  /* ================================================================== PWA */
+  /**
+   * 注册 Service Worker。
+   *
+   * 只在 http(s) 下注册 —— file:// 打开时 navigator.serviceWorker 不存在，
+   * 直接调会抛错（以前踩过：调试时双击 html 打开，整段 init 挂掉）。
+   * 失败一律静默：PWA 是增强，不是功能前提，注册不上也不该影响使用。
+   */
+  function registerSW() {
+    try {
+      if (!('serviceWorker' in navigator)) return;
+      if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
+      navigator.serviceWorker.register('/sw.js', { scope: '/m/' }).catch(() => { });
+    } catch { /* 忽略 */ }
+  }
+
   /* ================================================================== 启动 */
   function init() {
     loadMsgs();
@@ -864,10 +880,16 @@
       }
     } catch { }
 
-    // 回到上次的 Tab（默认陪伴页）
+    // 回到上次的 Tab（默认陪伴页）。
+    // ★ 但 URL 上带 ?tab= 时以它为准 —— manifest 里的 shortcuts
+    //   （"开始规划"→/m/?tab=plan）就是靠这个直达对应页。
+    const q = (() => {
+      try { return new URLSearchParams(location.search).get('tab'); } catch { return null; }
+    })();
     const last = (() => { try { return localStorage.getItem('wenlv.m.page'); } catch { return null; } })();
-    switchPage(TITLES[last] ? last : 'companion');
+    switchPage(q && TITLES[q] ? q : (TITLES[last] ? last : 'companion'));
 
+    registerSW();
     refreshAbout();
     window.__m = {
       state, send, generate, switchPage, renderPlan, openSheet, closeSheet,
