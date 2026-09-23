@@ -3371,29 +3371,12 @@
      * 默认是**收起来**的（用户要的就是"那一排收起来，点一下才全部展示"）。
      * 展开状态下点到别处会自动收回去 —— 不然那一排会一直摊着挡住角色。
      * ====================================================================*/
-    const TOOLS_KEY = 'wenlv.toolsCollapsed';
-    {
-      const apply = (on) => {
-        document.body.classList.toggle('tools-collapsed', on);
-        const b = $('#btn-tools-toggle');
-        if (b) b.setAttribute('aria-expanded', on ? 'false' : 'true');
-        try { localStorage.setItem(TOOLS_KEY, on ? '1' : '0'); } catch { /* 隐私模式忽略 */ }
-      };
-      let stored = null;
-      try { stored = localStorage.getItem(TOOLS_KEY); } catch { /* 忽略 */ }
-      apply(stored === null ? true : stored === '1');      // 没存过 → 默认收起
-
-      const b = $('#btn-tools-toggle');
-      if (b) b.addEventListener('click', () => {
-        apply(!document.body.classList.contains('tools-collapsed'));
-      });
-      // 点空白处收起（只处理展开态，收起态什么都不做）
-      document.addEventListener('click', (e) => {
-        if (document.body.classList.contains('tools-collapsed')) return;
-        const t = e.target;
-        if (t && t.closest && !t.closest('.stage-tools')) apply(true);
-      });
-    }
+    /* 收纳栏已经去掉（见下面「⚙️ 设置」那段）。
+       这里只把遗留的 tools-collapsed 类清掉 —— 老的 localStorage 里可能还存着
+       '1'，不清的话启动时 body 会带上这个类，那条 CSS 规则虽然已经 revert，
+       但留着这个无意义的类名只会给以后排查添乱。 */
+    try { localStorage.removeItem('wenlv.toolsCollapsed'); } catch { /* 忽略 */ }
+    document.body.classList.remove('tools-collapsed');
 
     /* ======================================================================
      * 虚拟形象 显示 / 隐藏（默认**显示**）
@@ -3425,6 +3408,19 @@
         toast(nowHidden ? '已隐藏虚拟形象（再点一次显示）' : '已显示虚拟形象', 'ok', 2500);
       });
     }
+
+    /* ======================================================================
+     * 右上角的「⚙️ 设置」= 进入调试界面
+     *
+     * ★ 7.0 界面收敛：这里原来是"收纳栏"—— 点一下展开十几个工具键。
+     *   需求方要的是「只留一个设置，点它直接进调试界面」，那一排的功能
+     *   并进调试界面（已有的不重复做，缺的补在「外观」页的「主界面工具」里）。
+     *
+     *   所以原来那套 tools-collapsed 折叠逻辑删掉了：现在这一排没有可展开的
+     *   东西，留着它只会让人以为还能展开、点了却什么都不发生。
+     *
+     *   实际绑定在下面 DOCK 那一段里（设置键要调 apply()，得先有它）。
+     * ====================================================================*/
 
     /* ======================================================================
      * 「🐞 调试」= 切回**一开始那一版**的界面
@@ -3459,6 +3455,16 @@
           b.classList.toggle('on', want);
         }
         try { localStorage.setItem(DOCK_KEY, want ? '1' : '0'); } catch { /* 忽略 */ }
+        /* ★ 进调试界面时把侧栏切到一个**确实存在**的页签上。
+           文旅面板已经搬进右侧抽屉，不在 .side 里了；如果这时侧栏的
+           active 还停在一个不存在于 .side 的页签上，右侧那一列就是空的
+           —— 看起来像"点了设置没反应"。 */
+        if (want) {
+          try {
+            const active = document.querySelector('.side .panes .pane.active');
+            if (!active) switchTab('agent');
+          } catch { /* 忽略 */ }
+        }
         // 布局变了要通知舞台重算尺寸，否则角色还按旧画布尺寸摆着
         setTimeout(() => { const st = activeStage(); if (st && st.resize) st.resize(); }, 120);
         if (!(opts && opts.silent)) {
@@ -3478,6 +3484,18 @@
       if (b) b.addEventListener('click', () => {
         apply(!document.body.classList.contains('debug'));
       });
+
+      /* ★ 右上角「⚙️ 设置」= 进调试界面（7.0 界面收敛后它就这一个作用）。
+         用 .click() 转给 #btn-dock，而不是复制一份 apply 逻辑 ——
+         两处各写一遍迟早会不一致（比如以后给 apply 加了副作用只改一处）。 */
+      const setBtn = $('#btn-tools-toggle');
+      if (setBtn) {
+        setBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const dock = $('#btn-dock');
+          if (dock) dock.click();
+        });
+      }
     }
 
     /* ======================================================================

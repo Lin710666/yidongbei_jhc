@@ -93,30 +93,27 @@
           <div class="char-tag" id="char-tag">正在载入角色卡…</div>
         </div>
       </div>
+      <!-- ★ 7.0 界面收敛：这一排原来是个"收纳栏"——点「设置」展开十几个键，
+           摊开后会挡住角色，而且和「调试界面」里的功能大量重复。
+           需求方要的是：**只留一个「设置」，点它直接进调试界面**，
+           原来那一排的功能并进调试界面（已有的不重复做）。
+           所以下面只剩这一个键，它的作用是切到调试界面（body.debug）。
+           其余入口都挪到侧栏「外观」页的「主界面工具」一节里。 -->
       <div class="stage-tools">
-        <!-- 工具排收纳按钮。
-             放在最前面：收纳起来之后它是这一条里唯一还看得见的按钮，
-             排在后面的话会跟着一起被藏掉，用户就再也展不开了。 -->
         <button class="tool-btn tools-toggle" id="btn-tools-toggle"
-                title="设置：展开 / 收起右上角这一排工具" aria-expanded="false">
+                title="设置：进入调试界面（背景、形象、词云等都在那里）">
           <span class="ico">⚙️</span><span class="txt">设置</span>
         </button>
-        <button class="tool-btn" id="open-bg" title="更换背景"><span class="ico">🖼️</span><span class="txt">背景</span></button>
-        <button class="tool-btn" id="open-model" title="更换人物形象"><span class="ico">🧍</span><span class="txt">形象</span></button>
-        <button class="tool-btn" id="btn-avatar-hide" title="显示 / 隐藏虚拟形象（默认开启）"><span class="ico">👁️</span><span class="txt">隐藏</span></button>
-        <button class="tool-btn" id="btn-nav" title="定位导航：看我在哪、附近的景点、怎么过去（走本机后端的高德接口）"><span class="ico">🧭</span><span class="txt">导航</span></button>
-        <!-- 静音键。归在功能页这一排工具里：**开屏上不出现**（开屏自己有
-             底部那个「点击开启声音」），所以用 body:has(#boot-screen:not([hidden]))
-             在开屏期间把它藏起来，见 airi.css。 -->
-        <button class="tool-btn" id="btn-mute" data-mute-btn="1" title="静音 / 开启声音（配乐、朗读、开屏视频共用同一个开关）"><span class="ico">🔊</span><span class="txt">有声</span></button>
-        <button class="tool-btn" id="btn-boot" title="重新播放开屏（回到主界面入口）"><span class="ico">🏠</span><span class="txt">主界面</span></button>
-        <button class="tool-btn" id="btn-chatbar" title="显示 / 关闭底部对话栏（大屏时想只留人物就关掉它）"><span class="ico">💬</span><span class="txt">对话栏</span></button>
-        <button class="tool-btn" id="btn-dock" title="调试：在「对话常驻」与「左右分栏」两套布局之间切换"><span class="ico">🐞</span><span class="txt">调试</span></button>
-        <button class="tool-btn" id="btn-kiosk" title="全屏展示模式（展厅大屏：藏掉操作界面，只留形象与字幕）"><span class="ico">🖥️</span><span class="txt">大屏</span></button>
-        <span class="tool-sep"></span>
-        <button class="tool-btn" id="btn-wc-toggle" title="显示 / 隐藏词云"><span class="ico">☁️</span></button>
-        <button class="tool-btn" id="wc-shuffle" title="重新排布词云"><span class="ico">🔀</span></button>
-        <button class="tool-btn" id="wc-full" title="全屏放大词云"><span class="ico">⤢</span></button>
+        <!-- ★ 这三个是**状态型**按钮，留在 DOM 里但被 CSS 隐藏。
+             它们不是给用户点的，而是"布局开关的宿主"：
+               #btn-dock  —— 调试布局的开关（S._debugApply 与「查看完整方案」会 .click() 它）
+               #btn-nav   —— 顶栏那个「🧭 导航」也是 .click() 它
+               #btn-kiosk —— 顶栏「🖥️ 大屏」同理
+             删掉元素等于把那些调用点一起搞挂（$() 返回 null，addEventListener 报 TypeError，
+             后面的绑定全不执行）。所以保留元素、只把外观藏了。 -->
+        <button class="tool-btn" id="btn-nav" hidden aria-hidden="true"></button>
+        <button class="tool-btn" id="btn-dock" hidden aria-hidden="true"></button>
+        <button class="tool-btn" id="btn-kiosk" hidden aria-hidden="true"></button>
       </div>
     </div>
 
@@ -388,6 +385,34 @@
       <!-- ---------- 外观 ---------- -->
       <section class="pane" id="pane-look">
         <h3>外观</h3>
+
+        <!-- ★ 主界面工具（7.0 从右上角那排"收纳栏"搬过来的）。
+             为什么搬：那排工具展开后会挡住角色，而且十几个键里大多数
+             在这里/在别的页已经有入口了 —— 只把**这里没有的**补过来，
+             已有的不重复做（背景在下面、配乐与视频在下面、导航在顶栏、
+             静音在「声音」页、大屏在顶栏）。
+             这一节和脚本无关：这些按钮只是换了位置，id 没变，
+             app.js 里按 id 绑的事件照旧生效。
+             （btn-dock / btn-nav / btn-kiosk 三个仍留在原处但被 CSS 隐藏 ——
+              它们是"状态型"按钮：别的代码会 .click() 它们来切布局，
+              删掉会把那些调用一起搞挂。） -->
+        <div class="section" id="main-tools">
+          <div class="lbl">主界面工具</div>
+          <p class="sub" style="margin:0 0 9px">
+            这些原来在右上角的「设置」收纳栏里，现在收进调试界面。
+            <br>背景 / 视频 / 配乐在下面，「导航」在顶栏，「静音」在「声音」页。
+          </p>
+          <div class="row" style="flex-wrap:wrap;gap:8px">
+            <button class="mini-btn" id="open-bg" title="更换背景">🖼️ 更换背景</button>
+            <button class="mini-btn" id="open-model" title="更换人物形象">🧍 更换形象</button>
+            <button class="mini-btn" id="btn-avatar-hide" title="显示 / 隐藏虚拟形象（默认显示）">👁️ 隐藏人物</button>
+            <button class="mini-btn" id="btn-wc-toggle" title="显示 / 隐藏词云">☁️ 词云显示</button>
+            <button class="mini-btn" id="wc-shuffle" title="重新排布词云">🔀 重排词云</button>
+            <button class="mini-btn" id="wc-full" title="全屏放大词云">⤢ 词云全屏</button>
+            <button class="mini-btn" id="btn-boot" title="重新播放开屏（回到主界面入口）">🏠 主界面</button>
+            <button class="mini-btn" id="btn-chatbar" title="显示 / 关闭底部对话栏">💬 对话栏</button>
+          </div>
+        </div>
 
         <div class="section">
           <div class="lbl">
