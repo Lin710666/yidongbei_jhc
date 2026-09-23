@@ -285,10 +285,35 @@ def _models3d_bundled() -> List[Dict[str, Any]]:
 # 一、状态与能力清单
 # ---------------------------------------------------------------------------
 def _match_model(models: List[str], needle: str) -> str:
-    """在 ollama 已装模型里找一个名字含 needle 的，返回它的完整名字（带 tag）。"""
-    for name in models:
-        if needle in name:
-            return name
+    """在 ollama 已装模型里找一个匹配 needle 的，返回完整名字（带 tag）。
+
+    ★ 匹配要按优先级，不能只做子串包含。踩过的坑：
+      期望 "qwen2.5:7b"，而本机还装了 "qwen2.5vl:3b" ——
+      子串匹配时 "qwen2.5" in "qwen2.5vl:3b" 也成立，
+      而 vl 在列表里排在前面，于是**状态灯显示成了 3b 的视觉模型**。
+      （实际调用用的是 settings.ollama_model，不受影响，但显示是错的。）
+    所以顺序：完全相等 -> 去掉 tag 后相等 -> 同名前缀且**不是**视觉模型 -> 宽松包含。
+    """
+    def base(n: str) -> str:
+        return n.split(":")[0].strip().lower()
+
+    nd = (needle or "").strip().lower()
+    if not nd:
+        return ""
+    for n in models:
+        if n.lower() == nd:
+            return n
+    for n in models:
+        if base(n) == nd:
+            return n
+    # 前缀匹配，但把视觉模型排除掉（它们该走 _pick_vision_model）
+    for n in models:
+        low = n.lower()
+        if low.startswith(nd) and "vl" not in low and "vision" not in low:
+            return n
+    for n in models:
+        if nd in n.lower():
+            return n
     return ""
 
 
