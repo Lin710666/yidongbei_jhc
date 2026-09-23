@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>动作幅度测量</title>
+<style>
+  html,body{margin:0;height:100%;background:#0d1117;color:#dfe6f0;
+    font:13px/1.5 Consolas,"Microsoft YaHei",monospace}
+  #row{display:flex;height:100%}
+  #box{flex:1;position:relative;min-width:0}
+  #panel{width:420px;padding:12px;overflow:auto;border-left:1px solid #24303d}
+  table{border-collapse:collapse;width:100%}
+  th,td{border-bottom:1px solid #1e2836;padding:5px 6px;text-align:right}
+  th:first-child,td:first-child{text-align:left}
+  .hi{color:#ffb26b}
+  .ok{color:#7fe0c4}
+  #info{color:#8fa3ba;margin-bottom:8px}
+</style>
+</head>
+<body>
+<div id="row">
+  <div id="box"></div>
+  <div id="panel">
+    <div id="info">加载中…</div>
+    <table id="tbl">
+      <thead><tr><th>参数</th><th>最小</th><th>最大</th><th>峰峰值</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div id="verdict" style="margin-top:10px"></div>
+  </div>
+</div>
+<script src="/vendor/live2dcubismcore.min.js"></script>
+<script src="/vendor/pixi.min.js"></script>
+<script src="/vendor/pixi-live2d-display-cubism4.min.js"></script>
+<!-- live2d.js 开头就 `const { $ } = window.U`，所以 util.js 必须先加载 ——
+     少了它整页会报 "Cannot destructure property '$' of 'window.U'"（踩过）。 -->
+<script src="/js/util.js"></script>
+<script src="/js/live2d.js"></script>
+<script>
+/* 专用测量页：把 live2d.js 的待机 + 视线跟随跑起来，
+   统计关键参数的峰峰值。用来量化"人物动作幅度是不是太大"。
+
+   用法：/__motion__/?m=<model3.json 路径>&t=秒数
+   （不带参数就用第一个可用的形象） */
+const P = new URLSearchParams(location.search);
+const KEYS = ['ParamAngleX','ParamAngleY','ParamAngleZ',
+              'ParamBodyAngleX','ParamBodyAngleZ','ParamEyeBallX','ParamEyeBallY'];
+
+(async () => {
+  const box = document.getElementById('box');
+  const cv = document.createElement('canvas');
+  box.appendChild(cv);
+  const st = new Live2DStage(cv);
+  await st.init();
+  let url = P.get('m');
+  if (!url) {
+    const cap = await (await fetch('/api/capabilities')).json();
+    const list = (cap && cap.live2d) || [];
+    url = list.length ? list[0].entry : null;
+  }
+  if (!url) { document.getElementById('info').textContent = '没有可用的模型'; return; }
+  await st.load(url, { label: 'motion-test' });
+  /* ★ 测量时必须关掉"随机抽小动作"（intervalMotion:false）。
+     否则模型自带的动作文件会随机播一段，它有自己的参数曲线（可能大幅转动头部），
+     测出来的峰峰值会忽大忽小、根本不是待机+跟随的幅度。
+     （第一次测就踩了这个：同一次改动，两次测出来 16° / 44° 差三倍。） */
+  const MOTION = P.get('motion') === '1';
+  st.startIdle({ motionEveryMs: 6000, intervalMotion: MOTION });
+  st.resize();
+  window.__stage = st;
+  const core = st.model.internalModel.coreModel;
+  document.getElementById('info').textContent =
+    '模型：' + url + '  drawable ' + core.getDrawableCount();
+
+  const acc = {};
+  for (const k of KEYS) acc[k] = [];
+  let flip = 0;
+  const dur = Number(P.get('t') || 12) * 1000;
+  const t0 = performance.now();
+
+  /* ★ 采样点的时机很关键（踩过一次）：
+     Cubism 的参数每帧是 **reset -> 各监听器累加 -> core.update()** 的顺序。
+     在 update 之后用 getParameterValueById 读到的是**复位后的值**（恒为 0），
+     于是会误判成"我的参数没写进去"。
+     正确做法是挂在同一个 beforeModelUpdate 事件上读 —— 那时所有累加已完成、
+     还没 update，读到的才是这一帧真正生效的值。
+     （库自己的 updateFocus 也是在这个事件里累加的。） */
+  st.model.internalModel.on('beforeModelUpdate', () => {
+    for (const k of KEYS) {
+      try { const v = core.getParameterValueById(k); if (v != null) acc[k].push(v); } catch {}
+    }
+  });
+
+  function draw() {
+    // 反复把"鼠标"放到两侧，制造满幅注视的极端情况
+    const w = box.clientWidth || 800, h = box.clientHeight || 700;
+    const x = (flip++ % 2 === 0) ? w * 0.06 : w * 0.94;
+    const y = h * (0.25 + (flip % 3) * 0.2);
+    st.setFocus((x / w) * 2 - 1, (y / h) * 2 - 1);
+    paint();
+    if (performance.now() - t0 < dur) requestAnimationFrame(draw);
+    else finish();
+  }
+
+  function paint() {
+    const tb = document.querySelector('#tbl tbody');
+    tb.innerHTML = KEYS.map(k => {
+      const a = acc[k];
+      if (!a.length) return `<tr><td>${k}</td><td colspan="3">—</td></tr>`;
+      const mn = Math.min(...a), mx = Math.max(...a), pp = mx - mn;
+      const cls = pp > 25 ? 'hi' : '';
+      return `<tr class="${cls}"><td>${k}</td><td>${mn.toFixed(2)}</td>` +
+             `<td>${mx.toFixed(2)}</td><td>${pp.toFixed(2)}</td></tr>`;
+    }).join('');
+  }
+
+  let done = false;
+  function finish() {
+    if (done) return; done = true;
+    const a = acc['ParamAngleX'];
+    const pp = a.length ? Math.max(...a) - Math.min(...a) : 0;
+    const v = document.getElementById('verdict');
+    v.innerHTML = pp > 25
+      ? '<span class="hi">★ 头部摆幅 ' + pp.toFixed(1) + '°，偏大（>25）</span>'
+      : '<span class="ok">✓ 头部摆幅 ' + pp.toFixed(1) + '°，正常</span>';
+    window.__R__ = { done: true, peak: Object.fromEntries(KEYS.map(k => {
+      const b = acc[k]; return [k, b.length ? +(Math.max(...b) - Math.min(...b)).toFixed(2) : null];
+    })) };
+  }
+  draw();
+})();
+</script>
+</body>
+</html>

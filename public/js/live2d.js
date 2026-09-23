@@ -49,16 +49,41 @@
       this.onErrorCb = null;
       /* 视角跟随（鼠标/手指移到哪，人物头与眼看向哪）。
        *
-       * 为什么要做成可关的开关：库的 `updateFocus()` 是**叠加**写
-       * ParamAngleX/Y/Z 的，幅度不小。多数模型这么用没问题，但对
-       * 用「九轴经纬网面部变形器」的模型（比如自建的 hanfu），
-       * 大幅角度会把面部网格撕开 —— 表现就是**人物一被鼠标扫过就崩坏**。
-       * 这类模型只能关掉跟随。
-       *
-       * 默认 true：保持大屏触屏上"人物是活的"这个既有体验不变，
-       * 只对需要关的模型单独设 false（见 app.js 里的 useFocus 判断）。 */
+       * 默认 true：大屏触屏上人物是"活的"。
+       * 对用「九轴经纬网面部变形器」的模型（比如自建的 hanfu），
+       * 角度大了会撕开面部网格，可以按模型关掉
+       * （见 app.js 里的 NO_FOCUS_FOLLOW 名单）。
+       */
       this.focusFollow = true;
       this._pointHandler = null;
+      /* 视线跟随的幅度上限（度）。
+       *
+       * ★ 为什么要自己写、不用库里那个 `model.focus()`：
+       *   库的 `updateFocus()` 里是**写死**的 ——
+       *       addParameterValueById(ParamAngleX, 30 * focusController.x)
+       *   也就是"注视满幅 = 头部旋转 30°"。对小人、近景、或者面部变形器
+       *   比较敏感的模型，30° 一叠加库自带的呼吸（ParamAngleX 振幅 15°）
+       *   和待机微摆，人物就整个偏出去、看着像散架。
+       *
+       *   这里改成自己插值 + 只写眼睛与头部**很小的**角度，
+       *   并且不去碰库的 focusController（保持 0），
+       *   于是库那一句 30*x 恒等于 0，不会和这里打架。
+       *
+       * ★ 定这个值的依据（实测，不是拍的）：
+       *   库自带呼吸的振幅表是
+       *       ParamAngleX 幅 15、ParamAngleY 幅 8、ParamAngleZ 幅 10、
+       *       ParamBodyAngleX 幅 4
+       *   —— 光呼吸这一层，AngleY 就有 16° 峰峰、AngleX 有 30°。
+       *   我这一层是**叠加**在它上面的，所以自己必须小：
+       *   取 8° 时实测总峰峰 AngleX ≈ 17°、AngleY ≈ 18°，人物不再被带偏，
+       *   但仍看得出"在看鼠标"。取 12° 时 AngleY 会到 29°，明显偏大。
+       *
+       * 想再小就调这里，或在 load() 时按模型传 focusAngle。
+       */
+      this.focusAngle = 8;
+      this.focusEye = 1;
+      this._fx = 0; this._fy = 0;      // 当前值（平滑后）
+      this._ftx = 0; this._fty = 0;    // 目标值
       this.onTapCb = null;
       this.expressions = [];
       this.motions = [];
@@ -134,15 +159,15 @@
         const r = host.getBoundingClientRect();
         const x = ((e.clientX - r.left) / r.width) * 2 - 1;
         const y = ((e.clientY - r.top) / r.height) * 2 - 1;
-        this.model.focus(x, y);
+        this.setFocus(x, y);
       };
       this._pointHandler = onPoint;
       host.addEventListener('pointermove', onPoint, { passive: true });
       // 触屏手指抬起后用 pointerleave 收不到（触摸不会"离开"），
       // 所以额外在 pointerup / pointercancel 上把视线收回正前方。
-      host.addEventListener('pointerleave', () => { if (this.model) this.model.focus(0, 0); });
+      host.addEventListener('pointerleave', () => { this.setFocus(0, 0); });
       for (const ev of ['pointerup', 'pointercancel']) {
-        host.addEventListener(ev, () => { if (this.model) this.model.focus(0, 0); }, { passive: true });
+        host.addEventListener(ev, () => { this.setFocus(0, 0); }, { passive: true });
       }
 
       // 点击人物 → 交给上层做互动
@@ -172,16 +197,23 @@
     }
 
     /** 载入模型。url 形如 /models/nahida/Nahida.model3.json */
-    async load(url, { label, focusFollow } = {}) {
+    async load(url, { label, focusFollow, focusAngle } = {}) {
       if (!this.app) await this.init();
 
       // 视角跟随可由调用方按模型关掉（见构造函数里 focusFollow 的说明）。
       // 用 `=== false` 判断是为了让"不传"保持原行为（跟随）。
       if (focusFollow === false) this.focusFollow = false;
       else if (focusFollow === true) this.focusFollow = true;
-      if (!this.focusFollow && this.model && typeof this.model.focus === 'function') {
-        // 关掉时把目光复位，避免上一次跟随留下的偏头卡在那里
-        try { this.model.focus(0, 0); } catch { /* 忽略 */ }
+      // 幅度也能按模型覆盖：有些模型的脸部变形器特别敏感，需要再压小
+      if (Number.isFinite(focusAngle)) {
+        this.focusAngle = Math.max(0, Math.min(30, Number(focusAngle)));
+      }
+      if (!this.focusFollow) {
+        // 关掉时把目光复位，避免上一次跟随留下的偏头卡在那里。
+        // 用 setFocus 而不是库的 model.focus —— 前者写的是自己那几个小幅度参数，
+        // 后者会顺带把库的 focusController 设成 0（那也可以），
+        // 但统一走一条路更不容易出岔子。
+        this.setFocus(0, 0);
       }
 
       // pixi-live2d-display 需要显式告诉它 ticker 用哪一个，否则动作不会自动播
@@ -424,6 +456,47 @@
     /** 鼠标刚动过就记一笔：视线让给鼠标，别再自己乱瞟 */
     markPointer() { this.idle.lastPointerAt = Date.now(); }
 
+    /**
+     * 设置视线目标（-1..1）。
+     *
+     * ★ 替代库的 `model.focus()`。库里那个是把 30° 写死的
+     * （`addParameterValueById(ParamAngleX, 30*focusController.x)`），
+     * 人物会被带得偏出去。这里：
+     *   · 幅度由 this.focusAngle / this.focusEye 控制（默认 12° / 1）
+     *   · 由 _focusStep() 每帧平滑插值后写参数，所以调用方随便设，不会"啪"地跳
+     *   · **不碰** 库的 focusController —— 它保持 0，库那句 30*x 就恒为 0，
+     *     不会和这里叠加
+     *
+     * @param {number} x  -1(左) .. 1(右)
+     * @param {number} y  -1(上) .. 1(下)
+     */
+    setFocus(x, y) {
+      const cl = (v) => Math.max(-1, Math.min(1, Number(v) || 0));
+      this._ftx = cl(x);
+      this._fty = cl(y);
+      // 立刻让待机钩子跑起来：不然在还没 startIdle 的场景下这个目标不会被应用
+      this._attachIdleHook();
+    }
+
+    /** 每帧把视线/头部角度平滑地写进参数 */
+    _focusStep() {
+      const core = this.model && this.model.internalModel
+        && this.model.internalModel.coreModel;
+      if (!core) return;
+      const k = 0.12;                       // 插值系数：越小越"慢半拍"，越不容易抖
+      this._fx += (this._ftx - this._fx) * k;
+      this._fy += (this._fty - this._fy) * k;
+      const add = (id, v) => {
+        if (!id) return;
+        try { core.addParameterValueById(id, v); } catch { /* 该模型没这个参数 */ }
+      };
+      // 眼睛先动（幅度小、不影响整体轮廓），头部只跟一点点
+      add(this.p.eyeBallX, this._fx * this.focusEye);
+      add(this.p.eyeBallY, -this._fy * this.focusEye);
+      add(this.p.angleX, this._fx * this.focusAngle);
+      add(this.p.angleY, -this._fy * this.focusAngle);
+    }
+
     startIdle(opts = {}) {
       const d = this.idle;
       d.wanted = true;
@@ -454,15 +527,14 @@
         }
 
         // 自主视线：鼠标静止 2.5 秒以上才接管，否则会和"看着你"打架。
-        // 借用库自己的 model.focus() 而不是直接写眼珠参数 —— 它内部有平滑插值，
-        // 而且换成鼠标时是平滑过渡过去的，不会"啪"地跳一下。
+        // 走自己的 setFocus（**不是**库的 model.focus）—— 见构造函数里
+        // focusAngle 那段说明：库那个是写死的 30°，会把人物带偏。
         if (d.saccade && now >= d.nextGazeAt) {
           d.nextGazeAt = now + 1800 + Math.random() * 3200;
           const pointerIdle = Date.now() - (d.lastPointerAt || 0) > 2500;
           if (pointerIdle && !d.speaking) {
-            d.gazeX = (Math.random() * 2 - 1) * 0.55;
-            d.gazeY = (Math.random() * 2 - 1) * 0.35;
-            try { this.model && this.model.focus(d.gazeX, d.gazeY); } catch { /* 忽略 */ }
+            this.setFocus((Math.random() * 2 - 1) * 0.55,
+                          (Math.random() * 2 - 1) * 0.35);
           }
         }
       };
@@ -490,10 +562,17 @@
       };
 
       if (d.sway) {
-        add(this.p.angleZ, Math.sin(t * 0.55 + d.phase) * 2.6);            // 头部轻微侧倾
-        add(this.p.bodyAngleZ, Math.sin(t * 0.42 + d.phase * 1.7) * 2.2);  // 重心左右微移
-        add(this.p.bodyAngleX, Math.sin(t * 0.33 + d.phase) * 1.6);        // 身体前后微晃
+        // ★ 幅度都调小了（原来是 2.6 / 2.2 / 1.6）：
+        //   这三条会和库自带的呼吸（ParamAngleX 振幅 15°、BodyAngleX 4°）
+        //   以及视角跟随**叠加**，几层加起来人物就会明显偏出原位。
+        //   现在压到 1.2 / 1.0 / 0.8 —— 仍看得出在微微晃，但不会跑偏。
+        add(this.p.angleZ, Math.sin(t * 0.55 + d.phase) * 1.2);            // 头部轻微侧倾
+        add(this.p.bodyAngleZ, Math.sin(t * 0.42 + d.phase * 1.7) * 1.0);  // 重心左右微移
+        add(this.p.bodyAngleX, Math.sin(t * 0.33 + d.phase) * 0.8);        // 身体前后微晃
       }
+
+      // 视线/头部角度（自己插值，替代库那个 30° 写死的 focus）
+      this._focusStep();
 
       // 呼吸兜底：库只驱动它自己创建的 breath 对象（认 ParamBreath），
       // 个别模型没配自然运动，这里补上，免得胸口完全静止
