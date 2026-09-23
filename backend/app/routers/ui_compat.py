@@ -662,9 +662,42 @@ def prefs() -> Dict[str, Any]:
 # 目录取**项目根**下的 data/videos/，不是 backend/data/：
 # 用户的片子是从 5.0 带过来的，本来就在那儿；指到 backend/data 会找不到。
 # ---------------------------------------------------------------------------
-VIDEO_DIR = Path(__file__).resolve().parents[3] / "data" / "videos"
+def _pick_data_dir() -> Path:
+    """项目根下的 `data/`（视频与音轨在这儿），要能适配打包后的 exe。
+
+    ★ 与 `_pick_public_dir()` 是同一类坑：源码布局下
+      `Path(__file__).parents[3]` 正好是项目根；但 PyInstaller 把代码放进
+      `_MEIPASS`，parents[3] 就指到临时目录外面了，而 data/ 是随 exe 放在旁边的。
+
+      后果同样是**静默的**：后端照常启动、页面照常打开，只是
+      `/api/videos` 返回空列表、`/api/audio` 也是空的 ——
+      桌面版因此"没有默认背景片"，而同一份代码用源码跑却正常。
+
+      候选顺序：STATIC_DIR 的兄弟目录（桌面壳设的 public/ 就在 data/ 旁边）
+      → `__file__` 推断（源码）→ exe 同级 / 上级（打包）。
+    """
+    cands = []
+    if settings.static_dir:
+        # 桌面版把 public/ 放在 resources/public，data/ 在 resources/data，
+        # 两者同级，所以从 STATIC_DIR 往上一级找最稳。
+        cands.append(Path(settings.static_dir).resolve().parent / "data")
+    if not getattr(sys, "frozen", False):
+        cands.append(Path(__file__).resolve().parents[3] / "data")
+    else:
+        exe_dir = Path(sys.executable).resolve().parent
+        meipass = Path(getattr(sys, "_MEIPASS", exe_dir))
+        cands += [meipass / "data", exe_dir / "data", exe_dir.parent / "data"]
+
+    for c in cands:
+        if (c / "videos").is_dir() or (c / "audio").is_dir():
+            return c
+    return cands[0] if cands else Path("data")
+
+
+_DATA_DIR_ROOT = _pick_data_dir()
+VIDEO_DIR = _DATA_DIR_ROOT / "videos"
 #: 抽取出来的音轨。和视频并列放，前者是"画面"，后者是"配乐"。
-AUDIO_DIR = Path(__file__).resolve().parents[3] / "data" / "audio"
+AUDIO_DIR = _DATA_DIR_ROOT / "audio"
 VIDEO_MAX_MB = 300
 _VIDEO_EXT = {".mp4", ".webm", ".mov", ".m4v", ".ogv"}
 _VIDEO_MIME = {

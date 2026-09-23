@@ -41,6 +41,14 @@
         "from": "../public",
         "to": "public",
         "filter": ["**/*"]
+      },
+      {
+        "from": "../data",
+        "to": "data",
+        "filter": [
+          "**/*",
+          "!videos/风景视频素材分享（无水印可自取） - Original.mp4"
+        ]
       }
     ],
     "win": {
