@@ -3800,6 +3800,19 @@
    * @param {'live2d'|'3d'} kind
    * @param {string} id
    */
+  /**
+   * 关掉「视角跟随」的模型。
+   *
+   * 视角跟随 = 鼠标/手指移到哪，人物的头与眼睛就看向哪。多数模型这么用没问题，
+   * 但对用**九轴经纬网面部变形器**（perspective-parallelogram-nine-pose-v2）的
+   * 模型会崩坏：库的 `updateFocus()` 是**叠加**写 ParamAngleX/Y/Z 的，角度一大
+   * 就把面部网格撕开 —— 表现是"鼠标一从人物身上扫过，脸就散了"。
+   *
+   * 自建的 hanfu 就是这个毛病，所以列在这里。
+   * 以后新加的模型若也崩，把它的 id 加进来即可。
+   */
+  const NO_FOCUS_FOLLOW = new Set(['hanfu']);
+
   async function switchDisplay(kind, id, { silent } = {}) {
     const item = findDisplayModel(kind, id)
       || (kind === '3d' ? allDisplayModels().find(m => m.kind === '3d') : S.l2dModels[0]);
@@ -3832,7 +3845,7 @@
     } else {      stageProblem(`正在加载 ${item.label}…`);
       try {
         const st = await ensureLive2D();
-        await st.load(item.entry, { label: item.label });
+        await st.load(item.entry, { label: item.label, focusFollow: !NO_FOCUS_FOLLOW.has(item.id) });
         st.setScale(S.settings.l2dScale);
         st.setPosition(S.settings.l2dX, S.settings.l2dY);
         if (S.settings.expression && (st.expressions || []).includes(S.settings.expression)) {

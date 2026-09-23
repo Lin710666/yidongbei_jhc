@@ -47,6 +47,18 @@
       this.ready = false;
       this.onReadyCb = null;
       this.onErrorCb = null;
+      /* 视角跟随（鼠标/手指移到哪，人物头与眼看向哪）。
+       *
+       * 为什么要做成可关的开关：库的 `updateFocus()` 是**叠加**写
+       * ParamAngleX/Y/Z 的，幅度不小。多数模型这么用没问题，但对
+       * 用「九轴经纬网面部变形器」的模型（比如自建的 hanfu），
+       * 大幅角度会把面部网格撕开 —— 表现就是**人物一被鼠标扫过就崩坏**。
+       * 这类模型只能关掉跟随。
+       *
+       * 默认 true：保持大屏触屏上"人物是活的"这个既有体验不变，
+       * 只对需要关的模型单独设 false（见 app.js 里的 useFocus 判断）。 */
+      this.focusFollow = true;
+      this._pointHandler = null;
       this.onTapCb = null;
       this.expressions = [];
       this.motions = [];
@@ -116,11 +128,15 @@
       const onPoint = (e) => {
         this.markPointer();
         if (!this.model) return;
+        // 关掉跟随时仍然记一笔 pointer 时间戳（上面那句已经做了），
+        // 这样程序化待机的"视线游移"也会让位给用户的手势，不会自己乱瞟。
+        if (!this.focusFollow) return;
         const r = host.getBoundingClientRect();
         const x = ((e.clientX - r.left) / r.width) * 2 - 1;
         const y = ((e.clientY - r.top) / r.height) * 2 - 1;
         this.model.focus(x, y);
       };
+      this._pointHandler = onPoint;
       host.addEventListener('pointermove', onPoint, { passive: true });
       // 触屏手指抬起后用 pointerleave 收不到（触摸不会"离开"），
       // 所以额外在 pointerup / pointercancel 上把视线收回正前方。
@@ -156,8 +172,17 @@
     }
 
     /** 载入模型。url 形如 /models/nahida/Nahida.model3.json */
-    async load(url, { label } = {}) {
+    async load(url, { label, focusFollow } = {}) {
       if (!this.app) await this.init();
+
+      // 视角跟随可由调用方按模型关掉（见构造函数里 focusFollow 的说明）。
+      // 用 `=== false` 判断是为了让"不传"保持原行为（跟随）。
+      if (focusFollow === false) this.focusFollow = false;
+      else if (focusFollow === true) this.focusFollow = true;
+      if (!this.focusFollow && this.model && typeof this.model.focus === 'function') {
+        // 关掉时把目光复位，避免上一次跟随留下的偏头卡在那里
+        try { this.model.focus(0, 0); } catch { /* 忽略 */ }
+      }
 
       // pixi-live2d-display 需要显式告诉它 ticker 用哪一个，否则动作不会自动播
       if (window.PIXI.live2d && window.PIXI.live2d.Live2DModel) {
