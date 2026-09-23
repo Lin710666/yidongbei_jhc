@@ -130,22 +130,48 @@ body[data-cols="shut"] .dock { visibility: hidden; pointer-events: none; border-
   position: relative;
   overflow: hidden;
   min-width: 0;
+  /* 人物画布的边长：与舞台高度挂钩（62%），并保证底部留出输入条的位置。
+     底部占用 = 输入条 56 + 间距 18 + 余量 ≈ 96px。 */
+  /* ★ 必须用 vh，不能用 %。
+     百分比在 width 上相对**舞台宽**、在 height 上相对**舞台高**解析 ——
+     同一个 62% 会算出两个不同的数（实测 769 宽 × 523 高），正方形就没了。
+     vh 对两个轴是同一个值，才真的是正方形。
+     舞台顶部是顶栏 56px，所以可用高 = 100vh - 56px - 底部预留 96px。 */
+  --avatar-size: min(68vh, calc(100vh - 56px - 96px));
 }
 .stage-bg { position: absolute; inset: 0; width: 100%; height: 100%; }
 
 /* 人物：图纸「max-height 70%，底部居中偏右」。
-   默认不加载（focus）；只有开启人物后才显示。 */
-#live2d-canvas {
+   默认不加载（focus）；只有开启人物后才显示。
+ *
+ * ★ 画布必须是**正方形**。
+ *   Live2D 模型本身是正方形（hanfu 1024×1024），而 live2d.js 的 fitScale 是按
+ *   "高度占容器 86%、宽度不超过 92%" 算的 —— 如果容器是扁长方形，
+ *   会**宽度先触顶**，模型按宽度撑满后上下都溢出画布：
+ *   头顶像被切、脚底排到画布外并被底部输入条压住（实测压了 23px）。
+ *   一开始写 `width:auto; height:70%` 就踩了这个：量出来是 1240×591。
+ *
+ *   所以：aspect-ratio 固定 1，边长跟舞台高度走（62%），
+ *   底部预留输入条的高度 + 一点余量，保证不重叠。
+ */
+/* 尺寸宿主：**正方形**，位置在舞台底部居中偏右，并给底部输入条留出位置。
+   PIXI 会按这一层的矩形来定画布尺寸，所以正方形由它决定。 */
+.avatar-box {
   position: absolute;
-  left: 56%; bottom: 6%;
+  left: 58%;
+  bottom: 96px;                       /* 输入条 56 + 间距 18 + 余量 */
   transform: translateX(-50%);
-  max-height: 70%;
-  width: auto; height: 70%;
+  height: var(--avatar-size);
+  width: var(--avatar-size);
   display: none;
   z-index: 2;
   pointer-events: auto;
 }
-body.avatar-on #live2d-canvas { display: block; }
+body.avatar-on .avatar-box { display: block; }
+
+/* canvas 只负责铺满宿主 —— 不要在它身上再写尺寸，
+   和宿主两处都设会打架（这一轮因为"两处各设一半"已经踩过好几次）。 */
+.avatar-box > canvas { display: block; width: 100%; height: 100%; }
 
 /* .stage-hint 的三条规则已随那段提示一起删除（按需求去掉舞台中央的说明牌）。
    留着空规则只会让人以为还有东西没显示。 */

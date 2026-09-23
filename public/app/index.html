@@ -70,8 +70,16 @@
     <!-- 背景（纯色 + 可选程序化西湖；不用外部素材） -->
     <canvas class="stage-bg" id="bg-canvas" aria-hidden="true"></canvas>
 
-    <!-- 人物层：向导模式才加载。默认关闭（focus）。 -->
-    <canvas id="live2d-canvas" aria-hidden="true"></canvas>
+    <!-- 人物层：向导模式才加载。默认关闭（focus）。
+         外面这层 .avatar-box 是**尺寸宿主**：Live2DStage.init() 是用
+         `canvas.parentElement` 的矩形来定 PIXI 画布的 —— 直接让 canvas 挂在
+         整个 .stage 下，画布就会被撑成舞台大小（实测 1240×844），
+         Live2D 模型是正方形，于是头顶被切、脚底压到输入条。
+         套一层正方形容器，画布才恰好是那么大。
+         （移动端 /m/ 踩过同一个坑，用的是同一套修法。） -->
+    <div class="avatar-box">
+      <canvas id="live2d-canvas" aria-hidden="true"></canvas>
+    </div>
     <!-- 这里原来有一段舞台中央的提示（「当前是功能优先 —— 未加载虚拟人物 /
          点顶栏「人物」可启用向导模式」）。按需求去掉了：
          舞台是给人看内容的地方，不该常驻一块说明牌。
