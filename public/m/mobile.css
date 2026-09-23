@@ -1,0 +1,390 @@
+/* ============================================================================
+ * mobile.css —— 手机端（豆包式模板）
+ *
+ * 布局自上而下：
+ *   顶栏（设置 · 标题 · 清空）
+ *   对话流（气泡）
+ *   功能展示排（横向可滑）
+ *   输入区（＋ · 输入框 · 发送）
+ *
+ * 默认**纯色背景、不加载虚拟形象**（需求方明确要求的）：
+ *   只有 body.avatar-on 时才把 .m-stage 显示出来。
+ *
+ * 设置页是从**左侧**滑入的抽屉（"向左滑调出设置"）——
+ * 手势在 mobile.js 里处理（从左边缘向右划）。
+ * ==========================================================================*/
+
+:root {
+  --m-bg: #0f1419;
+  --m-surface: rgb(255 255 255 / 0.055);
+  --m-surface-2: rgb(255 255 255 / 0.09);
+  --m-border: rgb(255 255 255 / 0.1);
+  --m-fg: #e9eef6;
+  --m-fg-dim: rgb(233 238 246 / 0.56);
+  --m-fg-mute: rgb(233 238 246 / 0.36);
+  --m-brand: #54c8b1;
+  --m-bubble-bot: rgb(255 255 255 / 0.06);
+  --m-bubble-me: linear-gradient(135deg, #3fb59c, #2f9c86);
+  --m-top-h: 54px;
+  --m-safe-b: env(safe-area-inset-bottom, 0px);
+  --m-safe-t: env(safe-area-inset-top, 0px);
+}
+
+/* 浅色底：整套变量跟着换，避免出现"浅底上写浅字" */
+body.light {
+  --m-bg: #f4f5f7;
+  --m-surface: rgb(0 0 0 / 0.045);
+  --m-surface-2: rgb(0 0 0 / 0.075);
+  --m-border: rgb(0 0 0 / 0.1);
+  --m-fg: #1c2430;
+  --m-fg-dim: rgb(28 36 48 / 0.6);
+  --m-fg-mute: rgb(28 36 48 / 0.42);
+  --m-bubble-bot: #ffffff;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; padding: 0;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+body {
+  background: var(--m-bg);
+  color: var(--m-fg);
+  font: 15px/1.62 -apple-system, BlinkMacSystemFont, "PingFang SC",
+        "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  /* 纯色背景，不带任何图片/渐变 —— 省流量也省电 */
+  transition: background-color .22s ease;
+}
+
+/* ---------------------------------------------------------------- 舞台（形象） */
+/* 默认隐藏。只有开启形象后才显示，并且压在对话层下面（z-index 更低）。 */
+.m-stage {
+  position: fixed; inset: 0;
+  z-index: 1;
+  display: none;
+  background: var(--m-bg);
+}
+body.avatar-on .m-stage { display: block; }
+/* 尺寸宿主：PIXI 画布按它的矩形来定大小（见 index.html 的说明） */
+.m-stage-box {
+  position: absolute;
+  left: 50%; top: 44%;
+  transform: translate(-50%, -50%);
+  width: min(86vw, 400px);
+  height: min(86vw, 400px);
+}
+.m-stage-box canvas { display: block; width: 100%; height: 100%; }
+.m-stage-empty {
+  position: absolute; left: 0; right: 0; top: 38%;
+  text-align: center; color: var(--m-fg-mute); font-size: 13px; line-height: 1.9;
+}
+/* 形象开启后，那句"未开启"的提示必须先藏掉 ——
+   否则它会正好压在人物头上（实测就是这个现象）。 */
+body.avatar-on .m-stage-empty { display: none; }
+.m-stage-empty span { font-size: 12px; opacity: .75; }
+
+/* ---------------------------------------------------------------- 主界面 */
+.m-app {
+  position: relative;
+  z-index: 2;
+  display: flex; flex-direction: column;
+  height: 100%;
+  /* 开了形象之后，对话层要能透出人物：给它一点透明度与背景虚化 */
+  transition: background-color .2s ease;
+}
+body.avatar-on .m-app {
+  background: linear-gradient(to bottom,
+    rgb(0 0 0 / 0.18) 0%,
+    rgb(0 0 0 / 0.34) 45%,
+    rgb(0 0 0 / 0.62) 100%);
+}
+body.avatar-on.light .m-app {
+  background: linear-gradient(to bottom,
+    rgb(255 255 255 / 0.24) 0%,
+    rgb(255 255 255 / 0.5) 45%,
+    rgb(255 255 255 / 0.78) 100%);
+}
+
+/* ---------- 顶栏 ---------- */
+.m-top {
+  flex: none;
+  display: flex; align-items: center; gap: 6px;
+  height: calc(var(--m-top-h) + var(--m-safe-t));
+  padding: var(--m-safe-t) 8px 0;
+  border-bottom: 1px solid var(--m-border);
+  background: var(--m-bg);
+}
+body.avatar-on .m-top { background: transparent; border-bottom-color: transparent; }
+.m-icon {
+  flex: none;
+  width: 40px; height: 40px; border-radius: 50%;
+  display: grid; place-items: center;
+  color: var(--m-fg);
+  background: transparent; border: none;
+  font-size: 17px; cursor: pointer;
+}
+.m-icon:active { background: var(--m-surface); }
+.m-title { flex: 1; min-width: 0; text-align: center; }
+.m-title-main {
+  font-size: 16.5px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.m-caret { color: var(--m-fg-mute); font-weight: 400; }
+.m-title-sub { font-size: 11px; color: var(--m-fg-mute); margin-top: -2px; }
+
+/* ---------- 对话流 ---------- */
+.m-log {
+  flex: 1; min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 14px 14px 6px;
+  display: flex; flex-direction: column; gap: 16px;
+  scroll-behavior: smooth;
+}
+.m-log::-webkit-scrollbar { width: 0; }
+
+.m-msg { display: flex; gap: 9px; align-items: flex-start; }
+.m-msg.me { flex-direction: row-reverse; }
+.m-ava {
+  width: 30px; height: 30px; border-radius: 50%; flex: none; margin-top: 2px;
+  display: grid; place-items: center;
+  font-size: 12.5px; font-weight: 600;
+}
+.m-msg.bot .m-ava { background: linear-gradient(135deg, #7fe0c4, #3fb59c); color: #06231c; }
+.m-msg.me .m-ava { background: var(--m-surface-2); color: var(--m-fg); }
+.m-body { max-width: calc(100% - 48px); min-width: 0; }
+.m-bubble {
+  padding: 11px 14px; border-radius: 16px;
+  font-size: 15px; line-height: 1.7;
+  word-break: break-word; overflow-wrap: anywhere;
+}
+.m-msg.bot .m-bubble {
+  background: var(--m-bubble-bot);
+  border: 1px solid var(--m-border);
+  border-top-left-radius: 5px;
+}
+.m-msg.me .m-bubble {
+  background: var(--m-bubble-me);
+  color: #fff;
+  border-top-right-radius: 5px;
+}
+.m-bubble p { margin: 0 0 9px; }
+.m-bubble p:last-child { margin-bottom: 0; }
+.m-bubble h1, .m-bubble h2, .m-bubble h3 {
+  font-size: 15.5px; margin: 12px 0 7px; font-weight: 650;
+}
+.m-bubble h1:first-child, .m-bubble h2:first-child, .m-bubble h3:first-child { margin-top: 0; }
+.m-bubble ul, .m-bubble ol { margin: 7px 0; padding-left: 20px; }
+.m-bubble li { margin: 3px 0; }
+.m-bubble code {
+  font-size: 13px; padding: 1.5px 5px; border-radius: 5px;
+  background: rgb(127 224 196 / 0.13);
+}
+.m-bubble pre {
+  margin: 9px 0; padding: 11px; border-radius: 10px;
+  background: rgb(0 0 0 / 0.28); overflow-x: auto; font-size: 12.5px;
+}
+.m-bubble pre code { background: none; padding: 0; }
+.m-bubble blockquote {
+  margin: 8px 0; padding: 2px 0 2px 11px;
+  border-left: 3px solid var(--m-brand); color: var(--m-fg-dim);
+}
+.m-bubble hr { border: none; border-top: 1px solid var(--m-border); margin: 12px 0; }
+.m-bubble table {
+  border-collapse: collapse; font-size: 13px; margin: 9px 0;
+  width: 100%; display: block; overflow-x: auto;
+}
+.m-bubble th, .m-bubble td {
+  border: 1px solid var(--m-border); padding: 6px 9px; text-align: left;
+  white-space: nowrap;
+}
+.m-bubble a { color: var(--m-brand); }
+
+/* 正在输入 */
+.m-typing { display: inline-flex; gap: 5px; align-items: center; height: 18px; }
+.m-typing i {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--m-brand);
+  animation: mtyp 1.25s infinite ease-in-out;
+}
+.m-typing i:nth-child(2) { animation-delay: .17s; }
+.m-typing i:nth-child(3) { animation-delay: .34s; }
+@keyframes mtyp {
+  0%, 60%, 100% { opacity: .3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-4px); }
+}
+
+/* 空状态 */
+.m-empty { margin: auto 0; text-align: center; padding: 20px 8px; }
+.m-empty .big { font-size: 34px; margin-bottom: 12px; }
+.m-empty .t { font-size: 15.5px; margin-bottom: 7px; font-weight: 600; }
+.m-empty .d { font-size: 13.5px; color: var(--m-fg-dim); line-height: 1.75; }
+
+/* 建议词（豆包那种胶囊） */
+.m-suggests { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 16px; }
+.m-suggest {
+  padding: 9px 14px; border-radius: 999px; cursor: pointer;
+  font-size: 13.5px; color: var(--m-fg);
+  background: var(--m-surface); border: 1px solid var(--m-border);
+}
+.m-suggest:active { background: var(--m-surface-2); }
+
+/* ---------- 底部：功能排 + 输入区 ---------- */
+.m-foot {
+  flex: none;
+  padding: 0 12px calc(8px + var(--m-safe-b));
+  background: var(--m-bg);
+}
+body.avatar-on .m-foot { background: transparent; }
+
+.m-feats {
+  display: flex; gap: 8px;
+  overflow-x: auto; overflow-y: hidden;
+  padding: 8px 0 10px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.m-feats::-webkit-scrollbar { display: none; }
+.m-feat {
+  flex: none;
+  padding: 8px 13px; border-radius: 999px; cursor: pointer;
+  font-size: 13px; white-space: nowrap; color: var(--m-fg);
+  background: var(--m-surface); border: 1px solid var(--m-border);
+}
+.m-feat:active { background: var(--m-surface-2); }
+
+.m-composer {
+  display: flex; align-items: flex-end; gap: 8px;
+  padding: 7px 8px;
+  border-radius: 24px;
+  background: var(--m-surface);
+  border: 1px solid var(--m-border);
+}
+.m-plus {
+  flex: none; width: 36px; height: 36px; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer;
+  font-size: 21px; line-height: 1;
+  color: var(--m-fg-dim); background: transparent; border: none;
+}
+.m-input-wrap { flex: 1; min-width: 0; display: flex; align-items: center; }
+#m-input {
+  width: 100%; border: none; outline: none; resize: none;
+  background: transparent; color: var(--m-fg);
+  font: inherit; font-size: 15.5px; line-height: 1.5;
+  max-height: 116px; padding: 7px 0;
+}
+#m-input::placeholder { color: var(--m-fg-mute); }
+.m-send {
+  flex: none; width: 36px; height: 36px; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer;
+  color: #06231c; background: var(--m-brand); border: none;
+  transition: opacity .15s, transform .06s;
+}
+.m-send:disabled { opacity: .32; cursor: default; }
+.m-send:not(:disabled):active { transform: scale(.94); }
+.m-safe { height: 0; }
+
+/* ---------------------------------------------------------------- 设置抽屉 */
+.m-drawer-mask {
+  position: fixed; inset: 0; z-index: 40;
+  background: rgb(0 0 0 / 0.42);
+  opacity: 0; transition: opacity .24s ease;
+}
+.m-drawer-mask.show { opacity: 1; }
+
+.m-drawer {
+  position: fixed; top: 0; bottom: 0; left: 0;
+  z-index: 41;
+  width: min(84vw, 360px);
+  display: flex; flex-direction: column;
+  background: var(--m-bg);
+  border-right: 1px solid var(--m-border);
+  box-shadow: 12px 0 40px rgb(0 0 0 / 0.4);
+  transform: translateX(-100%);
+  transition: transform .26s cubic-bezier(.32, .72, 0, 1);
+  /* 滑动手势要能跟踪手指，所以不加 will-change: transform 之外的合成提示 */
+  will-change: transform;
+}
+.m-drawer.show { transform: translateX(0); }
+.m-drawer.dragging { transition: none; }
+
+.m-drawer-head {
+  flex: none;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: calc(12px + var(--m-safe-t)) 14px 12px;
+  border-bottom: 1px solid var(--m-border);
+}
+.m-drawer-title { font-size: 17px; font-weight: 650; }
+.m-drawer-body { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 0 24px; }
+
+.m-sec { padding: 14px 14px 4px; }
+.m-sec-title {
+  font-size: 12px; color: var(--m-fg-mute);
+  margin-bottom: 9px; letter-spacing: .3px;
+}
+.m-row {
+  width: 100%;
+  display: flex; align-items: center; gap: 11px;
+  padding: 12px 12px; margin-bottom: 8px;
+  border-radius: 13px; cursor: pointer; text-align: left;
+  background: var(--m-surface); border: 1px solid var(--m-border);
+  color: var(--m-fg); font: inherit;
+}
+.m-row:active { background: var(--m-surface-2); }
+.m-row-sw { cursor: default; }
+.m-row-ico { flex: none; font-size: 17px; width: 22px; text-align: center; }
+.m-row-txt { flex: 1; min-width: 0; font-size: 15px; }
+.m-row-txt em {
+  display: block; font-style: normal;
+  font-size: 12px; color: var(--m-fg-mute); margin-top: 2px; line-height: 1.5;
+}
+.m-hint {
+  font-size: 12px; color: var(--m-fg-mute); line-height: 1.65;
+  padding: 2px 4px 6px;
+}
+
+/* 开关 */
+.m-switch { flex: none; position: relative; width: 48px; height: 29px; }
+.m-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.m-slider {
+  position: absolute; inset: 0; cursor: pointer;
+  background: var(--m-surface-2); border: 1px solid var(--m-border);
+  border-radius: 999px; transition: background .2s;
+}
+.m-slider::after {
+  content: ""; position: absolute;
+  width: 23px; height: 23px; border-radius: 50%;
+  left: 2px; top: 2px; background: #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
+  transition: transform .2s cubic-bezier(.32, .72, 0, 1);
+}
+.m-switch input:checked + .m-slider { background: var(--m-brand); border-color: transparent; }
+.m-switch input:checked + .m-slider::after { transform: translateX(19px); }
+
+/* 纯色调色板 */
+.m-palette { display: flex; gap: 11px; flex-wrap: wrap; padding: 2px 2px 8px; }
+.m-swatch {
+  width: 42px; height: 42px; border-radius: 12px; cursor: pointer;
+  background: var(--c);
+  border: 2px solid var(--m-border);
+  transition: border-color .15s, transform .08s;
+}
+.m-swatch:active { transform: scale(.94); }
+.m-swatch.on { border-color: var(--m-brand); }
+
+.m-about { font-size: 13.5px; line-height: 1.8; }
+.m-about .m-hint { padding-left: 0; }
+
+/* ---------------------------------------------------------------- 其它 */
+/* 横屏 / 大屏手机：把对话区收窄一点，读起来更舒服 */
+@media (min-width: 560px) {
+  .m-log { padding-left: max(14px, calc((100vw - 560px) / 2)); padding-right: max(14px, calc((100vw - 560px) / 2)); }
+  .m-foot { padding-left: max(12px, calc((100vw - 560px) / 2)); padding-right: max(12px, calc((100vw - 560px) / 2)); }
+}
+
+/* 减少动效偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .m-drawer, .m-drawer-mask, .m-app { transition: none !important; }
+  .m-typing i { animation: none; opacity: .7; }
+}

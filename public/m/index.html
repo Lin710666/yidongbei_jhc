@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0f1419">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>智能文旅辅助系统</title>
+<!--
+  ============================================================================
+  手机端（豆包式模板）
+  ============================================================================
+
+  需求方给的参考是豆包的手机界面，要的是：
+    · 上面是**智能体对话**的输出与回复（气泡流）
+    · 对话栏上面一排是**功能展示**（快捷入口）
+    · **向左滑**可以调出智能体的**设置页面**
+    · 一开始用**纯色页面、不加载虚拟形象**；设置页里给一个开关可以打开
+    · 桌面板和手机版都要有**快捷启动**程序
+
+  为什么单独做一份页面（而不是把桌面那份做成响应式）：
+    桌面 app.js 有近 7000 行，绑着一大堆桌面专有元素（顶栏状态灯、
+    词云、背景视频、调试分栏…）。手机上这些全都不需要，
+    硬套响应式等于把那些依赖都带过去、还要逐个在窄屏下藏掉 ——
+    不如单开一份轻的，只依赖 util.js（api/sse/Markdown/toast）与后端接口。
+
+  依赖：/js/util.js（提供 window.U）、/vendor/live2d*（只有开启形象时才加载）
+  ============================================================================
+-->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='88'>🏔️</text></svg>">
+<link rel="stylesheet" href="/m/mobile.css?v=__ASSET_V__">
+</head>
+<body>
+
+<!-- ===================== 舞台（默认纯色，开启形象后才有内容） ===================== -->
+<!-- 放在最底层。默认只有纯色背景；body.avatar-on 时才把它显示出来。
+
+     ★ 里面那层 .m-stage-box 是**尺寸宿主**：Live2DStage.init() 是用
+       `canvas.parentElement` 的矩形来定 PIXI 画布的 ——
+       直接让 canvas 挂在整屏的 .m-stage 下，画布就会被撑成整屏，
+       人物缩在角落、还白跑一遍全屏渲染（手机上很费电）。
+       所以套一层固定尺寸的容器，让画布恰好是那么大。 -->
+<div class="m-stage" id="m-stage" aria-hidden="true">
+  <div class="m-stage-box">
+    <canvas id="live2d-canvas"></canvas>
+  </div>
+  <div class="m-stage-empty" id="m-stage-empty">虚拟形象未开启<br><span>在左侧设置里打开</span></div>
+</div>
+
+<!-- ===================== 主界面 ===================== -->
+<div class="m-app" id="m-app">
+
+  <!-- ---------- 顶栏 ---------- -->
+  <header class="m-top">
+    <button class="m-icon" id="m-menu" title="设置（也可从左边缘向右滑）" aria-label="设置">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+        <path d="M3 6h18M3 12h18M3 18h18" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </button>
+    <div class="m-title">
+      <div class="m-title-main" id="m-title-name">小文 <span class="m-caret">›</span></div>
+      <div class="m-title-sub">内容由 AI 生成</div>
+    </div>
+    <button class="m-icon" id="m-clear" title="清空当前对话" aria-label="清空">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+        <path d="M4 7h16M9 7V5h6v2M7 7l1 13h8l1-13" fill="none" stroke="currentColor"
+              stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </header>
+
+  <!-- ---------- 对话流 ---------- -->
+  <main class="m-log" id="m-log"></main>
+
+  <!-- ---------- 底部：功能排 + 输入区 ---------- -->
+  <footer class="m-foot">
+    <!-- 功能展示排（需求方说的"对话栏上一排是有的功能展示"） -->
+    <div class="m-feats" id="m-feats">
+      <button class="m-feat" data-feat="fast">⚡ 快速规划</button>
+      <button class="m-feat" data-feat="nearby">📍 附近景点</button>
+      <button class="m-feat" data-feat="weather">🌤 天气</button>
+      <button class="m-feat" data-feat="food">🍜 吃什么</button>
+      <button class="m-feat" data-feat="hotel">🏨 住哪</button>
+      <button class="m-feat" data-feat="marketing">✍️ 营销文案</button>
+    </div>
+
+    <!-- 输入区。结构照豆包：左边相机/加号，中间输入框，右边语音 + 发送 -->
+    <div class="m-composer">
+      <button class="m-plus" id="m-plus" title="更多" aria-label="更多">＋</button>
+      <div class="m-input-wrap">
+        <textarea id="m-input" rows="1" placeholder="发消息或按住说话…"
+                  enterkeyhint="send" autocomplete="off"></textarea>
+      </div>
+      <button class="m-send" id="m-send" title="发送" aria-label="发送" disabled>
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path d="M12 19V5M5 12l7-7 7 7" fill="none" stroke="currentColor"
+                stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+    <div class="m-safe"></div>
+  </footer>
+</div>
+
+<!-- ===================== 设置页（从左滑出） ===================== -->
+<!-- 需求方要的是"向左滑调出智能体的设置页面"——
+     所以它是从**左侧**滑入的抽屉，手势是从屏幕左边缘向右划。 -->
+<div class="m-drawer-mask" id="m-mask" hidden></div>
+<aside class="m-drawer" id="m-drawer" aria-hidden="true">
+  <div class="m-drawer-head">
+    <div class="m-drawer-title">设置</div>
+    <button class="m-icon" id="m-drawer-close" aria-label="关闭">✕</button>
+  </div>
+
+  <div class="m-drawer-body">
+    <div class="m-sec">
+      <div class="m-sec-title">对话</div>
+      <button class="m-row" id="m-new-chat">
+        <span class="m-row-ico">💬</span>
+        <span class="m-row-txt">新对话<em>清空当前这一段，重新开始</em></span>
+      </button>
+    </div>
+
+    <div class="m-sec">
+      <div class="m-sec-title">虚拟形象</div>
+      <div class="m-row m-row-sw">
+        <span class="m-row-ico">🧍</span>
+        <span class="m-row-txt">开启虚拟形象<em>默认关闭：纯色界面，最省电也最快</em></span>
+        <label class="m-switch">
+          <input type="checkbox" id="m-avatar">
+          <span class="m-slider"></span>
+        </label>
+      </div>
+      <div class="m-hint" id="m-avatar-hint">形象加载后会自动做待机动作；文字回复时口型跟着动。</div>
+    </div>
+
+    <div class="m-sec">
+      <div class="m-sec-title">页面外观</div>
+      <div class="m-palette" id="m-palette">
+        <button class="m-swatch" data-bg="#0f1419" style="--c:#0f1419"></button>
+        <button class="m-swatch" data-bg="#141b2b" style="--c:#141b2b"></button>
+        <button class="m-swatch" data-bg="#1b1a17" style="--c:#1b1a17"></button>
+        <button class="m-swatch" data-bg="#f4f5f7" style="--c:#f4f5f7"></button>
+        <button class="m-swatch" data-bg="#eef3f0" style="--c:#eef3f0"></button>
+      </div>
+      <div class="m-hint">纯色底色，不加载任何背景素材 —— 手机流量与电量都省。</div>
+    </div>
+
+    <div class="m-sec">
+      <div class="m-sec-title">关于</div>
+      <div class="m-about">
+        <div>智能文旅辅助系统 · 手机端</div>
+        <div class="m-hint" id="m-about-model">—</div>
+        <div class="m-hint" id="m-about-net">—</div>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<script src="/js/util.js?v=__ASSET_V__"></script>
+<script src="/m/mobile.js?v=__ASSET_V__"></script>
+</body>
+</html>
