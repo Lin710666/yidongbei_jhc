@@ -31,6 +31,7 @@ import logging
 import math
 import os
 import re
+import sys
 import time
 from collections import OrderedDict
 from pathlib import Path
@@ -93,8 +94,41 @@ def _llm_route_status() -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 PROMPT_DIR = DATA_DIR / "prompts"
-#: 静态资源根目录（5.0 的 public/），用来核对清单里的素材是否真的在磁盘上
-PUBLIC_DIR = Path(__file__).resolve().parents[3] / "public"
+
+
+def _pick_public_dir() -> Path:
+    """静态资源根目录（public/），用来核对清单里的素材是否真的在磁盘上。
+
+    ★ 打包成 exe 后不能只按 __file__ 推：
+      源码布局是 <项目>/backend/app/routers/ui_compat.py，parents[3] = <项目>，
+      于是 <项目>/public 正确；
+      但 PyInstaller 把代码放进 _MEIPASS，parents[3] 会指到临时目录外面，
+      而前端是随 exe 放在旁边的。
+
+      这个坑很隐蔽：**后端能起来、页面也能打开，但 /api/capabilities 的
+      live2d 是空数组**（_live2d() 发现 L2D_DIR 不存在就直接 return []），
+      界面于是显示「还没有可用的 Live2D 模型」—— 同一份代码用源码跑却正常。
+
+      优先用 STATIC_DIR 环境变量（桌面壳启动 exe 时会设，指向它旁边的 public/），
+      再退回按 __file__ 推断，最后看 exe 同级目录。
+    """
+    cands = []
+    if settings.static_dir:
+        cands.append(Path(settings.static_dir))
+    if not getattr(sys, "frozen", False):
+        cands.append(Path(__file__).resolve().parents[3] / "public")
+    else:
+        exe_dir = Path(sys.executable).resolve().parent
+        meipass = Path(getattr(sys, "_MEIPASS", exe_dir))
+        cands += [meipass / "public", exe_dir / "public", exe_dir.parent / "public"]
+
+    for c in cands:
+        if (c / "models").is_dir() or (c / "index.html").is_file():
+            return c
+    return cands[0] if cands else Path("public")
+
+
+PUBLIC_DIR = _pick_public_dir()
 
 
 def _load(name: str, default: Any) -> Any:

@@ -66,6 +66,19 @@ def main() -> int:
         "--hidden-import", "uvicorn.lifespan.on",
         "--hidden-import", "uvicorn.lifespan.off",
         "--collect-submodules", "app",
+        # ★ 必须把 app/data/ 里的清单文件打进去。
+        #
+        # 踩过的坑：只 collect-submodules 是**不够的** —— 那只收 .py，
+        # 而 capabilities.json / cards.json / wordcloud.json 与 prompts/ 都是数据文件。
+        # 缺了它们的后果非常隐蔽：后端能正常启动、页面也正常打开，
+        # 但 /api/capabilities 返回的 live2d 是**空数组** —— 于是界面显示
+        # 「还没有可用的 Live2D 模型」，而同一份代码用源码跑就一切正常。
+        # 原因：ui_compat.py 里 DATA_DIR = Path(__file__).parent.parent / "data"，
+        # 打包后 __file__ 位于 _MEIPASS/app/routers/，指向 _MEIPASS/app/data，
+        # 而 _load() 读不到文件时会**静默退回空 dict**，不报错。
+        #
+        # 目标路径 app/data 与源码里的层级一致，DATA_DIR 才能推算对。
+        "--add-data", f"{BACKEND / 'app' / 'data'}{os.pathsep}app/data",
         str(ENTRY),
     ]
 
