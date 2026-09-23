@@ -82,8 +82,20 @@
        */
       this.focusAngle = 8;
       this.focusEye = 1;
+      /* 自主视线（待机时自己瞟两眼）的幅度上限，与"跟随鼠标"分开控制。
+       *
+       * ★ 为什么要单独一个、而且要比 focusAngle 小：
+       *   原来自主视线直接用 ±0.55 的**均匀分布**随机取值，
+       *   也就是 45% 的时间盯着偏左、45% 盯着偏右，只有中间一小段，
+       *   看起来就是"人物一直在往旁边看"。用户反馈的"老是往左边看"就是这个。
+       *   现在改成**偏向中央的三角分布** + 更小的幅度（0.3），
+       *   大部分时间朝前，偶尔瞟一眼。
+       */
+      this.gazeRange = 0.30;
       this._fx = 0; this._fy = 0;      // 当前值（平滑后）
       this._ftx = 0; this._fty = 0;    // 目标值
+      //: 上一次设定视线的时刻。停太久就慢慢收回中央（见 _focusStep 的说明）
+      this._gazeSetAt = 0;
       this.onTapCb = null;
       this.expressions = [];
       this.motions = [];
@@ -474,6 +486,7 @@
       const cl = (v) => Math.max(-1, Math.min(1, Number(v) || 0));
       this._ftx = cl(x);
       this._fty = cl(y);
+      this._gazeSetAt = (typeof performance !== 'undefined' ? performance.now() : Date.now());
       // 立刻让待机钩子跑起来：不然在还没 startIdle 的场景下这个目标不会被应用
       this._attachIdleHook();
     }
@@ -483,6 +496,18 @@
       const core = this.model && this.model.internalModel
         && this.model.internalModel.coreModel;
       if (!core) return;
+      /* 停在一个偏侧面的姿势久了就慢慢收回正前方。
+       *
+       * ★ 为什么需要：自主视线是**随机**取点的，偶尔会连续两次都落在同一侧，
+       *   于是人物看起来"一直在往那边看"。加一个收回机制，
+       *   任何一次侧目都不会停太久 —— 这是"老是往左看"的第二道保险。 */
+      const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      if (this._gazeSetAt && now - this._gazeSetAt > 1800) {
+        this._ftx *= 0.988;
+        this._fty *= 0.988;
+        if (Math.abs(this._ftx) < 0.01) this._ftx = 0;
+        if (Math.abs(this._fty) < 0.01) this._fty = 0;
+      }
       const k = 0.12;                       // 插值系数：越小越"慢半拍"，越不容易抖
       this._fx += (this._ftx - this._fx) * k;
       this._fy += (this._fty - this._fy) * k;
@@ -529,12 +554,25 @@
         // 自主视线：鼠标静止 2.5 秒以上才接管，否则会和"看着你"打架。
         // 走自己的 setFocus（**不是**库的 model.focus）—— 见构造函数里
         // focusAngle 那段说明：库那个是写死的 30°，会把人物带偏。
+        //
+        // ★ 取值范围用**三角分布**（两个均匀随机数取平均）而不是均匀分布：
+        //   均匀分布下"偏左/偏右"各占 45%，几乎不在中间，看着就是一直在瞟旁边；
+        //   三角分布天然向 0 聚集，大部分时间朝前、偶尔侧目，才像真人。
+        //   这是修"人物老是往左边看"的关键。
         if (d.saccade && now >= d.nextGazeAt) {
-          d.nextGazeAt = now + 1800 + Math.random() * 3200;
+          // 停留时长也分两档：多数是短暂一瞟（0.9~1.6s），偶尔才多看一会儿
+          const longLook = Math.random() < 0.25;
+          d.nextGazeAt = now + (longLook
+            ? 2200 + Math.random() * 1800
+            : 900 + Math.random() * 900);
           const pointerIdle = Date.now() - (d.lastPointerAt || 0) > 2500;
           if (pointerIdle && !d.speaking) {
-            this.setFocus((Math.random() * 2 - 1) * 0.55,
-                          (Math.random() * 2 - 1) * 0.35);
+            const tri = () => ((Math.random() + Math.random()) / 2) * 2 - 1;  // 三角分布，[-1,1]
+            const R = Number(this.gazeRange) || 0.3;
+            // 三成概率干脆回到正中，让"朝前"成为常态
+            const backToCenter = Math.random() < 0.3;
+            this.setFocus(backToCenter ? 0 : tri() * R,
+                          backToCenter ? 0 : tri() * R * 0.6);
           }
         }
       };
