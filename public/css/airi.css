@@ -3038,7 +3038,7 @@ body:not(.dock) .chat-log .msg:not(.me):not(.sys):not(.err):not(:has(.plan-view-
   right: var(--drawer-right, 14px);
   /* 宽度跟着 .side 那列走（grid 里是 minmax(360px,460px)），再留点余量；
      窄屏时不会超出视口。 */
-  width: var(--drawer-w, clamp(340px, 40vw, 520px));
+  width: var(--drawer-w, clamp(300px, 32vw, 420px));
   max-width: calc(100vw - 40px);
   bottom: var(--drawer-bottom, 14px);
   z-index: 60;
@@ -3055,6 +3055,13 @@ body:not(.dock) .chat-log .msg:not(.me):not(.sys):not(.err):not(:has(.plan-view-
   opacity: 0;
   pointer-events: none;
   transition: transform 260ms var(--ease), opacity 200ms var(--ease);
+}
+/* ★ 抽屉打开时给底部对话栏让位。
+   实测（1440/1280/1920 三种分辨率）抽屉会**盖住输入框和「AI 规划」键**，
+   重叠 1.8~2.5 万平方像素 —— 用户点完规划就再也打不了字。
+   .side 是 fixed + 左右对称 clamp 居中的，所以加个右内边距就能整体左移。 */
+body:not(.debug).drawer-open .side {
+  padding-right: calc(var(--drawer-w, clamp(300px, 32vw, 420px)) + 34px);
 }
 body.drawer-open .drawer {
   transform: translateX(0);

@@ -2042,8 +2042,95 @@ def chat(body: Dict[str, Any]) -> Any:
 
 @router.post("/agent")
 def agent(body: Dict[str, Any]) -> Any:
-    """带工具的对话（SSE）。融合版没有外部工具链，行为与 /chat 相同。"""
-    return _sse_response(_chat_stream(body))
+    """智能体对话（SSE）。
+
+    ★ 7.0 改版：这里原来只是 `_chat_stream` 的别名 —— 两者完全一样，
+      都无条件走规划链路。后果是"随便说句话也被排一份行程"，
+      而且**完全不读角色卡的人设**，所以它不像个旅游顾问、只像个规划器。
+
+      现在拆成两种模式（见 app/agent_talk.py 的说明）：
+        · 对话（默认）—— 带人设与真实资料，像旅游顾问一样聊
+        · 规划        —— 用户明确要行程时，走原来的规划链路
+      前端可以显式传 `mode`（对话页的「AI 规划」按钮就是传 plan）。
+    """
+    return _sse_response(_agent_stream(body))
+
+
+def _agent_stream(body: Dict[str, Any]) -> Iterator[str]:
+    """智能体对话的 SSE 生成器：人设对话 / 规划 两种模式。"""
+    from .. import agent_talk as AT
+
+    t0 = time.time()
+    message = str(body.get("message") or "").strip()
+    mode = str(body.get("mode") or "")
+    history = body.get("history") or []
+
+    yield _sse({"type": "start", "model": settings.ollama_model,
+                "mode": "plan" if AT.want_plan(message, mode) else "chat"})
+
+    if not message:
+        yield _sse({"type": "error", "code": "EMPTY", "error": "没有收到内容，请先说点什么。"})
+        yield "data: [DONE]\n\n"
+        return
+
+    # ---------- 规划模式：沿用原链路（它是这个项目的核心能力，不改） ----------
+    if AT.want_plan(message, mode):
+        yield _sse({"type": "notice", "text": "正在检索真实景点与天气，生成行程…"})
+        base = _to_partial_base(body.get("preference") or {})
+        try:
+            plan = orchestrator.run(raw_text=message, base=base)
+            text = _render_plan_markdown(plan, {})
+            warns = list(plan.warnings or [])
+        except Exception as exc:  # noqa: BLE001
+            yield _sse({"type": "error", "code": "PLAN_ERROR",
+                        "error": f"规划链路暂时不可用：{exc}"})
+            yield "data: [DONE]\n\n"
+            return
+        for piece in _chunks(text, 120):
+            yield _sse({"type": "delta", "text": piece})
+            time.sleep(0.01)
+        yield _sse({"type": "done", "content": text, "warnings": warns,
+                    "mode": "plan", "model": settings.ollama_model,
+                    "elapsed": round(time.time() - t0, 1)})
+        yield "data: [DONE]\n\n"
+        return
+
+    # ---------- 对话模式：带人设回答 ----------
+    try:
+        card = CARD_STORE.active() or {}
+    except Exception:
+        card = {}
+    name = (card or {}).get("name") or "小文"
+
+    poi = AT.gather_poi(message)
+    yield _sse({"type": "notice",
+                "text": (f"{name}正在查{city_hint(message)}的资料…" if poi
+                         else f"{name}正在想怎么回你…")})
+
+    try:
+        text = AT.agent_reply(message, card, history, llm)
+    except Exception as exc:  # noqa: BLE001
+        # 对话模型不可用不该是死路：给一句有信息量的兜底，并指向规划那条路
+        text = AT.fallback_reply(message, card)
+        yield _sse({"type": "notice", "text": f"对话模型不可用（{exc}），已改用兜底回答。"})
+
+    if not text:
+        text = AT.fallback_reply(message, card)
+
+    for piece in _chunks(text, 120):
+        yield _sse({"type": "delta", "text": piece})
+        time.sleep(0.01)
+    yield _sse({"type": "done", "content": text, "mode": "chat",
+                "model": settings.ollama_model, "elapsed": round(time.time() - t0, 1)})
+    yield "data: [DONE]\n\n"
+
+
+def city_hint(text: str) -> str:
+    try:
+        from .. import agent_talk as AT
+        return AT.pick_city(text) or "当地"
+    except Exception:
+        return "当地"
 
 
 def _chunks(text: str, size: int = 180) -> Iterator[str]:
