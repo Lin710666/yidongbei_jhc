@@ -3071,8 +3071,16 @@ body:not(.dock) .chat-log .msg:not(.me):not(.sys):not(.err):not(:has(.plan-view-
    实测（1440/1280/1920 三种分辨率）抽屉会**盖住输入框和「AI 规划」键**，
    重叠 1.8~2.5 万平方像素 —— 用户点完规划就再也打不了字。
    .side 是 fixed + 左右对称 clamp 居中的，所以加个右内边距就能整体左移。 */
-body:not(.debug).drawer-open .side {
-  padding-right: calc(var(--drawer-w, clamp(300px, 32vw, 420px)) + 34px);
+/* ★ 宽度让位。上一轮写的是 padding-right，但 .side 是 box-sizing: border-box ——
+   padding 只内缩内容、外框不动，实测开抽屉后 .side 仍是 x=245..1195，
+   与抽屉（1006..1426）重叠 51085 px²；两者 z-index 又都是 60，
+   抽屉靠 DOM 靠后压在上面，看起来就是"一块灰块盖住了表单"。
+   改成把 right 那个 clamp 换掉 —— 外框真正往左推。
+   窄屏（<1100）时抽屉占大半屏，让位反而不合理，所以不启用。 */
+@media (min-width: 1100px) {
+  body:not(.debug).drawer-open .side {
+    right: calc(var(--drawer-w, 420px) + 28px);
+  }
 }
 body.drawer-open .drawer {
   transform: translateX(0);
