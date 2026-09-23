@@ -2294,27 +2294,33 @@ body:not(.debug) .side {
   box-shadow: 0 14px 40px rgb(0 0 0 / 0.45);
   overflow: hidden;
 }
-/* ★ 默认形态的底部卡片 = **文旅工作台 + 方案输出 + 输入栏**。
-   上一版只留了输入栏、把 .panes 整个藏掉，于是打完字看不到任何输出，
-   展示栏也没了（"没给对话输出栏和展示栏做出来，按键没反应"）。
-   现在只藏页签和其它面板，#pane-tools（合并后的「文旅」）留着。
-
-   ★ 「对话」页签并进「文旅」之后这里也跟着改了：
-   原来藏的是"除 #pane-chat 以外的所有面板"，现在藏的是"除 #pane-tools 以外的"。
-   不改的话一个面板都不显示 —— 整个底部栏只剩输入框，中间一片空。 */
+/* ★ 默认形态的底部卡片 = 侧栏里那一列面板。
+ *
+ * ★★ 7.0 修 bug：这条规则原来写的是
+ *      body:not(.debug) .side .pane:not(#pane-agent) { display: none !important; }
+ *    —— 只放行「对话」面板，其它四个（外观/记忆/角色卡/声音）**一律按死**。
+ *    可是页签点击仍然会把 active 换过去，于是用户一切到「外观」或「记忆」，
+ *    底部栏就**整条变空白** —— 这正是需求方反馈的"对话框有时会消失"。
+ *    （而且它看起来像随机发生：只有在你点了别的页签时才触发。）
+ *
+ *    现在改成"显示当前 active 的那个面板"，页签恢复成真正可用，
+ *    也就不存在"切过去什么都没有"这条路了。 */
 body:not(.debug) .side .tabs { display: none !important; }
-body:not(.debug) .side .pane:not(#pane-agent) { display: none !important; }
-body:not(.debug) #pane-agent {
+body:not(.debug) .side .panes .pane { display: none !important; }
+body:not(.debug) .side .panes .pane.active {
   display: flex !important;
   flex-direction: column;
   min-height: 0;
   height: 100%;
   padding: 10px 14px 4px;
-  /* 合并之后这个面板里装了三样：工作台（表单很高）、方案输出、历史对话。
-     让**面板自己滚**，而不是让输出区抢固定高度 —— 抢高度的结果是表单被挤没，
-     用户看不到"填偏好"那一块（那是这个页签的主要入口）。 */
+  /* 面板里装的是表单 + 列表 + 输出，内容比可视高度高。
+     让**面板自己滚**，而不是让某一区抢固定高度 —— 抢高度的结果是
+     表单被挤没，用户看不到主要入口（这个坑踩过一次）。 */
   overflow-y: auto;
 }
+/* 抽屉里的 #pane-tools 不在 .side 里，但同样带 .pane：
+   它靠 .drawer-open 显示，不能参与上面那套 active 切换。 */
+
 body:not(.debug) #pane-tools > h3,
 body:not(.debug) #pane-tools > .sub { display: none; }
 /* 输出区按内容长（不再 flex:1 撑满），由面板统一滚动 */
@@ -2400,10 +2406,15 @@ body:not(.debug) .side .composer {
 /* 侧栏藏了，网格也必须跟着变单列 —— 不然第二列还占着 400~520px，
    舞台只剩 1026/1600，人物会偏在画面左边而不是居中。
    （这条一开始漏了，量出来才发现。） */
-/* 关掉底部对话栏（大屏时想只留人物与背景就关掉它）。
-   `:not(.debug)` 是必须的：调试界面下 .side 是右侧分栏，
-   不该被这条连坐藏掉。 */
-body.no-chatbar:not(.debug) .side { display: none !important; }
+/* ★ 这里原来有一条 `body.no-chatbar:not(.debug) .side { display: none !important; }`
+   —— 由「💬 对话栏」开关控制，把底部对话栏**永久藏掉**（并写进 localStorage，
+   刷新也回不来）。需求方明确要求"对话框不能消失，要保持住它的出现"，所以
+   整条规则删掉：底部对话栏现在**任何情况下都不会被藏**。
+
+   这个开关本身就是最容易踩的坑：它的按钮在外观页的「主界面工具」里，
+   误点一下对话框就没了，而且刷新也恢复不了 —— 看着就像"对话框偶尔消失"的 bug。
+
+   注：调试界面（.debug）下 .side 是右侧分栏，另有独立规则管理，不受影响。 */
 
 body:not(.debug) .app { grid-template-columns: 1fr; }
 
@@ -3122,17 +3133,22 @@ body.drawer-open .drawer-mask { opacity: 1; pointer-events: auto; }
 .drawer-body #pane-tools > h3 { margin-top: 0; }
 .drawer-body .chat-log { max-height: none; }
 
-/* ------------------------------------------------- 默认视图：显示智能体页 */
-/* 原来这里是 `:not(#pane-tools)` —— 文旅搬进抽屉后要改成智能体页，
-   否则默认视图一个面板都不显示，底部栏中间会是一片空。 */
-body:not(.debug) .side .pane:not(#pane-agent) { display: none !important; }
+/* ------------------------------------------------- 默认视图的面板显隐 */
+/* ★ 这里原来也有一条 `body:not(.debug) .side .pane:not(#pane-agent)
+   { display: none !important; }` —— 与上面那条重复，而且写在后面会把
+   上面的 .active 规则压掉。同一套规则写两遍就是这么互相打架的，
+   现在只留上面那一条，这里只保留**对话页特有的那一处差异**。
+
+   ★ 差异：对话页的 overflow 必须是 hidden，不能跟别的面板一样 auto。
+     它的内部结构是「.agent-log 自己滚 + 输入区钉在底部」，
+     面板再 auto 就会出现两个滚动条、输入区被顶下去。 */
 body:not(.debug) #pane-agent {
   display: flex !important;
   flex-direction: column;
   min-height: 0;
   height: 100%;
   padding: 10px 14px 4px;
-  overflow: hidden;          /* 滚动交给 .agent-log 自己，输入区要钉在底部 */
+  overflow: hidden;
 }
 /* 调试/分栏视图（.debug）下所有面板都在页签里，智能体页也照常显示；
    它不在 .tabs 里，所以给它一个可点的入口在顶栏（见 index.html 的 btn-agent）。 */

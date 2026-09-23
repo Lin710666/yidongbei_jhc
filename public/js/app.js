@@ -3499,33 +3499,44 @@
     }
 
     /* ======================================================================
-     * 「💬 对话栏」：显示 / 关闭底部那条对话框
+     * 底部对话栏：**常显**
      *
-     * 大屏时想只留人物与背景，就把它关掉。
-     * 关键：**关掉之后随时能再打开** —— 不管是从调试界面切回来，
-     * 还是从主界面切回来，它都必须重新出现（之前切出去就回不来了）。
-     * 所以状态只存在 no-chatbar 这个类上，切布局不会把它弄丢。
+     * ★ 7.0 修正：这里原来有一个「💬 对话栏」开关，能把它永久藏掉
+     *   （写进 localStorage，刷新也回不来）。需求方要求
+     *   "对话框不能消失，要保持住它的出现"，所以现在：
+     *
+     *     · no-chatbar 这个类**永远不再被加上**，CSS 里那条隐藏规则也删了
+     *     · 启动时强制清掉遗留状态 —— 老用户的 localStorage 里可能还存着 '0'，
+     *       不清的话一进来就是"没有对话框"，而且怎么点都回不来
+     *     · 按钮保留（给个反馈、也留个念想），但只切高亮，不再真的隐藏
+     *
+     *   注：调试界面（.debug）下 .side 是右侧分栏而非底部对话栏，
+     *       由 debug 那套规则管理，这里不碰。
      * ====================================================================*/
     const CHATBAR_KEY = 'wenlv.chatbar';
     {
-      const applyBar = (on) => {
-        const want = Boolean(on);
-        // 只在非调试布局下才谈得上"底部对话栏"；调试用的是右侧分栏，
-        // CSS 里那条规则带了 :not(.debug)，不会连坐藏掉右侧栏
-        document.body.classList.toggle('no-chatbar', !want);
+      const ensureShown = () => {
+        const had = document.body.classList.contains('no-chatbar');
+        document.body.classList.remove('no-chatbar');
+        try { localStorage.removeItem(CHATBAR_KEY); } catch { /* 忽略 */ }
         const b = $('#btn-chatbar');
-        if (b) b.classList.toggle('on', want);
-        try { localStorage.setItem(CHATBAR_KEY, want ? '1' : '0'); } catch { /* 忽略 */ }
-        setTimeout(() => { const st = activeStage(); if (st && st.resize) st.resize(); }, 120);
+        if (b) b.classList.add('on');
+        return had;
       };
-      let barStored = null;
-      try { barStored = localStorage.getItem(CHATBAR_KEY); } catch { /* 忽略 */ }
-      applyBar(barStored !== '0');            // 默认显示
-      S._chatbarApply = applyBar;
+      const hadHidden = ensureShown();
+      if (hadHidden) {
+        // 只提示一次，别每次启动都弹
+        setTimeout(() => {
+          try { toast('底部对话栏已恢复常显（旧设置里它被关掉过）', 'ok', 4000); } catch { /* 忽略 */ }
+        }, 1600);
+      }
+      // 留个接口给别处（比如以后要做"临时收起"）
+      S._chatbarEnsure = ensureShown;
 
       const cb = $('#btn-chatbar');
       if (cb) cb.addEventListener('click', () => {
-        applyBar(document.body.classList.contains('no-chatbar'));
+        ensureShown();
+        try { toast('底部对话栏固定显示，不会被关闭', 'ok', 2600); } catch { /* 忽略 */ }
       });
     }
   }
@@ -5251,6 +5262,19 @@
      *   · 分栏调试视图（.debug）→ 旅游面板确实在页签里，照旧切过去
      */
     if (name === 'tools' && !document.body.classList.contains('debug')) name = 'agent';
+
+    /* ★ 兜底：切完之后必须**确实有一个可见的面板**。
+     *
+     * 默认视图下文旅面板在右侧抽屉里、不在 .side 里，如果 active 落到一个
+     * 不存在的页签上，底部栏就是一片空白 —— 看起来正是"对话框消失了"。
+     * 这里切完检查一次，没有可见面板就退回「对话」。
+     * （需求方要求"对话框不能消失，要保持住它的出现"，这是那道保险。） */
+    const paneExists = document.querySelector(`.side .panes #pane-${name}`) != null;
+    if (!paneExists) {
+      const fallback = document.querySelector('.side .panes #pane-agent') ? 'agent'
+        : (document.querySelector('.side .panes .pane') ? document.querySelector('.side .panes .pane').id.replace(/^pane-/, '') : null);
+      if (fallback && fallback !== name) name = fallback;
+    }
 
     $$('#tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.pane === name));
     // 抽屉里的 #pane-tools 不参与页签切换（它靠 .drawer-open 显示），
