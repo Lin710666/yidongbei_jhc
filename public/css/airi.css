@@ -3157,3 +3157,111 @@ body.debug .side .pane.active { display: flex; flex-direction: column; min-heigh
 
 /* 等待期间的状态行（后端 notice 事件）*/
 .agent-notice { color: var(--muted); font-size: 12px; font-style: italic; }
+
+/* ============================================================================
+ * 功能优先 / 向导模式（7.0 · 需求："做一套隐藏了人物的模板突出功能性"）
+ *
+ * 需求原话：「切换的点在于是是否启用人物，默认不启用人物」。
+ *
+ * 两种模板：
+ *   focus（默认）  不启用人物 —— 界面全部让给功能
+ *   guide          启用人物 —— 原来的样子（Live2D 站在舞台上）
+ *
+ * ★ 关键点：focus 不只是"把画布变透明"。
+ *   原来那套 `body.avatar-hidden` 只是 `opacity: 0` ——
+ *   模型照样解码、PIXI 照样每帧渲染，GPU 一直烧着。
+ *   既然默认不用人物，那就**干脆不加载**（见 app.js 的 focusMode() 闸门）。
+ *
+ * 布局上的连带调整（这是"突出功能性"的实质，不只是把人物藏起来）：
+ *   · 底部面板从"两侧各留 17vw 给人物"放宽到几乎占满
+ *   · 面板改用**实底**：原来那层玻璃拟态是为了"能看见背后的人物"，
+ *     没有人物的前提下它只剩坏处（文字压在背景上、可读性差）
+ *   · 高度也放宽一档，信息密度上来
+ * ==========================================================================*/
+
+/* ---------------------------------------------------- focus 模式：面板放宽 */
+body.focus:not(.debug) .side {
+  left: clamp(10px, 3vw, 56px);
+  right: clamp(10px, 3vw, 56px);
+  height: clamp(260px, 44vh, 520px);
+  /* 实底：按需求"突出功能性"，可读性优先 */
+  background: linear-gradient(to bottom,
+    rgb(9 12 16 / 0.94) 0%,
+    rgb(9 12 16 / 0.91) 100%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-color: rgb(255 255 255 / 0.10);
+}
+/* 面板内的对话流/输出区也一并实底，避免文字压在背景上 */
+body.focus .agent-log,
+body.focus .chat-log {
+  background: transparent;      /* 底色交给 .side，这里不用再加一层 */
+}
+body.focus .agent-msg.bot .agent-bubble,
+body.focus .output {
+  background: rgb(255 255 255 / 0.05);
+}
+
+/* ---------------------------------------------------- focus 模式：舞台让位 */
+/* 人物不加载了，画布与空状态都不该占位 */
+body.focus #live2d-canvas,
+body.focus #stage3d-canvas {
+  opacity: 0;
+  pointer-events: none;
+}
+body.focus #stage-empty { display: none !important; }
+
+/* 右上角工具排：focus 下把「启用人物」露出来，别让它藏在调试里 */
+body.focus .stage-tools { top: auto; }
+.mode-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 0 11px; height: 30px; border-radius: 999px;
+  font: inherit; font-size: 13px; cursor: pointer;
+  color: var(--text, #e9eef6);
+  background: rgb(9 12 16 / 0.72);
+  border: 1px solid rgb(255 255 255 / 0.14);
+  backdrop-filter: blur(10px);
+}
+.mode-toggle:hover { border-color: var(--primary, #54c8b1); color: var(--primary, #54c8b1); }
+.mode-toggle .ico { font-size: 15px; }
+
+/* guide 模式下这条提示不需要 */
+body.guide .focus-hint { display: none; }
+.focus-hint {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+  text-align: center;
+  color: rgb(233 238 246 / 0.34);
+  font-size: 13px; line-height: 1.9;
+  pointer-events: none;
+}
+.focus-hint b { color: rgb(233 238 246 / 0.56); font-weight: 600; }
+
+/* ---------------------------------------------------- focus 模式：压住背景干扰 */
+/* ★ 实测问题：面板虽然给了 .94 的实底，但**背后的词云透出来**，
+   提示文字（"当前是功能优先模板"）直接压在词云上，几乎看不清。
+   功能优先的要点是"信息可读"，所以这一模式下：
+     · 面板底色再压实一档
+     · 词云整体压暗（它是装饰，不该抢内容） */
+body.focus:not(.debug) .side {
+  background: linear-gradient(to bottom,
+    rgb(7 10 13 / 0.985) 0%,
+    rgb(7 10 13 / 0.975) 100%);
+}
+body.focus #wordcloud-layer { opacity: .28; }
+body.focus .wc-word { text-shadow: none; }
+
+/* 舞台提示：给个底，别直接压在词云上 */
+body.focus .focus-hint {
+  color: rgb(233 238 246 / 0.88);
+  font-size: 14px;
+  padding: 16px 22px;
+  border-radius: 14px;
+  background: rgb(7 10 13 / 0.82);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+body.focus .focus-hint b { color: var(--primary, #54c8b1); }

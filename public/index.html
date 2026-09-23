@@ -24,10 +24,17 @@
 <!-- Live2D 运行时（全部本地化，离线可用）：
      ① Cubism 核心（Live2D 官方运行时，必须先于 pixi-live2d-display 加载）
      ② PixiJS 渲染引擎
-     ③ pixi-live2d-display 的 cubism4 构建 -->
-<script src="/vendor/live2dcubismcore.min.js"></script>
-<script src="/vendor/pixi.min.js"></script>
-<script src="/vendor/pixi-live2d-display-cubism4.min.js"></script>
+     ③ pixi-live2d-display 的 cubism4 构建
+
+     ★ 7.0：默认**不启用人物**（功能优先模板），所以这三个运行时
+       不再在 HTML 里静态加载 —— 改由 template-boot.js 按需注入。
+       否则"不用人物"的用户每次打开仍要下 ~400KB 的渲染器，
+       跟"突出功能性、少占资源"的初衷相反。
+
+       注入时机：① 启动时读到 template=guide；② 用户点「启用人物」。
+       注入是**串行等待**的：Cubism 核心必须先于 pixi-live2d-display 就绪，
+       用 script 标签天然保证顺序（见 template-boot.js）。 -->
+<script src="/js/template-boot.js"></script>
 </head>
 <body>
 <div class="app">
@@ -100,6 +107,16 @@
            所以下面只剩这一个键，它的作用是切到调试界面（body.debug）。
            其余入口都挪到侧栏「外观」页的「主界面工具」一节里。 -->
       <div class="stage-tools">
+        <!-- ★ 模板开关：是否启用人物。
+             需求：「做一套隐藏了人物的模板突出功能性，切换的点在于是是否启用人物，
+                   默认不启用人物」。
+             focus（默认）= 不加载人物；guide = 原来的向导形态。
+             放在这里是为了让它在**两种模式下都够得着** ——
+             人物关掉之后界面上别的入口都可能被改，这个键必须稳定留着。 -->
+        <button class="tool-btn" id="btn-template" data-template-toggle="1"
+                title="切换：功能优先（不加载人物）/ 向导模式（显示人物）">
+          <span class="ico">🙈</span><span class="txt">启用人物</span>
+        </button>
         <button class="tool-btn tools-toggle" id="btn-tools-toggle"
                 title="设置：进入调试界面（背景、形象、词云等都在那里）">
           <span class="ico">⚙️</span><span class="txt">设置</span>
@@ -115,6 +132,14 @@
         <button class="tool-btn" id="btn-dock" hidden aria-hidden="true"></button>
         <button class="tool-btn" id="btn-kiosk" hidden aria-hidden="true"></button>
       </div>
+    </div>
+
+    <!-- 功能优先模式的舞台提示。
+         人物不加载时舞台是空的，给一句说明，免得看着像"坏掉了"。
+         guide 模式下由 CSS 隐藏；点右上角「启用人物」即可切回来。 -->
+    <div class="focus-hint" id="focus-hint" hidden>
+      <div>当前是 <b>功能优先</b> 模板 —— 未加载虚拟人物</div>
+      <div>点右上角 <b>「🙈 启用人物」</b> 可切成向导模式</div>
     </div>
 
     <!-- 导航模式的操作条：只在导航模式打开时出现。
@@ -405,7 +430,12 @@
           <div class="row" style="flex-wrap:wrap;gap:8px">
             <button class="mini-btn" id="open-bg" title="更换背景">🖼️ 更换背景</button>
             <button class="mini-btn" id="open-model" title="更换人物形象">🧍 更换形象</button>
-            <button class="mini-btn" id="btn-avatar-hide" title="显示 / 隐藏虚拟形象（默认显示）">👁️ 隐藏人物</button>
+            <!-- ★ 这个键原来叫「隐藏人物」，只把画布变透明（模型仍在渲染）。
+                 7.0 换成统一的模板开关：`data-template-toggle` 由 app.js 自动接管，
+                 文案与图标跟着当前模板更新（功能优先 = 不加载人物）。
+                 所以它和右上角那个「启用人物」是**同一个开关的两个入口**。 -->
+            <button class="mini-btn" id="btn-avatar-hide" data-template-toggle="1"
+                    title="切换：功能优先（不加载人物）/ 向导模式（显示人物）"><span class="ico">🙈</span> 启用人物</button>
             <button class="mini-btn" id="btn-wc-toggle" title="显示 / 隐藏词云">☁️ 词云显示</button>
             <button class="mini-btn" id="wc-shuffle" title="重新排布词云">🔀 重排词云</button>
             <button class="mini-btn" id="wc-full" title="全屏放大词云">⤢ 词云全屏</button>
@@ -1135,7 +1165,9 @@
 <script src="/js/nav.js?v=__ASSET_V__" defer></script>
 <!-- 西湖主题：程序化绘制的动态风景（开屏与「西湖」背景在用，零外部素材） -->
 <script src="/js/lake.js?v=__ASSET_V__" defer></script>
-<script src="/js/live2d.js?v=__ASSET_V__" defer></script>
+<!-- ★ live2d.js 改成**按需加载**：功能优先模板（默认）下不启用人物，
+     这个文件定义的 Live2DStage 就用不到。真要建舞台时由 app.js 的
+     ensureLive2DScript() 注入（配合 template-boot.js 的运行时注入）。 -->
 <!-- 语音输入：录音 + 转成 16kHz 单声道 WAV + 调 /api/stt。
      纯前端能力（MediaRecorder + AudioContext），不依赖任何第三方库。 -->
 <script src="/js/voice.js?v=__ASSET_V__" defer></script>

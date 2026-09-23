@@ -2313,9 +2313,40 @@
     if (el) el.hidden = true;           // 加上 hidden 属性 → 隐藏
   }
 
+  /**
+   * 按需加载 live2d.js（定义 window.Live2DStage）。
+   *
+   * 为什么不在 HTML 里静态加载：功能优先模板（默认）下不启用人物，
+   * 这个文件用不到；而它的体积不算小，默认不下载更符合"突出功能性"。
+   * 可重复调用（内部缓存 promise）。
+   */
+  let live2dScriptP = null;
+  function ensureLive2DScript() {
+    if (window.Live2DStage) return Promise.resolve(true);
+    if (live2dScriptP) return live2dScriptP;
+    live2dScriptP = new Promise((res) => {
+      const s = document.createElement('script');
+      s.src = '/js/live2d.js';
+      s.async = false;
+      s.onload = () => res(!!window.Live2DStage);
+      s.onerror = () => { live2dScriptP = null; res(false); };
+      document.head.appendChild(s);
+    });
+    return live2dScriptP;
+  }
+
   /** 创建 Live2D 渲染器（只在真的要用时才建） */
   async function ensureLive2D() {
     if (stage) return stage;
+    // 运行时（Cubism/Pixi）与 live2d.js 都是按需的，这里一次性确保
+    if (window.WenlvTemplate && window.WenlvTemplate.ensureLive2DRuntime) {
+      const ok = await window.WenlvTemplate.ensureLive2DRuntime();
+      if (!ok) throw new Error('Live2D 运行时加载失败。\n请确认 public/vendor/ 下的三个文件都存在。');
+    }
+    await ensureLive2DScript();
+    if (!window.Live2DStage) {
+      throw new Error('live2d.js 没加载成功，人物无法启用。');
+    }
     const problem = window.Live2DStage.runtimeAvailable();
     if (problem) throw new Error(`${problem}\n请确认 public/vendor/ 下的三个运行时文件都存在。`);
     stage = new window.Live2DStage($('#live2d-canvas'));
@@ -3385,27 +3416,109 @@
      * Live2D 走 PIXI/WebGL，display:none 之后重新显示时它拿到的还是上一次的尺寸，
      * 可能整块画不出来。
      * ====================================================================*/
-    const AVATAR_KEY = 'wenlv.avatarHidden';
-    {
-      const apply = (on) => {
-        document.body.classList.toggle('avatar-hidden', on);
-        const b = $('#btn-avatar-hide');
-        if (b) {
-          b.classList.toggle('on', !on);
-          const ico = b.querySelector('.ico');
-          if (ico) ico.textContent = on ? '🙈' : '👁️';
-        }
-        try { localStorage.setItem(AVATAR_KEY, on ? '1' : '0'); } catch { /* 忽略 */ }
-      };
-      let stored = null;
-      try { stored = localStorage.getItem(AVATAR_KEY); } catch { /* 忽略 */ }
-      apply(stored === '1');                                // 没存过 → 显示
+    /* ======================================================================
+     * 模板：是否启用人物（7.0 新增）
+     *
+     * 需求原话：「做一套隐藏了人物的模板突出功能性，切换的点在于是是否启用人物，
+     *            默认不启用人物」。
+     *
+     *   focus（默认）  不启用人物 —— 界面全部让给功能
+     *   guide          启用人物 —— 原来的样子
+     *
+     * ★ 与旧那套 `body.avatar-hidden` 的区别（很关键）：
+     *   旧的那套只是把画布 `opacity: 0`，**模型照样解码、PIXI 照样每帧渲染**
+     *   —— 人物看不见，但 GPU 一直烧着、运行时也照样下载。
+     *   既然默认就不用人物，那就**干脆不加载**：
+     *   `switchDisplay()` 会先问 focusMode()，是 focus 就直接返回、不建舞台。
+     *
+     * 旧 key(`wenlv.avatarHidden`) 仍然读一次做兼容：
+     *   老用户把它设成隐藏过，那意图就是"不想看人物"，迁移到 focus。
+     * ====================================================================*/
+    const TEMPLATE_KEY = 'wenlv.template';
+    const LEGACY_HIDE_KEY = 'wenlv.avatarHidden';
+    S.template = 'focus';
 
-      const b = $('#btn-avatar-hide');
-      if (b) b.addEventListener('click', () => {
-        const nowHidden = !document.body.classList.contains('avatar-hidden');
-        apply(nowHidden);
-        toast(nowHidden ? '已隐藏虚拟形象（再点一次显示）' : '已显示虚拟形象', 'ok', 2500);
+    function templateOf() { return S.template === 'guide' ? 'guide' : 'focus'; }
+    /** focus = 不启用人物（默认）。各处要"跳过人物"时统一问这个。 */
+    S.focusMode = () => templateOf() === 'focus';
+
+    function applyTemplate(name, opts) {
+      const t = (name === 'guide') ? 'guide' : 'focus';
+      S.template = t;
+      document.body.classList.toggle('focus', t === 'focus');
+      document.body.classList.toggle('guide', t === 'guide');
+      // 兼容旧的隐藏类：focus 语义上等于"隐藏"，一起切掉，免得两套状态打架
+      document.body.classList.toggle('avatar-hidden', t === 'focus');
+      $$('[data-template-toggle]').forEach(b => {
+        b.classList.toggle('on', t === 'guide');
+        const ico = b.querySelector('.ico');
+        if (ico) ico.textContent = (t === 'guide') ? '👁️' : '🙈';
+        const txt = b.querySelector('.txt');
+        if (txt) txt.textContent = (t === 'guide') ? '人物已开' : '启用人物';
+        b.title = (t === 'guide')
+          ? '当前：向导模式（显示人物）。点一下改成功能优先（不加载人物）'
+          : '当前：功能优先（不加载人物）。点一下启用虚拟人物';
+      });
+      const hint = $('#focus-hint');
+      if (hint) hint.hidden = (t !== 'focus');
+      /* 同步全局标记 + 存储。
+         ★ 这一步不能省：template-boot.js 在页面最开始就写了
+           `window.__WENLV_TEMPLATE__`，之后切换必须跟它保持一致，
+           否则"看标记"的地方会读到旧值（实测踩到：切到 guide 之后
+           标记还写着 focus，而 body 类已经是 guide —— 两处状态打架）。 */
+      window.__WENLV_TEMPLATE__ = t;
+      try {
+        if (window.WenlvTemplate && window.WenlvTemplate.set) {
+          window.WenlvTemplate.set(t);            // 它内部会写 key + 清旧 key
+        } else {
+          localStorage.setItem(TEMPLATE_KEY, t);
+          localStorage.removeItem(LEGACY_HIDE_KEY);
+        }
+      } catch { /* 忽略 */ }
+      setTimeout(() => { const st = activeStage(); if (st && st.resize) st.resize(); }, 120);
+      if (!(opts && opts.silent)) {
+        toast(t === 'guide' ? '已启用人物（向导模式）' : '已切到功能优先（不加载人物）', 'ok', 2600);
+      }
+    }
+    S.applyTemplate = applyTemplate;
+    S.templateOf = templateOf;
+
+    {
+      let stored = null, legacy = null;
+      try {
+        stored = localStorage.getItem(TEMPLATE_KEY);
+        legacy = localStorage.getItem(LEGACY_HIDE_KEY);
+      } catch { /* 忽略 */ }
+      // 没存过：默认 focus（需求方要求默认不启用人物）。
+      // 老用户若曾把人物设成隐藏，也迁移成 focus。
+      const init = (stored === 'guide' || stored === 'focus')
+        ? stored
+        : (legacy === '1' ? 'focus' : 'focus');
+      applyTemplate(init, { silent: true });
+
+      $$('[data-template-toggle]').forEach(b => {
+        b.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const next = templateOf() === 'guide' ? 'focus' : 'guide';
+          applyTemplate(next);
+          // 从 focus 切到 guide 时人物还没建，这里补一次加载。
+          // ★ 顺序很重要：**先确保运行时注入完**，再 switchDisplay ——
+          //   否则 focus 模式下运行时压根没下载，ensureLive2D() 会报
+          //   "运行时缺失，请确认 public/vendor/ 下三个文件都在"（误导性很强）。
+          if (next === 'guide') {
+            const d = S.display || {};
+            try {
+              if (window.WenlvTemplate && window.WenlvTemplate.ensureLive2DRuntime) {
+                const ok = await window.WenlvTemplate.ensureLive2DRuntime();
+                if (!ok) { toast('人物运行时加载失败，仍保持功能优先', 'err', 4000); return; }
+              }
+              await ensureLive2DScript();
+              switchDisplay(d.kind || 'live2d', d.id, { silent: true });
+            } catch (err) {
+              toast('启用人物失败：' + (err && err.message ? err.message : err), 'err', 5000);
+            }
+          }
+        });
       });
     }
 
@@ -3844,6 +3957,21 @@
   const NO_FOCUS_FOLLOW = new Set(['hanfu']);
 
   async function switchDisplay(kind, id, { silent } = {}) {
+    /* ★ 功能优先模板（默认）：不启用人物。
+     *
+     * 这里直接返回，**不建舞台也不加载模型** —— 这是"不启用"与旧的
+     * "隐藏但仍在渲染"的本质区别：后者模型照样解码、PIXI 照样每帧画，
+     * 人物看不见但 GPU 一直烧着。
+     *
+     * 只记下选择，等用户切到 guide 时再用（applyTemplate 里会回补一次加载）。
+     */
+    if (S.focusMode && S.focusMode()) {
+      const item0 = findDisplayModel(kind, id);
+      if (item0) S.display = { kind: item0.kind, id: item0.id };
+      showCanvas('none');
+      return;
+    }
+
     const item = findDisplayModel(kind, id)
       || (kind === '3d' ? allDisplayModels().find(m => m.kind === '3d') : S.l2dModels[0]);
     if (!item) {
