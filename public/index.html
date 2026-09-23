@@ -117,6 +117,12 @@
                 title="切换：功能优先（不加载人物）/ 向导模式（显示人物）">
           <span class="ico">🙈</span><span class="txt">启用人物</span>
         </button>
+        <!-- 平板断点（640–1024）下 Dock 是覆盖式抽屉，需要这个键开合。
+             桌面上它由 CSS 隐藏（那里 Dock 常驻）。 -->
+        <button class="tool-btn dock-toggle" id="btn-dock-toggle"
+                title="打开 / 收起右侧面板">
+          <span class="ico">▤</span><span class="txt">面板</span>
+        </button>
         <button class="tool-btn tools-toggle" id="btn-tools-toggle"
                 title="设置：进入调试界面（背景、形象、词云等都在那里）">
           <span class="ico">⚙️</span><span class="txt">设置</span>
@@ -140,6 +146,15 @@
     <div class="focus-hint" id="focus-hint" hidden>
       <div>当前是 <b>功能优先</b> 模板 —— 未加载虚拟人物</div>
       <div>点右上角 <b>「🙈 启用人物」</b> 可切成向导模式</div>
+    </div>
+
+    <!-- Dock 布局（body.dock-right）下舞台底部的**浮动输入条**。
+         对齐展示图里那条 680px 的主对话入口 —— 它常驻舞台底部居中，
+         不占右侧 Dock 的空间。只在 dock-right 模式下显示。 -->
+    <div class="dock-composer" id="dock-composer">
+      <textarea id="dock-input" rows="1" placeholder="想去哪玩？告诉我目的地和天数…"
+                enterkeyhint="send" autocomplete="off"></textarea>
+      <button class="dc-send" id="dock-send" title="发送" aria-label="发送" disabled>↑</button>
     </div>
 
     <!-- 导航模式的操作条：只在导航模式打开时出现。
@@ -1137,12 +1152,15 @@
   </aside>
 </div>
 
+<!-- 平板断点（640–1024）下 Dock 是覆盖式抽屉，这个遮罩负责点击关闭。
+     桌面上被 CSS 隐藏（那里 Dock 常驻，不需要遮罩）。 -->
+<div class="dock-mask" id="dock-mask"></div>
+
 <div class="toast-wrap" id="toasts"></div>
 <div id="modal-root"></div>
 <audio id="tts-audio" hidden></audio>
 
-<script src="/js/util.js?v=__ASSET_V__" defer></script>
-<!-- 离线重连：后端没起来 / 中途重启 / 断网时，前端持续探测并显示
+<script src="/js/util.js?v=__ASSET_V__" defer></script><!-- 离线重连：后端没起来 / 中途重启 / 断网时，前端持续探测并显示
      「连接已断开，正在重连…（第 N 次）」，恢复后广播 wenlv:online。
      必须排在 util.js 之后 —— util 的 api()/sse() 会向它上报失败。 -->
 <script src="/js/wenlv-net.js?v=__ASSET_V__" defer></script>

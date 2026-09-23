@@ -3265,3 +3265,149 @@ body.focus .focus-hint {
   -webkit-backdrop-filter: blur(8px);
 }
 body.focus .focus-hint b { color: var(--primary, #54c8b1); }
+
+/* ============================================================================
+ * 网页端 / 桌面端：右侧 Dock 布局（7.0 三端方案 · 阶段三）
+ *
+ * 与底部横栏那套的关系：
+ *   · `.side` 的基础定义**本来就是 grid 的右侧一栏**（grid-template-columns:
+ *     1fr minmax(360px,460px)），是 `body:not(.debug)` 那一段把它改成了
+ *     底部悬浮横栏。
+ *   · 这里新增一个 `body.dock-right` 模式把右侧栏"还原"回来，
+ *     **不删除**原来那套规则 —— 保留底部横栏作为可选形态，随时可回退。
+ *
+ * 形态（对齐需求方给的展示图）：
+ *   顶栏 58px（整宽）
+ *   ├─ 舞台（占满剩余宽度，人物/词云/浮动输入条）
+ *   └─ Dock 360px（四个页签：工作台 / 对话 / 结果 / 设置）
+ *   舞台底部中央一条 680px 的**浮动输入条**（不占 Dock 空间）
+ * ==========================================================================*/
+
+body.dock-right .app {
+  grid-template-columns: 1fr minmax(340px, 380px);
+  grid-template-areas:
+    "topbar topbar"
+    "stage  side";
+}
+body.dock-right .side {
+  /* 覆盖底部横栏那套 fixed 定位，还原成 grid 里的一栏 */
+  position: static !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  width: auto !important;
+  height: auto !important;
+  max-height: none !important;
+  margin: 0 !important;
+  border-radius: 14px;
+  /* Dock 是"读内容"的地方（表单/结果/历史），按方案要求用实底 */
+  background: linear-gradient(to bottom,
+    rgb(9 12 16 / 0.94) 0%,
+    rgb(9 12 16 / 0.90) 100%);
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  border: 1px solid rgb(255 255 255 / 0.10);
+  z-index: 2;
+}
+/* Dock 里页签要可见（底部横栏那套是藏起来的） */
+body.dock-right .side .tabs { display: flex !important; }
+body.dock-right .side .panes .pane { display: none !important; }
+body.dock-right .side .panes .pane.active { display: flex !important; flex-direction: column; min-height: 0; }
+/* 折叠摘要/高度那套（给 300px 矮横栏定的）在 Dock 里不需要 */
+body.dock-right #pane-tools .chat-log { max-height: none !important; }
+
+/* ---- 舞台底部的浮动输入条（展示图里那条 680px）---- */
+/* 只在桌面 Dock 模式下出现；它不占 Dock 空间，主对话入口就在这里。 */
+.dock-composer { display: none; }
+body.dock-right .dock-composer {
+  display: flex; align-items: flex-end; gap: 8px;
+  position: absolute;
+  left: 50%; transform: translateX(-50%);
+  bottom: 18px;
+  width: min(680px, calc(100% - 32px));
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgb(9 12 16 / 0.86);
+  border: 1px solid rgb(255 255 255 / 0.14);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.4);
+  z-index: 12;
+}
+body.dock-right .dock-composer textarea {
+  flex: 1; min-width: 0;
+  border: none; outline: none; resize: none; background: transparent;
+  color: var(--text, #e9eef6); font: inherit; font-size: 14.5px; line-height: 1.5;
+  max-height: 108px; padding: 8px 6px;
+}
+body.dock-right .dock-composer textarea::placeholder { color: rgb(233 238 246 / 0.42); }
+body.dock-right .dock-composer .dc-send {
+  flex: none; width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer;
+  color: #06231c; background: var(--primary, #54c8b1); border: none;
+  font-size: 16px;
+}
+body.dock-right .dock-composer .dc-send:disabled { opacity: .35; cursor: default; }
+
+/* ---------------------------------------------------------------- 平板 640–1024 */
+/* 方案里的中间态：**布局仍是桌面三区**，但 Dock 变成右侧覆盖式抽屉：
+   宽 min(360px, 88%)、浮在舞台上、带半透明遮罩、点遮罩关闭。
+   不额外加底部 Tab（避免两套导航打架）。 */
+@media (min-width: 640px) and (max-width: 1023px) {
+  body.dock-right .app {
+    grid-template-columns: 1fr;
+    grid-template-areas: "topbar" "stage";
+    /* ★ 行高必须显式重设。基础 .app 是 `58px 1fr`，但另有一条窄屏规则
+       （为"侧栏当第三行"设计的）把它改成 `58px minmax(300px,46vh) 1fr` ——
+       平板下我们只用两行，那条 46vh 会把舞台压到半屏、下面留一大片空白
+       （实测舞台 512px / 视口 1112px）。 */
+    grid-template-rows: 58px minmax(0, 1fr);
+  }
+  body.dock-right .side {
+    position: fixed !important;
+        /* ★ 必须显式 left: auto。
+       那条底部横栏规则把 left 设成 clamp(10px,17vw,300px)，在 834px 宽下
+       解析为 0 —— 于是"translateX(100%+20px) 移出屏幕"推完还留在视口里
+       （实测 x=380 / vw=834，抽屉其实看得见）。置空后由 right 定位说了算。
+       ⚠ 这段注释里**不能出现斜杠加星号**（CSS 注释的结束标记），
+       一旦出现会把整条规则截断、left:auto 静默失效 —— 我第一次就是这么写坏的。 */
+    left: auto !important;
+    top: 14px; right: 14px; bottom: 14px;
+    width: min(360px, 88vw) !important;
+    /* ★★ 这里不能用 height:auto，必须给显式值。原因是 CSS 级联里 `auto`
+         * 对任何显式值一律败（与特异性、与 !important 都无关），所以只要还有
+         * 一条规则写着 clamp(200px,30vh,330px)（底部横栏那条），auto 就永远输，
+         * 抽屉会被压成一条 47px 的矮横条（实测）。用与 top/bottom 等价的 calc。
+         * 下面这行是旧注释：底部横栏那条把 height 定成
+       clamp(200px,30vh,330px)，抽屉会被压成一条矮横条（实测只剩 47px 高）。
+       top+bottom 同时给 + height:auto 才能撑满。 */
+    height: calc(100vh - 28px) !important;
+    max-height: none !important;
+    z-index: 70;
+    box-shadow: -14px 0 40px rgb(0 0 0 / 0.45);
+    /* 默认隐藏：不依赖坐标，算错也不会露出来 */
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s ease, visibility 0s linear .2s;
+  }
+  body.dock-right.dock-open .side {
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+    transition: opacity .2s ease, visibility 0s;
+  }
+  /* 遮罩：只在这个断点用 */
+  .dock-mask { display: none; }
+  body.dock-right .dock-mask {
+    position: fixed; inset: 0; z-index: 69;
+    background: rgb(0 0 0 / 0.42);
+    opacity: 0; pointer-events: none;
+    transition: opacity .22s ease;
+  }
+  body.dock-right.dock-open .dock-mask { opacity: 1; pointer-events: auto; }
+  body.dock-right .dock-composer { width: min(560px, calc(100% - 32px)); }
+  /* 平板下 Dock 是抽屉，需要一个开合按钮 */
+  .dock-toggle { display: grid !important; }
+}
+.dock-toggle { display: none; }

@@ -3612,6 +3612,96 @@
     }
 
     /* ======================================================================
+     * 桌面端「右侧 Dock」形态（7.0 三端方案 · 阶段三）
+     *
+     * 形态对齐需求方给的展示图：
+     *   顶栏 58px（整宽）
+     *   ├─ 舞台（占满剩余宽度）—— 人物/词云 + 底部那条 680px 的浮动输入条
+     *   └─ Dock minmax(340px,380px) —— 页签：工作台/对话/外观/记忆/角色卡/声音
+     *
+     * 与底部横栏那套的关系：**不删原来的规则**，只加一个 body.dock-right 模式。
+     *   · `.side` 的基础定义本来就是 grid 的右侧一栏
+     *     （`grid-template-columns: 1fr minmax(360px,460px)`），
+     *     是 `body:not(.debug)` 那一段把它改成了底部悬浮横栏。
+     *   · 这里把右侧栏还原回来。想回退就把 applyDockRight 那句调用删掉。
+     *
+     * 只在桌面宽度启用；<1024 交给平板覆盖式抽屉与手机端四 Tab。
+     * ====================================================================*/
+    /* 断点划分（与三端方案一致）：
+     *   >= 1024  桌面：Dock 常驻在右侧
+     *   640–1024 平板：同一个 body.dock-right，但 CSS 里把 Dock 变成
+     *                 **覆盖式抽屉**（浮在舞台上 + 遮罩 + 点遮罩关闭），
+     *                 并且**不加底部 Tab**，避免两套导航打架
+     *   < 640    手机：走独立页面 /m/（四 Tab），这一页不参与
+     *
+     * ★ 所以 dock-right 的下限是 **640**，不是 1024。
+     *   一开始写成 1024，结果平板宽度下 dock-right 根本没开，
+     *   那段平板抽屉 CSS 永远不会生效 —— 断点判断与 CSS 断点必须对齐。
+     */
+    const DOCK_RIGHT_MIN = 640;
+    function applyDockRight(force) {
+      let on = (typeof force === 'boolean') ? force : (window.innerWidth >= DOCK_RIGHT_MIN);
+      // 调试界面（.debug）自己就是右侧分栏，不要再套一层
+      if (document.body.classList.contains('debug')) on = false;
+      document.body.classList.toggle('dock-right', on);
+      document.body.classList.toggle('dock-tablet', on && window.innerWidth < 1024);
+      if (!on) document.body.classList.remove('dock-open');
+      return on;
+    }
+    S.applyDockRight = applyDockRight;
+    {
+      applyDockRight();
+      let rz = null;
+      window.addEventListener('resize', () => {
+        clearTimeout(rz);
+        rz = setTimeout(() => {
+          applyDockRight();
+          const st = activeStage(); if (st && st.resize) st.resize();
+        }, 200);
+      });
+      // 平板：Dock 是覆盖式抽屉，这个键负责开合
+      const dt = $('#btn-dock-toggle');
+      if (dt) dt.addEventListener('click', () => document.body.classList.toggle('dock-open'));
+      const dm = $('#dock-mask');
+      if (dm) dm.addEventListener('click', () => document.body.classList.remove('dock-open'));
+    }
+
+    /* ---- 舞台底部那条浮动输入条（dock-right 下显示）----
+     * 这是主对话入口：走 /api/agent（带人设的对话），不是规划链路。
+     * 空输入时禁用发送键；Enter 发送、Shift+Enter 换行。 */
+    {
+      const inp = $('#dock-input'), btn = $('#dock-send');
+      if (inp && btn) {
+        const sync = () => {
+          btn.disabled = !inp.value.trim();
+          inp.style.height = 'auto';
+          inp.style.height = Math.min(inp.scrollHeight, 108) + 'px';
+        };
+        const fire = () => {
+          const v = inp.value.trim();
+          if (!v) return;
+          inp.value = ''; sync();
+          /* 走「对话」页那条链路：把文字填进 #agent-input 并触发它的发送。
+             ★ 注意别用 `__wenlv.agent.say` —— 那个是"让形象说话（TTS/口型）"，
+               不是"发一条用户消息"。两者名字像、作用完全不同（实测踩到）。 */
+          switchTab('agent');
+          const ai = $('#agent-input');
+          if (!ai) return;
+          ai.value = v;
+          ai.dispatchEvent(new Event('input', { bubbles: true }));
+          const as = $('#agent-send');
+          if (as) as.click();
+        };
+        inp.addEventListener('input', sync);
+        inp.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); fire(); }
+        });
+        btn.addEventListener('click', fire);
+        sync();
+      }
+    }
+
+    /* ======================================================================
      * 底部对话栏：**常显**
      *
      * ★ 7.0 修正：这里原来有一个「💬 对话栏」开关，能把它永久藏掉
