@@ -419,139 +419,6 @@
            原来它们在最底下，而这一页可滚内容 3037px、可视高度只有 828px ——
            要往下滚三屏多才看得到，而且默认折叠，
            所以用户反馈「外接 API 和联网功能都没了」（其实是埋太深）。 -->
-        <details class="fold" id="fold-web">
-          <summary>联网（可选：让模型能上网查资料）</summary>
-          <div style="margin-top:10px">
-            <p class="hintline" style="margin:0 0 10px">
-              开启后，模型遇到"最新票价 / 开放时间 / 天气 / 最近活动"这类问题时，
-              会主动调用搜索工具查证再回答，而不是凭训练时的旧记忆作答。
-              <b>默认关闭</b>；开启意味着你输入的查询词会被发往搜索引擎、相关网页会被抓取。
-            </p>
-
-            <div class="badges" id="web-badges"></div>
-
-            <label class="check" style="margin-top:10px"><input type="checkbox" id="web-enabled"> 允许模型联网（等同于输入框上方的 🌐 按钮）</label>
-            <label class="check"><input type="checkbox" id="web-allow-fetch"> 允许读取网页正文（web_fetch）</label>
-            <label class="check"><input type="checkbox" id="web-allow-panorama"> 允许检索 360° 全景图（find_panorama）</label>
-
-            <div class="field" style="margin-top:12px">
-              <label>最多查证轮数 <b id="web-steps-label">4</b></label>
-              <input type="range" id="web-steps" min="1" max="8" value="4">
-              <div class="hintline">模型可以"搜索 → 读网页 → 再搜索"地连续查几轮。调大更彻底，但也更慢。</div>
-            </div>
-
-            <div class="field">
-              <label>可用工具</label>
-              <div class="hintline" id="web-tools">—</div>
-            </div>
-
-            <div class="field">
-              <label>安全边界</label>
-              <div class="hintline">
-                只允许 http/https 的公网地址；内网、本机（含 127.0.0.1 与 169.254.169.254 这类云元数据地址）
-                一律拒绝，重定向逐跳复检 —— 因为要抓的网址是<b>模型生成的</b>，属于不可信输入。
-              </div>
-            </div>
-          </div>
-        </details>
-        <details class="fold" id="fold-provider">
-          <summary>模型接入（可选：接外部大模型 API）</summary>
-          <div style="margin-top:10px">
-            <p class="hintline" style="margin:0 0 10px">
-              默认全部走本机 Ollama，<b>不出网</b>。想换成云端模型（DeepSeek / 智谱 / 通义千问 /
-              OpenRouter / 任意 OpenAI 兼容端点）时在这里配置。Base URL 与 API Key 只写进本机的
-              <code>data/providers.json</code>，不会上传到任何地方。
-            </p>
-
-            <div class="field">
-              <label>当前接入</label>
-              <div class="badges" id="provider-badges"></div>
-            </div>
-
-            <div class="field">
-              <label>供应商</label>
-              <select id="provider-preset"></select>
-              <div class="hintline" id="provider-note"></div>
-            </div>
-
-            <div class="field">
-              <label>Base URL</label>
-              <input type="text" id="provider-baseurl" placeholder="https://api.deepseek.com/v1" spellcheck="false">
-              <div class="hintline">填「根地址」就行：以 <code>/v1</code> 这类结尾，不要带 <code>/chat/completions</code>。带错了会自动截回。</div>
-            </div>
-
-            <div class="field">
-              <label>API Key <span class="hint-inline" id="provider-key-hint"></span></label>
-              <input type="password" id="provider-apikey" placeholder="sk-…（留空表示不修改已存的密钥）" autocomplete="off" spellcheck="false">
-            </div>
-
-            <div class="field">
-              <label>
-                对话模型
-                <span class="lbl-actions">
-                  <button class="mini-btn" id="provider-fetch-models" type="button">⬇️ 拉取模型列表</button>
-                </span>
-              </label>
-              <input type="text" id="provider-chatmodel" list="provider-model-list" placeholder="deepseek-chat" spellcheck="false">
-              <datalist id="provider-model-list"></datalist>
-            </div>
-
-            <div class="field">
-              <label>视觉模型（可选）</label>
-              <input type="text" id="provider-visionmodel" placeholder="留空则继续用本机多模态模型" spellcheck="false">
-              <label class="check" style="margin-top:6px"><input type="checkbox" id="provider-use-vision"> 视觉理解也走这个外部接口</label>
-              <div class="hintline">多数厂商只有对话接口，没有视觉。勾了却没填模型名时会自动回落本机。</div>
-            </div>
-
-            <div class="field">
-              <label>向量模型（可选）</label>
-              <input type="text" id="provider-embedmodel" placeholder="留空则继续用本机向量模型" spellcheck="false">
-              <label class="check" style="margin-top:6px"><input type="checkbox" id="provider-use-embed"> 记忆向量也走这个外部接口</label>
-              <div class="hintline">换向量模型后，旧向量不再参与语义检索（不同模型的向量不可比），关键词召回不受影响。</div>
-            </div>
-
-            <div class="actions">
-              <button class="btn ghost sm" id="provider-test" type="button">🔌 测试连接</button>
-              <button class="btn sm" id="provider-save" type="button">保存并启用</button>
-              <button class="btn ghost sm" id="provider-local" type="button">切回本机 Ollama</button>
-            </div>
-            <div id="provider-result"></div>
-          </div>
-        </details>
-        <details class="fold" id="fold-openapi">
-          <summary>对外开放（可选：把本项目当 API 给外部调用）</summary>
-          <div style="margin-top:10px">
-            <p class="hintline" style="margin:0 0 10px">
-              开启后，AIRI 等外部程序可以用标准 <b>OpenAI 兼容接口</b>调用本项目的对话与文旅能力。
-              <b>默认关闭</b>；一旦勾上「记忆 / 角色卡」，就等于把这些数据交给持有令牌的一方，请按需勾选。
-            </p>
-
-            <label class="check"><input type="checkbox" id="openapi-enabled"> 允许外部程序调用本项目</label>
-            <label class="check"><input type="checkbox" id="openapi-require-token"> 必须携带 Bearer 令牌（强烈建议保持勾选）</label>
-
-            <div class="field" style="margin-top:12px">
-              <label>
-                访问令牌
-                <span class="lbl-actions">
-                  <button class="mini-btn" id="openapi-token-regen" type="button">🔄 重新生成</button>
-                </span>
-              </label>
-              <input type="text" id="openapi-token" readonly placeholder="开启后自动生成">
-              <div class="hintline" id="openapi-token-hint">明文只在生成的那一刻显示一次，之后只保留打码版本。</div>
-            </div>
-
-            <div class="field">
-              <label>允许调用的能力</label>
-              <div id="openapi-expose"></div>
-            </div>
-
-            <div class="field">
-              <label>接口一览</label>
-              <div class="hintline" id="openapi-endpoints"></div>
-            </div>
-          </div>
-        </details>
-
         <div class="section">
           <div class="lbl">
             背景
@@ -944,6 +811,142 @@
             <div class="field">
               <label>位置 MCP 服务（给外部 Agent 用）</label>
               <div class="hintline" id="geo-mcp">—</div>
+            </div>
+          </div>
+        </details>
+
+
+      <!-- ★ 这三块回到原本的位置（外观页底部，「位置」之后）。
+           上一轮我把它们搬到了顶部，需求方要的是原本的显示次序。 -->
+        <details class="fold" id="fold-web">
+          <summary>联网（可选：让模型能上网查资料）</summary>
+          <div style="margin-top:10px">
+            <p class="hintline" style="margin:0 0 10px">
+              开启后，模型遇到"最新票价 / 开放时间 / 天气 / 最近活动"这类问题时，
+              会主动调用搜索工具查证再回答，而不是凭训练时的旧记忆作答。
+              <b>默认关闭</b>；开启意味着你输入的查询词会被发往搜索引擎、相关网页会被抓取。
+            </p>
+
+            <div class="badges" id="web-badges"></div>
+
+            <label class="check" style="margin-top:10px"><input type="checkbox" id="web-enabled"> 允许模型联网（等同于输入框上方的 🌐 按钮）</label>
+            <label class="check"><input type="checkbox" id="web-allow-fetch"> 允许读取网页正文（web_fetch）</label>
+            <label class="check"><input type="checkbox" id="web-allow-panorama"> 允许检索 360° 全景图（find_panorama）</label>
+
+            <div class="field" style="margin-top:12px">
+              <label>最多查证轮数 <b id="web-steps-label">4</b></label>
+              <input type="range" id="web-steps" min="1" max="8" value="4">
+              <div class="hintline">模型可以"搜索 → 读网页 → 再搜索"地连续查几轮。调大更彻底，但也更慢。</div>
+            </div>
+
+            <div class="field">
+              <label>可用工具</label>
+              <div class="hintline" id="web-tools">—</div>
+            </div>
+
+            <div class="field">
+              <label>安全边界</label>
+              <div class="hintline">
+                只允许 http/https 的公网地址；内网、本机（含 127.0.0.1 与 169.254.169.254 这类云元数据地址）
+                一律拒绝，重定向逐跳复检 —— 因为要抓的网址是<b>模型生成的</b>，属于不可信输入。
+              </div>
+            </div>
+          </div>
+        </details>
+        <details class="fold" id="fold-provider">
+          <summary>模型接入（可选：接外部大模型 API）</summary>
+          <div style="margin-top:10px">
+            <p class="hintline" style="margin:0 0 10px">
+              默认全部走本机 Ollama，<b>不出网</b>。想换成云端模型（DeepSeek / 智谱 / 通义千问 /
+              OpenRouter / 任意 OpenAI 兼容端点）时在这里配置。Base URL 与 API Key 只写进本机的
+              <code>data/providers.json</code>，不会上传到任何地方。
+            </p>
+
+            <div class="field">
+              <label>当前接入</label>
+              <div class="badges" id="provider-badges"></div>
+            </div>
+
+            <div class="field">
+              <label>供应商</label>
+              <select id="provider-preset"></select>
+              <div class="hintline" id="provider-note"></div>
+            </div>
+
+            <div class="field">
+              <label>Base URL</label>
+              <input type="text" id="provider-baseurl" placeholder="https://api.deepseek.com/v1" spellcheck="false">
+              <div class="hintline">填「根地址」就行：以 <code>/v1</code> 这类结尾，不要带 <code>/chat/completions</code>。带错了会自动截回。</div>
+            </div>
+
+            <div class="field">
+              <label>API Key <span class="hint-inline" id="provider-key-hint"></span></label>
+              <input type="password" id="provider-apikey" placeholder="sk-…（留空表示不修改已存的密钥）" autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="field">
+              <label>
+                对话模型
+                <span class="lbl-actions">
+                  <button class="mini-btn" id="provider-fetch-models" type="button">⬇️ 拉取模型列表</button>
+                </span>
+              </label>
+              <input type="text" id="provider-chatmodel" list="provider-model-list" placeholder="deepseek-chat" spellcheck="false">
+              <datalist id="provider-model-list"></datalist>
+            </div>
+
+            <div class="field">
+              <label>视觉模型（可选）</label>
+              <input type="text" id="provider-visionmodel" placeholder="留空则继续用本机多模态模型" spellcheck="false">
+              <label class="check" style="margin-top:6px"><input type="checkbox" id="provider-use-vision"> 视觉理解也走这个外部接口</label>
+              <div class="hintline">多数厂商只有对话接口，没有视觉。勾了却没填模型名时会自动回落本机。</div>
+            </div>
+
+            <div class="field">
+              <label>向量模型（可选）</label>
+              <input type="text" id="provider-embedmodel" placeholder="留空则继续用本机向量模型" spellcheck="false">
+              <label class="check" style="margin-top:6px"><input type="checkbox" id="provider-use-embed"> 记忆向量也走这个外部接口</label>
+              <div class="hintline">换向量模型后，旧向量不再参与语义检索（不同模型的向量不可比），关键词召回不受影响。</div>
+            </div>
+
+            <div class="actions">
+              <button class="btn ghost sm" id="provider-test" type="button">🔌 测试连接</button>
+              <button class="btn sm" id="provider-save" type="button">保存并启用</button>
+              <button class="btn ghost sm" id="provider-local" type="button">切回本机 Ollama</button>
+            </div>
+            <div id="provider-result"></div>
+          </div>
+        </details>
+        <details class="fold" id="fold-openapi">
+          <summary>对外开放（可选：把本项目当 API 给外部调用）</summary>
+          <div style="margin-top:10px">
+            <p class="hintline" style="margin:0 0 10px">
+              开启后，AIRI 等外部程序可以用标准 <b>OpenAI 兼容接口</b>调用本项目的对话与文旅能力。
+              <b>默认关闭</b>；一旦勾上「记忆 / 角色卡」，就等于把这些数据交给持有令牌的一方，请按需勾选。
+            </p>
+
+            <label class="check"><input type="checkbox" id="openapi-enabled"> 允许外部程序调用本项目</label>
+            <label class="check"><input type="checkbox" id="openapi-require-token"> 必须携带 Bearer 令牌（强烈建议保持勾选）</label>
+
+            <div class="field" style="margin-top:12px">
+              <label>
+                访问令牌
+                <span class="lbl-actions">
+                  <button class="mini-btn" id="openapi-token-regen" type="button">🔄 重新生成</button>
+                </span>
+              </label>
+              <input type="text" id="openapi-token" readonly placeholder="开启后自动生成">
+              <div class="hintline" id="openapi-token-hint">明文只在生成的那一刻显示一次，之后只保留打码版本。</div>
+            </div>
+
+            <div class="field">
+              <label>允许调用的能力</label>
+              <div id="openapi-expose"></div>
+            </div>
+
+            <div class="field">
+              <label>接口一览</label>
+              <div class="hintline" id="openapi-endpoints"></div>
             </div>
           </div>
         </details>
