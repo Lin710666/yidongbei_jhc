@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0f1419">
+<link rel="icon" type="image/png" href="/icons/favicon.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<title>智能文旅辅助系统</title>
+<!--
+  ============================================================================
+  网页端 / 软件端（重写版）—— 严格按新图纸排版
+  ============================================================================
+
+  图纸的四个区（不再沿用旧版"底部横栏"那套信息架构）：
+
+    顶栏 56px
+    ├─ 舞台（占满剩余宽度）
+    │    · 词云胶囊（左上，**默认收起**，点开才展开）
+    │    · 人物（向导模式；max-height 70%，底部居中偏右）
+    │    · 结果卡浮层（舞台中央，720px，可关 / 可「移入 Dock」）
+    │    └─ 浮动输入条（680px，舞台底部居中，**不占 Dock 空间**）
+    └─ Dock 360px（可折到 48 / 0）
+        四个页签：工作台 / 对话 / 结果 / 设置
+
+  为什么不改旧 index.html 而是新开一页：
+    旧页面积累了十几轮迭代（开屏、词云全屏、导航、调试分栏、抽屉、
+    focus/guide 模板…），在它上面改这个四区结构等于推倒重来，
+    还会牵动一堆既有绑定。新开一页能**干净地按图纸写**，
+    旧页保留在 / 作为回退与对照，两不相扰。
+
+  依赖：只依赖 /js/util.js（api / sse / renderMarkdown / toast）+ 后端接口。
+    不依赖旧 app.js —— 那是旧信息架构的实现，正是这次要换掉的东西。
+  ============================================================================
+-->
+<link rel="stylesheet" href="/app/app.css?v=__ASSET_V__">
+</head>
+<body data-cols="open">
+
+<!-- ===================== 顶栏 56px ===================== -->
+<header class="tb">
+  <div class="tb-brand">
+    <span class="tb-logo">🏔️</span>
+    <span class="tb-name" id="tb-agent">小文</span>
+    <span class="tb-sub">文旅向导</span>
+  </div>
+
+  <!-- 状态灯：图纸要求"故障态红点要能看到"，所以放顶栏而不是藏进设置 -->
+  <div class="tb-status" id="tb-status">
+    <span class="st" id="st-ollama" title="本机对话模型"><i class="dot"></i>Ollama</span>
+    <span class="st" id="st-tts" title="本机语音合成"><i class="dot"></i>TTS</span>
+    <span class="st" id="st-amap" title="高德地图接口"><i class="dot"></i>高德</span>
+  </div>
+
+  <div class="tb-tools">
+    <button class="tb-btn" data-tool="cloud" title="显示 / 隐藏词云">词云</button>
+    <button class="tb-btn" id="btn-mute" title="静音 / 开启声音"><span id="mute-txt">静音</span></button>
+    <button class="tb-btn" id="btn-avatar" title="启用 / 关闭虚拟人物">人物</button>
+    <button class="tb-btn" id="btn-kiosk" title="大屏展示（只留舞台）">大屏</button>
+    <button class="tb-btn primary" id="btn-settings" title="打开设置">设置</button>
+  </div>
+</header>
+
+<!-- ===================== 主体：舞台 + Dock ===================== -->
+<main class="wrap">
+
+  <!-- ------------------- 舞台 ------------------- -->
+  <section class="stage" id="stage">
+    <!-- 背景（纯色 + 可选程序化西湖；不用外部素材） -->
+    <canvas class="stage-bg" id="bg-canvas" aria-hidden="true"></canvas>
+
+    <!-- 人物层：向导模式才加载。默认关闭（focus）。 -->
+    <canvas id="live2d-canvas" aria-hidden="true"></canvas>
+    <div class="stage-hint" id="stage-hint">
+      <div>当前是 <b>功能优先</b> —— 未加载虚拟人物</div>
+      <div>点顶栏 <b>「人物」</b> 可启用向导模式</div>
+    </div>
+
+    <!-- 词云：胶囊 + 展开层 -->
+    <button class="wc-pill" id="wc-pill" title="展开词云">
+      <span>✨</span><span>想玩什么</span>
+    </button>
+    <div class="wc-layer" id="wc-layer" aria-hidden="true">
+      <div class="wc-head">
+        <span class="wc-title">点一个，或直接说一句话</span>
+        <button class="wc-close" id="wc-close" title="收起词云">✕</button>
+      </div>
+      <div class="wc-words" id="wc-words"></div>
+      <div class="wc-foot">
+        <button class="mini" id="wc-clear">清空已选</button>
+        <button class="mini primary" id="wc-go">用这些条件出方案</button>
+      </div>
+    </div>
+
+    <!-- 结果卡浮层（舞台中央 720px） -->
+    <div class="result-card" id="result-card" hidden>
+      <div class="rc-head">
+        <div class="rc-title" id="rc-title">方案</div>
+        <div class="rc-actions">
+          <button class="mini" id="rc-to-dock" title="移入 Dock 的「结果」页细看">移入 Dock</button>
+          <button class="mini" id="rc-close" title="收起">✕</button>
+        </div>
+      </div>
+      <div class="rc-body output" id="rc-body"></div>
+    </div>
+
+    <!-- 浮动输入条（680px，舞台底部居中） -->
+    <div class="composer" id="composer">
+      <textarea id="c-input" rows="1" placeholder="想去哪玩？告诉我目的地和天数…"
+                enterkeyhint="send" autocomplete="off"></textarea>
+      <button class="c-send" id="c-send" title="发送" disabled>↑</button>
+    </div>
+  </section>
+
+  <!-- ------------------- Dock 360px ------------------- -->
+  <aside class="dock" id="dock">
+    <!-- 折叠条 -->
+    <button class="dock-fold" id="dock-fold" title="收起 / 展开面板">
+      <span id="fold-ico">❯</span>
+    </button>
+
+    <nav class="dock-tabs" id="dock-tabs">
+      <button class="dt active" data-pane="work" title="填偏好，出方案">工作台</button>
+      <button class="dt" data-pane="chat" title="和向导对话">对话</button>
+      <button class="dt" data-pane="result" title="方案详情">结果</button>
+      <button class="dt" data-pane="setting" title="角色卡 / 外观 / 记忆 / 声音">设置</button>
+    </nav>
+
+    <div class="dock-body" id="dock-body">
+
+      <!-- ---------- 工作台：14 字段表单 ---------- -->
+      <section class="pane active" id="pane-work">
+        <div class="ph">
+          <h2>填写旅行偏好</h2>
+          <p>只有「目的地」必填，其余留空会用默认值补齐。</p>
+        </div>
+
+        <div class="grp">
+          <div class="grp-t">① 目的地与出发地</div>
+          <label class="f"><span>目的地 <b>*</b></span>
+            <input id="f-destination" type="text" placeholder="例如：杭州"></label>
+          <label class="f"><span>出发地</span>
+            <input id="f-origin" type="text" placeholder="例如：上海"></label>
+          <div class="f2">
+            <label class="f"><span>游玩天数</span>
+              <input id="f-days" type="number" min="1" max="30" value="2"></label>
+            <label class="f"><span>出行日期</span>
+              <input id="f-date" type="date"></label>
+          </div>
+          <div class="f2">
+            <label class="f"><span>几点出发</span>
+              <input id="f-depart" type="text" placeholder="上午 / 9:00"></label>
+            <label class="f"><span>几点回酒店</span>
+              <input id="f-return" type="text" placeholder="晚上 / 21:00"></label>
+          </div>
+        </div>
+
+        <div class="grp">
+          <div class="grp-t">② 同行人群</div>
+          <div class="f3">
+            <label class="f"><span>成人</span>
+              <input id="f-adults" type="number" min="0" max="20" value="1"></label>
+            <label class="f"><span>儿童</span>
+              <input id="f-children" type="number" min="0" max="20" value="0"></label>
+            <label class="f"><span>老人</span>
+              <input id="f-elderly" type="number" min="0" max="20" value="0"></label>
+          </div>
+          <label class="chk"><input id="f-pet" type="checkbox"><span>带宠物同行</span></label>
+        </div>
+
+        <div class="grp">
+          <div class="grp-t">③ 兴趣与节奏</div>
+          <div class="f"><span>想玩什么（可多选）</span>
+            <div class="chips" id="f-prefs">
+              <button type="button" class="chip" data-v="美食">美食</button>
+              <button type="button" class="chip" data-v="摄影">摄影</button>
+              <button type="button" class="chip" data-v="自然风光">自然风光</button>
+              <button type="button" class="chip" data-v="历史人文">历史人文</button>
+              <button type="button" class="chip" data-v="博物馆">博物馆</button>
+              <button type="button" class="chip" data-v="逛街购物">逛街购物</button>
+              <button type="button" class="chip" data-v="亲子">亲子</button>
+              <button type="button" class="chip" data-v="夜生活">夜生活</button>
+            </div>
+          </div>
+          <label class="f"><span>必去景点（逗号分隔）</span>
+            <input id="f-must" type="text" placeholder="例如：西湖, 灵隐寺"></label>
+          <div class="f"><span>节奏</span>
+            <div class="seg" id="f-pace">
+              <button type="button" class="seg-b active" data-v="悠闲">悠闲</button>
+              <button type="button" class="seg-b" data-v="适中">适中</button>
+              <button type="button" class="seg-b" data-v="特种兵">特种兵</button>
+            </div></div>
+          <div class="f"><span>最重视</span>
+            <div class="seg" id="f-priority">
+              <button type="button" class="seg-b" data-v="吃">吃</button>
+              <button type="button" class="seg-b active" data-v="玩">玩</button>
+              <button type="button" class="seg-b" data-v="住">住</button>
+              <button type="button" class="seg-b" data-v="行">行</button>
+            </div></div>
+        </div>
+
+        <div class="grp">
+          <div class="grp-t">④ 预算与交通</div>
+          <label class="f"><span>总预算（元，全体同行人）</span>
+            <input id="f-budget" type="number" min="0" step="100" value="3000"></label>
+          <div class="f"><span>交通方式</span>
+            <div class="seg" id="f-trans">
+              <button type="button" class="seg-b active" data-v="高铁">高铁</button>
+              <button type="button" class="seg-b" data-v="自驾">自驾</button>
+              <button type="button" class="seg-b" data-v="飞机">飞机</button>
+              <button type="button" class="seg-b" data-v="本地">本地</button>
+            </div></div>
+        </div>
+
+        <div class="grp">
+          <div class="grp-t">⑤ 忌口与避雷</div>
+          <div class="f"><span>饮食禁忌（可多选）</span>
+            <div class="chips" id="f-diet">
+              <button type="button" class="chip" data-v="忌辣">忌辣</button>
+              <button type="button" class="chip" data-v="不吃海鲜">不吃海鲜</button>
+              <button type="button" class="chip" data-v="素食">素食</button>
+              <button type="button" class="chip" data-v="清真">清真</button>
+            </div>
+          </div>
+          <label class="f"><span>不想安排（逗号分隔）</span>
+            <input id="f-avoid" type="text" placeholder="例如：爬山, 排队"></label>
+        </div>
+
+        <div class="pane-foot">
+          <button class="cta" id="btn-generate">生成我的旅行规划</button>
+        </div>
+      </section>
+
+      <!-- ---------- 对话 ---------- -->
+      <section class="pane" id="pane-chat">
+        <div class="ph">
+          <h2>和 <span id="chat-agent">小文</span> 聊</h2>
+          <p>问景点、问吃的、问天气都行；只有明确要行程时才会出规划。</p>
+        </div>
+        <div class="chat-log" id="chat-log"></div>
+        <div class="pane-foot">
+          <button class="mini" id="chat-clear">清空对话</button>
+        </div>
+      </section>
+
+      <!-- ---------- 结果 ---------- -->
+      <section class="pane" id="pane-result">
+        <div class="ph">
+          <h2>方案详情</h2>
+          <p id="result-sub">还没有方案 —— 去「工作台」填一下偏好。</p>
+        </div>
+        <div class="result-body output" id="result-body">
+          <div class="empty">还没有方案</div>
+        </div>
+      </section>
+
+      <!-- ---------- 设置 ---------- -->
+      <section class="pane" id="pane-setting">
+        <div class="ph"><h2>设置</h2></div>
+
+        <div class="grp">
+          <div class="grp-t">人物</div>
+          <div class="row-sw">
+            <span class="row-t">启用虚拟人物<em>默认关闭：纯色界面，最省资源</em></span>
+            <label class="sw"><input type="checkbox" id="s-avatar"><span class="sw-b"></span></label>
+          </div>
+          <div class="hint" id="avatar-hint">开启后会加载 Live2D 运行时与形象。</div>
+        </div>
+
+        <div class="grp">
+          <div class="grp-t">声音</div>
+          <div class="row-sw">
+            <span class="row-t">回复自动朗读<em>用本机 Qwen TTS</em></span>
+            <label class="sw"><input type="checkbox" id="s-speak"><span class="sw-b"></span></label>
+          </div>
+        </div>
+
+        <div class="grp">
+          <div class="grp-t">外观</div>
+          <div class="f"><span>底色</span>
+            <div class="palette" id="s-palette">
+              <button type="button" class="sw-c" data-bg="#0f1419" style="--c:#0f1419"></button>
+              <button type="button" class="sw-c" data-bg="#141b2b" style="--c:#141b2b"></button>
+              <button type="button" class="sw-c" data-bg="#1b1a17" style="--c:#1b1a17"></button>
+              <button type="button" class="sw-c" data-bg="#f4f5f7" style="--c:#f4f5f7"></button>
+            </div>
+          </div>
+          <div class="f"><span>人物大小 <b id="scale-val">100%</b></span>
+            <input id="s-scale" type="range" min="40" max="200" value="100"></div>
+        </div>
+
+        <div class="grp">
+          <div class="grp-t">关于</div>
+          <div class="hint" id="s-about-model">模型：检测中…</div>
+          <div class="hint" id="s-about-net">地址：—</div>
+          <div class="hint">旧版界面仍在 <code>/</code>，本页是 <code>/app/</code>。</div>
+        </div>
+      </section>
+
+    </div>
+  </aside>
+</main>
+
+<script src="/js/util.js?v=__ASSET_V__"></script>
+<script src="/app/app.js?v=__ASSET_V__"></script>
+</body>
+</html>
