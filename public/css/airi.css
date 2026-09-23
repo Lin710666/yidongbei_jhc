@@ -3411,3 +3411,80 @@ body.dock-right .dock-composer .dc-send:disabled { opacity: .35; cursor: default
   .dock-toggle { display: grid !important; }
 }
 .dock-toggle { display: none; }
+
+/* ============================================================================
+ * 对齐展示图的三个特征（7.0 · 图纸逐项补做）
+ *
+ * 上一轮只搭了"顶栏 + 右侧 Dock + 浮动输入条"的骨架，
+ * 图纸上还有三处没实现，这里逐项补：
+ *   ① 词云默认收成左上角胶囊「✨ 想玩什么」，点开才展开
+ *   ② 结果卡改成**舞台中央浮层**（max-width 720px，底部居中偏右 70% 高）
+ *   ③ 人物 max-height 70%
+ * ==========================================================================*/
+
+/* ---------------------------------------------------- ① 词云：左上角胶囊 */
+.wc-pill {
+  position: absolute;
+  left: 18px; top: 70px;
+  z-index: 8;
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 34px; padding: 0 14px;
+  border-radius: 999px;
+  font: inherit; font-size: 13px; cursor: pointer;
+  color: var(--text, #e9eef6);
+  background: rgb(9 12 16 / 0.78);
+  border: 1px solid rgb(255 255 255 / 0.14);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: border-color .16s, color .16s, transform .12s;
+}
+.wc-pill:hover { border-color: var(--primary, #54c8b1); color: var(--primary, #54c8b1); }
+.wc-pill:active { transform: scale(.97); }
+.wc-pill-ico { font-size: 14px; }
+
+/* 手机/平板走各自的布局，这颗胶囊只在桌面 Dock 形态下出现 */
+.wc-pill { display: none; }
+body.dock-right .wc-pill { display: inline-flex; }
+
+/* 词云收起态：胶囊在、整片词云藏起来。
+   默认就是收起（图纸上的默认形态）；点胶囊展开。 */
+body.dock-right.wc-pill-closed #wordcloud-layer { display: none; }
+body.dock-right.wc-pill-closed .wc-pill { border-color: rgb(255 255 255 / 0.14); }
+body.dock-right:not(.wc-pill-closed) .wc-pill {
+  border-color: var(--primary, #54c8b1);
+  color: var(--primary, #54c8b1);
+}
+
+/* ---------------------------------------------------- ② 结果卡：舞台中央浮层 */
+/* 图纸：「舞台中央浮层 720px，可关闭、可移入 Dock『结果』页细看」。
+   原来它是 `left/right:4%; bottom:9%; height:27%` —— 贴在舞台底部一条，
+   既不是中央、也没有 720px 这个量级。 */
+.result-card {
+  left: 50%;
+  right: auto;
+  transform: translate(-50%, 18px);      /* 收起态：下沉一点 */
+  bottom: auto;
+  top: 50%;
+  margin-top: -18%;                      /* 让中心略高于正中，避开底部输入条 */
+  width: min(720px, calc(100% - 40px));
+  height: auto;
+  max-height: 62vh;
+  min-height: 160px;
+  border-radius: 14px;
+}
+.result-card.show { transform: translate(-50%, -50%); }
+/* 展开/收起动画跟着改（原来只有 translateY，现在带着水平居中） */
+.result-card {
+  transition: opacity 280ms var(--ease),
+              transform 280ms var(--ease);
+}
+
+/* ---------------------------------------------------- ③ 人物：max-height 70% */
+/* 图纸：「max-height 70%，底部居中偏右，不再和面板抢地盘」。
+   只在向导模式（guide，真正加载了人物）下有意义；
+   focus 模式本来就不加载人物。 */
+body.guide:not(.debug) #live2d-canvas,
+body.guide:not(.debug) #stage3d-canvas {
+  max-height: 70%;
+  object-fit: contain;
+}

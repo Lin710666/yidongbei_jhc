@@ -75,6 +75,15 @@
     <canvas id="stage3d-canvas"></canvas>
     <div id="wordcloud-layer"></div>
 
+    <!-- 词云的**收起形态**：左上角一颗胶囊「✨ 想玩什么」。
+         图纸要求"词云默认收成左上胶囊，点开才全屏" ——
+         默认把整片词云铺在舞台上，会和工作台/结果抢地方，
+         而且舞台第一眼是"一堆散词"而不是"一个入口"。
+         展开态由 body.wc-pill 之外的默认样式负责（见 airi.css）。 -->
+    <button class="wc-pill" id="wc-pill" title="展开词云（也可以直接说一句话）">
+      <span class="wc-pill-ico">✨</span><span class="wc-pill-t">想玩什么</span>
+    </button>
+
     <!-- 全屏词云模式下的结果卡。
          进了全屏（body.wc-full）之后右侧面板是藏起来的，生成结果再写到 #tools-output
          就等于写进了看不见的地方 —— 用户点完「个性化方案」会觉得"没反应"。
