@@ -24,17 +24,10 @@
 <!-- Live2D 运行时（全部本地化，离线可用）：
      ① Cubism 核心（Live2D 官方运行时，必须先于 pixi-live2d-display 加载）
      ② PixiJS 渲染引擎
-     ③ pixi-live2d-display 的 cubism4 构建
-
-     ★ 7.0：默认**不启用人物**（功能优先模板），所以这三个运行时
-       不再在 HTML 里静态加载 —— 改由 template-boot.js 按需注入。
-       否则"不用人物"的用户每次打开仍要下 ~400KB 的渲染器，
-       跟"突出功能性、少占资源"的初衷相反。
-
-       注入时机：① 启动时读到 template=guide；② 用户点「启用人物」。
-       注入是**串行等待**的：Cubism 核心必须先于 pixi-live2d-display 就绪，
-       用 script 标签天然保证顺序（见 template-boot.js）。 -->
-<script src="/js/template-boot.js"></script>
+     ③ pixi-live2d-display 的 cubism4 构建 -->
+<script src="/vendor/live2dcubismcore.min.js"></script>
+<script src="/vendor/pixi.min.js"></script>
+<script src="/vendor/pixi-live2d-display-cubism4.min.js"></script>
 </head>
 <body>
 <div class="app">
@@ -75,15 +68,6 @@
     <canvas id="stage3d-canvas"></canvas>
     <div id="wordcloud-layer"></div>
 
-    <!-- 词云的**收起形态**：左上角一颗胶囊「✨ 想玩什么」。
-         图纸要求"词云默认收成左上胶囊，点开才全屏" ——
-         默认把整片词云铺在舞台上，会和工作台/结果抢地方，
-         而且舞台第一眼是"一堆散词"而不是"一个入口"。
-         展开态由 body.wc-pill 之外的默认样式负责（见 airi.css）。 -->
-    <button class="wc-pill" id="wc-pill" title="展开词云（也可以直接说一句话）">
-      <span class="wc-pill-ico">✨</span><span class="wc-pill-t">想玩什么</span>
-    </button>
-
     <!-- 全屏词云模式下的结果卡。
          进了全屏（body.wc-full）之后右侧面板是藏起来的，生成结果再写到 #tools-output
          就等于写进了看不见的地方 —— 用户点完「个性化方案」会觉得"没反应"。
@@ -116,22 +100,6 @@
            所以下面只剩这一个键，它的作用是切到调试界面（body.debug）。
            其余入口都挪到侧栏「外观」页的「主界面工具」一节里。 -->
       <div class="stage-tools">
-        <!-- ★ 模板开关：是否启用人物。
-             需求：「做一套隐藏了人物的模板突出功能性，切换的点在于是是否启用人物，
-                   默认不启用人物」。
-             focus（默认）= 不加载人物；guide = 原来的向导形态。
-             放在这里是为了让它在**两种模式下都够得着** ——
-             人物关掉之后界面上别的入口都可能被改，这个键必须稳定留着。 -->
-        <button class="tool-btn" id="btn-template" data-template-toggle="1"
-                title="切换：功能优先（不加载人物）/ 向导模式（显示人物）">
-          <span class="ico">🙈</span><span class="txt">启用人物</span>
-        </button>
-        <!-- 平板断点（640–1024）下 Dock 是覆盖式抽屉，需要这个键开合。
-             桌面上它由 CSS 隐藏（那里 Dock 常驻）。 -->
-        <button class="tool-btn dock-toggle" id="btn-dock-toggle"
-                title="打开 / 收起右侧面板">
-          <span class="ico">▤</span><span class="txt">面板</span>
-        </button>
         <button class="tool-btn tools-toggle" id="btn-tools-toggle"
                 title="设置：进入调试界面（背景、形象、词云等都在那里）">
           <span class="ico">⚙️</span><span class="txt">设置</span>
@@ -147,23 +115,6 @@
         <button class="tool-btn" id="btn-dock" hidden aria-hidden="true"></button>
         <button class="tool-btn" id="btn-kiosk" hidden aria-hidden="true"></button>
       </div>
-    </div>
-
-    <!-- 功能优先模式的舞台提示。
-         人物不加载时舞台是空的，给一句说明，免得看着像"坏掉了"。
-         guide 模式下由 CSS 隐藏；点右上角「启用人物」即可切回来。 -->
-    <div class="focus-hint" id="focus-hint" hidden>
-      <div>当前是 <b>功能优先</b> 模板 —— 未加载虚拟人物</div>
-      <div>点右上角 <b>「🙈 启用人物」</b> 可切成向导模式</div>
-    </div>
-
-    <!-- Dock 布局（body.dock-right）下舞台底部的**浮动输入条**。
-         对齐展示图里那条 680px 的主对话入口 —— 它常驻舞台底部居中，
-         不占右侧 Dock 的空间。只在 dock-right 模式下显示。 -->
-    <div class="dock-composer" id="dock-composer">
-      <textarea id="dock-input" rows="1" placeholder="想去哪玩？告诉我目的地和天数…"
-                enterkeyhint="send" autocomplete="off"></textarea>
-      <button class="dc-send" id="dock-send" title="发送" aria-label="发送" disabled>↑</button>
     </div>
 
     <!-- 导航模式的操作条：只在导航模式打开时出现。
@@ -454,12 +405,7 @@
           <div class="row" style="flex-wrap:wrap;gap:8px">
             <button class="mini-btn" id="open-bg" title="更换背景">🖼️ 更换背景</button>
             <button class="mini-btn" id="open-model" title="更换人物形象">🧍 更换形象</button>
-            <!-- ★ 这个键原来叫「隐藏人物」，只把画布变透明（模型仍在渲染）。
-                 7.0 换成统一的模板开关：`data-template-toggle` 由 app.js 自动接管，
-                 文案与图标跟着当前模板更新（功能优先 = 不加载人物）。
-                 所以它和右上角那个「启用人物」是**同一个开关的两个入口**。 -->
-            <button class="mini-btn" id="btn-avatar-hide" data-template-toggle="1"
-                    title="切换：功能优先（不加载人物）/ 向导模式（显示人物）"><span class="ico">🙈</span> 启用人物</button>
+            <button class="mini-btn" id="btn-avatar-hide" title="显示 / 隐藏虚拟形象（默认显示）">👁️ 隐藏人物</button>
             <button class="mini-btn" id="btn-wc-toggle" title="显示 / 隐藏词云">☁️ 词云显示</button>
             <button class="mini-btn" id="wc-shuffle" title="重新排布词云">🔀 重排词云</button>
             <button class="mini-btn" id="wc-full" title="全屏放大词云">⤢ 词云全屏</button>
@@ -467,6 +413,144 @@
             <button class="mini-btn" id="btn-chatbar" title="显示 / 关闭底部对话栏">💬 对话栏</button>
           </div>
         </div>
+
+
+      <!-- ★ 这三块从外观页最底部搬上来了。
+           原来它们在最底下，而这一页可滚内容 3037px、可视高度只有 828px ——
+           要往下滚三屏多才看得到，而且默认折叠，
+           所以用户反馈「外接 API 和联网功能都没了」（其实是埋太深）。 -->
+        <details class="fold" id="fold-web">
+          <summary>联网（可选：让模型能上网查资料）</summary>
+          <div style="margin-top:10px">
+            <p class="hintline" style="margin:0 0 10px">
+              开启后，模型遇到"最新票价 / 开放时间 / 天气 / 最近活动"这类问题时，
+              会主动调用搜索工具查证再回答，而不是凭训练时的旧记忆作答。
+              <b>默认关闭</b>；开启意味着你输入的查询词会被发往搜索引擎、相关网页会被抓取。
+            </p>
+
+            <div class="badges" id="web-badges"></div>
+
+            <label class="check" style="margin-top:10px"><input type="checkbox" id="web-enabled"> 允许模型联网（等同于输入框上方的 🌐 按钮）</label>
+            <label class="check"><input type="checkbox" id="web-allow-fetch"> 允许读取网页正文（web_fetch）</label>
+            <label class="check"><input type="checkbox" id="web-allow-panorama"> 允许检索 360° 全景图（find_panorama）</label>
+
+            <div class="field" style="margin-top:12px">
+              <label>最多查证轮数 <b id="web-steps-label">4</b></label>
+              <input type="range" id="web-steps" min="1" max="8" value="4">
+              <div class="hintline">模型可以"搜索 → 读网页 → 再搜索"地连续查几轮。调大更彻底，但也更慢。</div>
+            </div>
+
+            <div class="field">
+              <label>可用工具</label>
+              <div class="hintline" id="web-tools">—</div>
+            </div>
+
+            <div class="field">
+              <label>安全边界</label>
+              <div class="hintline">
+                只允许 http/https 的公网地址；内网、本机（含 127.0.0.1 与 169.254.169.254 这类云元数据地址）
+                一律拒绝，重定向逐跳复检 —— 因为要抓的网址是<b>模型生成的</b>，属于不可信输入。
+              </div>
+            </div>
+          </div>
+        </details>
+        <details class="fold" id="fold-provider">
+          <summary>模型接入（可选：接外部大模型 API）</summary>
+          <div style="margin-top:10px">
+            <p class="hintline" style="margin:0 0 10px">
+              默认全部走本机 Ollama，<b>不出网</b>。想换成云端模型（DeepSeek / 智谱 / 通义千问 /
+              OpenRouter / 任意 OpenAI 兼容端点）时在这里配置。Base URL 与 API Key 只写进本机的
+              <code>data/providers.json</code>，不会上传到任何地方。
+            </p>
+
+            <div class="field">
+              <label>当前接入</label>
+              <div class="badges" id="provider-badges"></div>
+            </div>
+
+            <div class="field">
+              <label>供应商</label>
+              <select id="provider-preset"></select>
+              <div class="hintline" id="provider-note"></div>
+            </div>
+
+            <div class="field">
+              <label>Base URL</label>
+              <input type="text" id="provider-baseurl" placeholder="https://api.deepseek.com/v1" spellcheck="false">
+              <div class="hintline">填「根地址」就行：以 <code>/v1</code> 这类结尾，不要带 <code>/chat/completions</code>。带错了会自动截回。</div>
+            </div>
+
+            <div class="field">
+              <label>API Key <span class="hint-inline" id="provider-key-hint"></span></label>
+              <input type="password" id="provider-apikey" placeholder="sk-…（留空表示不修改已存的密钥）" autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="field">
+              <label>
+                对话模型
+                <span class="lbl-actions">
+                  <button class="mini-btn" id="provider-fetch-models" type="button">⬇️ 拉取模型列表</button>
+                </span>
+              </label>
+              <input type="text" id="provider-chatmodel" list="provider-model-list" placeholder="deepseek-chat" spellcheck="false">
+              <datalist id="provider-model-list"></datalist>
+            </div>
+
+            <div class="field">
+              <label>视觉模型（可选）</label>
+              <input type="text" id="provider-visionmodel" placeholder="留空则继续用本机多模态模型" spellcheck="false">
+              <label class="check" style="margin-top:6px"><input type="checkbox" id="provider-use-vision"> 视觉理解也走这个外部接口</label>
+              <div class="hintline">多数厂商只有对话接口，没有视觉。勾了却没填模型名时会自动回落本机。</div>
+            </div>
+
+            <div class="field">
+              <label>向量模型（可选）</label>
+              <input type="text" id="provider-embedmodel" placeholder="留空则继续用本机向量模型" spellcheck="false">
+              <label class="check" style="margin-top:6px"><input type="checkbox" id="provider-use-embed"> 记忆向量也走这个外部接口</label>
+              <div class="hintline">换向量模型后，旧向量不再参与语义检索（不同模型的向量不可比），关键词召回不受影响。</div>
+            </div>
+
+            <div class="actions">
+              <button class="btn ghost sm" id="provider-test" type="button">🔌 测试连接</button>
+              <button class="btn sm" id="provider-save" type="button">保存并启用</button>
+              <button class="btn ghost sm" id="provider-local" type="button">切回本机 Ollama</button>
+            </div>
+            <div id="provider-result"></div>
+          </div>
+        </details>
+        <details class="fold" id="fold-openapi">
+          <summary>对外开放（可选：把本项目当 API 给外部调用）</summary>
+          <div style="margin-top:10px">
+            <p class="hintline" style="margin:0 0 10px">
+              开启后，AIRI 等外部程序可以用标准 <b>OpenAI 兼容接口</b>调用本项目的对话与文旅能力。
+              <b>默认关闭</b>；一旦勾上「记忆 / 角色卡」，就等于把这些数据交给持有令牌的一方，请按需勾选。
+            </p>
+
+            <label class="check"><input type="checkbox" id="openapi-enabled"> 允许外部程序调用本项目</label>
+            <label class="check"><input type="checkbox" id="openapi-require-token"> 必须携带 Bearer 令牌（强烈建议保持勾选）</label>
+
+            <div class="field" style="margin-top:12px">
+              <label>
+                访问令牌
+                <span class="lbl-actions">
+                  <button class="mini-btn" id="openapi-token-regen" type="button">🔄 重新生成</button>
+                </span>
+              </label>
+              <input type="text" id="openapi-token" readonly placeholder="开启后自动生成">
+              <div class="hintline" id="openapi-token-hint">明文只在生成的那一刻显示一次，之后只保留打码版本。</div>
+            </div>
+
+            <div class="field">
+              <label>允许调用的能力</label>
+              <div id="openapi-expose"></div>
+            </div>
+
+            <div class="field">
+              <label>接口一览</label>
+              <div class="hintline" id="openapi-endpoints"></div>
+            </div>
+          </div>
+        </details>
 
         <div class="section">
           <div class="lbl">
@@ -864,141 +948,6 @@
           </div>
         </details>
 
-        <details class="fold" id="fold-web">
-          <summary>联网（可选：让模型能上网查资料）</summary>
-          <div style="margin-top:10px">
-            <p class="hintline" style="margin:0 0 10px">
-              开启后，模型遇到"最新票价 / 开放时间 / 天气 / 最近活动"这类问题时，
-              会主动调用搜索工具查证再回答，而不是凭训练时的旧记忆作答。
-              <b>默认关闭</b>；开启意味着你输入的查询词会被发往搜索引擎、相关网页会被抓取。
-            </p>
-
-            <div class="badges" id="web-badges"></div>
-
-            <label class="check" style="margin-top:10px"><input type="checkbox" id="web-enabled"> 允许模型联网（等同于输入框上方的 🌐 按钮）</label>
-            <label class="check"><input type="checkbox" id="web-allow-fetch"> 允许读取网页正文（web_fetch）</label>
-            <label class="check"><input type="checkbox" id="web-allow-panorama"> 允许检索 360° 全景图（find_panorama）</label>
-
-            <div class="field" style="margin-top:12px">
-              <label>最多查证轮数 <b id="web-steps-label">4</b></label>
-              <input type="range" id="web-steps" min="1" max="8" value="4">
-              <div class="hintline">模型可以"搜索 → 读网页 → 再搜索"地连续查几轮。调大更彻底，但也更慢。</div>
-            </div>
-
-            <div class="field">
-              <label>可用工具</label>
-              <div class="hintline" id="web-tools">—</div>
-            </div>
-
-            <div class="field">
-              <label>安全边界</label>
-              <div class="hintline">
-                只允许 http/https 的公网地址；内网、本机（含 127.0.0.1 与 169.254.169.254 这类云元数据地址）
-                一律拒绝，重定向逐跳复检 —— 因为要抓的网址是<b>模型生成的</b>，属于不可信输入。
-              </div>
-            </div>
-          </div>
-        </details>
-
-        <details class="fold" id="fold-provider">
-          <summary>模型接入（可选：接外部大模型 API）</summary>
-          <div style="margin-top:10px">
-            <p class="hintline" style="margin:0 0 10px">
-              默认全部走本机 Ollama，<b>不出网</b>。想换成云端模型（DeepSeek / 智谱 / 通义千问 /
-              OpenRouter / 任意 OpenAI 兼容端点）时在这里配置。Base URL 与 API Key 只写进本机的
-              <code>data/providers.json</code>，不会上传到任何地方。
-            </p>
-
-            <div class="field">
-              <label>当前接入</label>
-              <div class="badges" id="provider-badges"></div>
-            </div>
-
-            <div class="field">
-              <label>供应商</label>
-              <select id="provider-preset"></select>
-              <div class="hintline" id="provider-note"></div>
-            </div>
-
-            <div class="field">
-              <label>Base URL</label>
-              <input type="text" id="provider-baseurl" placeholder="https://api.deepseek.com/v1" spellcheck="false">
-              <div class="hintline">填「根地址」就行：以 <code>/v1</code> 这类结尾，不要带 <code>/chat/completions</code>。带错了会自动截回。</div>
-            </div>
-
-            <div class="field">
-              <label>API Key <span class="hint-inline" id="provider-key-hint"></span></label>
-              <input type="password" id="provider-apikey" placeholder="sk-…（留空表示不修改已存的密钥）" autocomplete="off" spellcheck="false">
-            </div>
-
-            <div class="field">
-              <label>
-                对话模型
-                <span class="lbl-actions">
-                  <button class="mini-btn" id="provider-fetch-models" type="button">⬇️ 拉取模型列表</button>
-                </span>
-              </label>
-              <input type="text" id="provider-chatmodel" list="provider-model-list" placeholder="deepseek-chat" spellcheck="false">
-              <datalist id="provider-model-list"></datalist>
-            </div>
-
-            <div class="field">
-              <label>视觉模型（可选）</label>
-              <input type="text" id="provider-visionmodel" placeholder="留空则继续用本机多模态模型" spellcheck="false">
-              <label class="check" style="margin-top:6px"><input type="checkbox" id="provider-use-vision"> 视觉理解也走这个外部接口</label>
-              <div class="hintline">多数厂商只有对话接口，没有视觉。勾了却没填模型名时会自动回落本机。</div>
-            </div>
-
-            <div class="field">
-              <label>向量模型（可选）</label>
-              <input type="text" id="provider-embedmodel" placeholder="留空则继续用本机向量模型" spellcheck="false">
-              <label class="check" style="margin-top:6px"><input type="checkbox" id="provider-use-embed"> 记忆向量也走这个外部接口</label>
-              <div class="hintline">换向量模型后，旧向量不再参与语义检索（不同模型的向量不可比），关键词召回不受影响。</div>
-            </div>
-
-            <div class="actions">
-              <button class="btn ghost sm" id="provider-test" type="button">🔌 测试连接</button>
-              <button class="btn sm" id="provider-save" type="button">保存并启用</button>
-              <button class="btn ghost sm" id="provider-local" type="button">切回本机 Ollama</button>
-            </div>
-            <div id="provider-result"></div>
-          </div>
-        </details>
-
-        <details class="fold" id="fold-openapi">
-          <summary>对外开放（可选：把本项目当 API 给外部调用）</summary>
-          <div style="margin-top:10px">
-            <p class="hintline" style="margin:0 0 10px">
-              开启后，AIRI 等外部程序可以用标准 <b>OpenAI 兼容接口</b>调用本项目的对话与文旅能力。
-              <b>默认关闭</b>；一旦勾上「记忆 / 角色卡」，就等于把这些数据交给持有令牌的一方，请按需勾选。
-            </p>
-
-            <label class="check"><input type="checkbox" id="openapi-enabled"> 允许外部程序调用本项目</label>
-            <label class="check"><input type="checkbox" id="openapi-require-token"> 必须携带 Bearer 令牌（强烈建议保持勾选）</label>
-
-            <div class="field" style="margin-top:12px">
-              <label>
-                访问令牌
-                <span class="lbl-actions">
-                  <button class="mini-btn" id="openapi-token-regen" type="button">🔄 重新生成</button>
-                </span>
-              </label>
-              <input type="text" id="openapi-token" readonly placeholder="开启后自动生成">
-              <div class="hintline" id="openapi-token-hint">明文只在生成的那一刻显示一次，之后只保留打码版本。</div>
-            </div>
-
-            <div class="field">
-              <label>允许调用的能力</label>
-              <div id="openapi-expose"></div>
-            </div>
-
-            <div class="field">
-              <label>接口一览</label>
-              <div class="hintline" id="openapi-endpoints"></div>
-            </div>
-          </div>
-        </details>
-
         <details class="fold">
           <summary>本地服务状态</summary>
           <div id="settings-services" style="margin-top:10px"></div>
@@ -1161,15 +1110,12 @@
   </aside>
 </div>
 
-<!-- 平板断点（640–1024）下 Dock 是覆盖式抽屉，这个遮罩负责点击关闭。
-     桌面上被 CSS 隐藏（那里 Dock 常驻，不需要遮罩）。 -->
-<div class="dock-mask" id="dock-mask"></div>
-
 <div class="toast-wrap" id="toasts"></div>
 <div id="modal-root"></div>
 <audio id="tts-audio" hidden></audio>
 
-<script src="/js/util.js?v=__ASSET_V__" defer></script><!-- 离线重连：后端没起来 / 中途重启 / 断网时，前端持续探测并显示
+<script src="/js/util.js?v=__ASSET_V__" defer></script>
+<!-- 离线重连：后端没起来 / 中途重启 / 断网时，前端持续探测并显示
      「连接已断开，正在重连…（第 N 次）」，恢复后广播 wenlv:online。
      必须排在 util.js 之后 —— util 的 api()/sse() 会向它上报失败。 -->
 <script src="/js/wenlv-net.js?v=__ASSET_V__" defer></script>
@@ -1192,9 +1138,7 @@
 <script src="/js/nav.js?v=__ASSET_V__" defer></script>
 <!-- 西湖主题：程序化绘制的动态风景（开屏与「西湖」背景在用，零外部素材） -->
 <script src="/js/lake.js?v=__ASSET_V__" defer></script>
-<!-- ★ live2d.js 改成**按需加载**：功能优先模板（默认）下不启用人物，
-     这个文件定义的 Live2DStage 就用不到。真要建舞台时由 app.js 的
-     ensureLive2DScript() 注入（配合 template-boot.js 的运行时注入）。 -->
+<script src="/js/live2d.js?v=__ASSET_V__" defer></script>
 <!-- 语音输入：录音 + 转成 16kHz 单声道 WAV + 调 /api/stt。
      纯前端能力（MediaRecorder + AudioContext），不依赖任何第三方库。 -->
 <script src="/js/voice.js?v=__ASSET_V__" defer></script>
