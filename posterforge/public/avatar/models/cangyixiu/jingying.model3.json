@@ -1,0 +1,82 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "jingying.moc3",
+		"Textures": [
+			"jingying.2048/texture_00.png"
+		],
+		"Physics": "jingying.physics3.json",
+		"DisplayInfo": "jingying.cdi3.json",
+		"Expressions": [
+			{
+				"Name": "bai yan",
+				"File": "bai yan.exp3.json"
+			},
+			{
+				"Name": "hei lian",
+				"File": "hei lian.exp3.json"
+			},
+			{
+				"Name": "hong yan",
+				"File": "hong yan.exp3.json"
+			},
+			{
+				"Name": "hou fa",
+				"File": "hou fa.exp3.json"
+			},
+			{
+				"Name": "hua hua",
+				"File": "hua hua.exp3.json"
+			},
+			{
+				"Name": "kan jian",
+				"File": "kan jian.exp3.json"
+			},
+			{
+				"Name": "lian hong",
+				"File": "lian hong.exp3.json"
+			},
+			{
+				"Name": "shuang ma wei",
+				"File": "shuang ma wei.exp3.json"
+			},
+			{
+				"Name": "tuan shan",
+				"File": "tuan shan.exp3.json"
+			},
+			{
+				"Name": "xin xin",
+				"File": "xin xin.exp3.json"
+			},
+			{
+				"Name": "xing xing",
+				"File": "xing xing.exp3.json"
+			}
+		],
+		"Motions": {
+			"Idle": [
+				{
+					"File": "motion_01.motion3.json"
+				}
+			]
+		}
+	},
+	"Groups": [
+		{
+			"Target": "Parameter",
+			"Name": "LipSync",
+			"Ids": [
+				"ParamMouthForm",
+				"ParamMouthOpenY"
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Name": "EyeBlink",
+			"Ids": [
+				"ParamEyeLOpen",
+				"ParamEyeROpen"
+			]
+		}
+	]
+}
