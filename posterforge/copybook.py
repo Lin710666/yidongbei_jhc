@@ -33,10 +33,20 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from PIL import Image, ImageDraw
 
 # 复用海报引擎的调色板与背景能力 —— 单一实现来源，避免两处漂移
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "poster-forge"))
+#
+# v8.0 合并项目时 `poster-forge/` 改名成了 `renderer/`。
+# 这里**两个名字都认**，并支持 PF_FORGE_ROOT 显式指定 ——
+# 写死目录名的话，改名之后手册会静默地找不到引擎
+# （实测：合并后 /api/health 报 渲染器=False）。
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_FORGE = os.path.abspath(os.path.join(_HERE, "..", "poster-forge"))
-if _FORGE not in sys.path:
+_FORGE = None
+for _cand in (os.environ.get("PF_FORGE_ROOT"),
+              os.path.join(_HERE, "..", "renderer"),
+              os.path.join(_HERE, "..", "poster-forge")):
+    if _cand and os.path.isfile(os.path.join(_cand, "render.py")):
+        _FORGE = os.path.abspath(_cand)
+        break
+if _FORGE and _FORGE not in sys.path:
     sys.path.insert(0, _FORGE)
 
 from bg import make_background, resolve_color, BGError  # noqa: E402

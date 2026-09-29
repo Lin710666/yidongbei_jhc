@@ -49,7 +49,22 @@ import { buildPosterSpecFrom, buildCheckinSpecFrom, POSTER_TONES, POSTER_COMPOSI
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SITE_ROOT = __dirname;
 const REPO_ROOT = path.dirname(SITE_ROOT);
-const FORGE_ROOT = path.join(REPO_ROOT, "poster-forge");
+// 渲染引擎在哪。
+//
+// v8.0 把项目合并时，原来平级的 `poster-forge/` 改名成了 `renderer/`。
+// 这里**两个名字都认**：先找 renderer，没有再退回 poster-forge。
+// 为什么不用单一名字：改名只改了目录，代码里写死的路径不会自己跟着变 ——
+// 实测合并后 `/api/health` 报 `渲染器=False`，接口 200 但出图全废。
+// 兼容两种名字，无论目录叫哪个都能跑。
+// 也支持用 PF_FORGE_ROOT 环境变量显式指定（引擎装在别处时用）。
+const FORGE_ROOT = (() => {
+  if (process.env.PF_FORGE_ROOT && existsSync(process.env.PF_FORGE_ROOT)) return process.env.PF_FORGE_ROOT;
+  for (const name of ["renderer", "poster-forge"]) {
+    const p = path.join(REPO_ROOT, name);
+    if (existsSync(path.join(p, "render.py"))) return p;
+  }
+  return path.join(REPO_ROOT, "renderer");   // 都没有时给个明确的预期路径，好让报错看得懂
+})();
 const PUBLIC_DIR = path.join(SITE_ROOT, "public");
 const WORK_DIR = path.join(SITE_ROOT, ".work");        // 生成中间产物
 const OUT_DIR = path.join(SITE_ROOT, "public", "generated");
