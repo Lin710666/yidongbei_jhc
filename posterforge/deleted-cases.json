@@ -1,0 +1,23 @@
+{
+  "_note": "留档：这些数据原来硬编码在 site/server.mjs 里，供 /api/cases 使用，驱动页面上的「爆火案例」网格和「STORY 三点钟」列表。2026-09-26 按需求把这两节整块删除，路由 /api/cases 与 CASES/FEED 常量一并从 server.mjs 移除。此文件仅作留档，不被任何代码读取。",
+  "_deletedFrom": "site/server.mjs",
+  "_relatedFrontend": [
+    "site/public/index.html <section class=\"band\" id=\"cases\">（已删）",
+    "site/public/app.js loadCases() / #caseGrid / #feedList / #railCard（已删）",
+    "site/public/style.css .case-layout / .grid-case / .rail* / .play / .dur / .plat / .dot.*（已删）"
+  ],
+  "CASES": [
+    { "id": "case-01", "title": "灶王爷午市套餐 · 抖音同款", "platform": "douyin", "plays": "240 万", "duration": "00:18", "tags": ["餐饮"] },
+    { "id": "case-02", "title": "山海楼住三送一 · 小红书爆款", "platform": "xhs", "plays": "3.2 万赞", "duration": "00:22", "tags": ["酒店"] },
+    { "id": "case-03", "title": "江畔夜市开街 · 视频号转发", "platform": "channels", "plays": "1.8 万", "duration": "00:31", "tags": ["文旅"] },
+    { "id": "case-04", "title": "东极岛第一缕光 · B站热门", "platform": "bilibili", "plays": "96 万", "duration": "01:04", "tags": ["打卡"] },
+    { "id": "case-05", "title": "半山茶事春茶上新 · 点评收藏", "platform": "dianping", "plays": "2.1 万", "duration": "00:26", "tags": ["餐饮"] },
+    { "id": "case-06", "title": "长白雪季预热 · 滑雪泡汤", "platform": "douyin", "plays": "130 万", "duration": "00:45", "tags": ["酒店"] }
+  ],
+  "FEED": [
+    { "source": "Techdo", "channel": "YouTube", "title": "3 步做出爆款文旅海报：模板 + 提示词全流程", "hot": true },
+    { "source": "文旅运营笔记", "channel": "小红书", "title": "酒店促销海报的 6 个排版铁律", "hot": false },
+    { "source": "海报研究所", "channel": "B站", "title": "打卡模板怎么做才能被转发？拆解 20 个爆款", "hot": true },
+    { "source": "餐饮增长室", "channel": "抖音", "title": "饭馆午市引流：一张海报带来的 300 单", "hot": false }
+  ]
+}

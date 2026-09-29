@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PosterForge · 宣传海报与打卡模板生成</title>
+<meta name="description" content="文旅局、酒店、饭馆、游客的宣传海报与打卡模板生成平台。本地部署，物料可控。" />
+<!-- 内联 SVG 图标：省掉一次对 /favicon.ico 的请求与 404 -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23e8a05e'/%3E%3Cstop offset='1' stop-color='%23e2568f'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='url(%23g)'/%3E%3Ctext x='16' y='23' font-size='20' font-family='Georgia,serif' font-weight='bold' text-anchor='middle' fill='%231a0d06'%3EP%3C/text%3E%3C/svg%3E" />
+<link rel="stylesheet" href="/style.css" />
+<!-- 悬浮球 AI 助手：门户、海报页、旅游规划页三处共用同一份实现。
+     data-api-base 必须写 —— 本页在 8800 上，规划接口在反代的 /wenlv/api/ 下；
+     不写的话组件会按同源 /api/ 找，那是本服务自己的接口（格式不同），会被判成"离线"。
+     用 defer 是为了不挡住首屏。 -->
+<script src="/ai-ball.js" data-api-base="/wenlv" defer></script>
+</head>
+<body>
+
+<!-- 背景暖色辉光 -->
+<div class="ambient" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+
+<div class="page">
+
+  <!-- ============================================ Hero -->
+  <section class="hero">
+    <div class="wrap" style="display:flex;flex-direction:column;align-items:center;">
+
+      <h1>PosterForge</h1>
+
+      <!-- 回门户。海报工坊现在是统一门户下的一个功能页，
+           没有这个入口用户进来就出不去了。 -->
+      <a class="back-hub" href="/hub.html">← 返回浙里文旅工坊门户</a>
+
+      <p class="lede">
+        给文旅局、酒店、饭馆做宣传物料，给游客做打卡模板。<br />
+        提示词、图片、模板进去，可发布的海报与文案出来。
+      </p>
+
+      <!-- 中央功能卡 -->
+      <div class="stage">
+        <div class="cap-menu" id="capMenu" role="tablist" aria-label="功能"></div>
+
+        <div class="cap-card">
+          <h3><span id="capIcon" aria-hidden="true">🖼</span> <span id="capName">海报生成</span></h3>
+          <p class="hint" id="capDesc">提示词 + 图片 + 模板 → 宣传海报</p>
+
+          <!-- 套用模板：独立入口。选中一套后把它的 brief 填进输入框、切回海报模式，
+               用户改完就能出图。这样模板卡不只是"看着好看"，而是真能省掉从零写文案。 -->
+          <div class="tpl-picker" id="tplPicker" hidden>
+            <div class="tpl-search">
+              <input type="search" id="tplSearch" placeholder="搜模板：酒店 / 套餐 / 票务 / 夜市…" />
+              <span class="tpl-count" id="tplCount"></span>
+              <button class="mini-chip" id="tplSaveBtn" title="把输入框里的内容存成你自己的模板，下次一键套用">＋ 存为我的模板</button>
+            </div>
+            <div class="tpl-save" id="tplSave" hidden>
+              <input type="text" id="tplSaveName" placeholder="给这套模板起个名字（可留空）" />
+              <button class="mini-chip" id="tplSaveOk">保存</button>
+              <button class="mini-chip" id="tplSaveCancel">取消</button>
+            </div>
+            <div class="tpl-save-msg" id="tplSaveMsg" hidden></div>
+            <div class="tpl-filters" id="tplFilters"></div>
+            <div class="tpl-rotate" id="tplRotate" hidden></div>
+            <div class="tpl-list" id="tplList"></div>
+            <p class="hint" id="tplHint">点一套模板 → 内容会填进输入框，你直接改数字和店名就能出图。</p>
+          </div>
+
+          <!-- 历史记录：回看生成过的图。记录和图分开存 ——
+               图会按数量/天数清理，但"我做过什么"不该跟着消失。 -->
+          <div class="tpl-picker his-picker" id="hisPanel" hidden>
+            <div class="tpl-search">
+              <span class="his-count" id="hisCount">—</span>
+              <button class="mini-chip" id="hisClear" title="清空列表（不会删除已生成的图片文件）">清空列表</button>
+            </div>
+            <div class="his-list" id="hisList"></div>
+            <p class="hint">记录只存"什么时候做了什么"，图片文件另有保留策略。清空列表不会删图。</p>
+          </div>
+
+          <!-- 参考图分析已改为生成区里的一个按钮（见下面的 anaInline）——
+               它不该是一个独立模式，而是辅助生成的手段。 -->
+
+          <!-- 文字输入：与上传的图片一起决定产出内容 -->
+          <div class="prompt-wrap" id="promptWrap">
+            <textarea id="promptInput" rows="4"
+              placeholder="只写这次活动的「实情」：&#10;连住两晚立减 300 元，含双早，周末不加价&#10;（店名、电话、价格都可以留着占位，之后好改）"></textarea>
+            <div class="prompt-foot">
+              <span class="prompt-count" id="promptCount">0 字</span>
+              <button class="prompt-clear" id="promptClear" title="清空">清空</button>
+            </div>
+          </div>
+          <!-- 通用关键词模板：不含任何示例店名/真实数据，正文放在 app.js 的
+               GENERIC_PROMPTS 里（HTML 属性会把换行折成空格，多行结构要留得住）。
+               结构固定为 优惠 → 面向谁 → 地点+联系方式，
+               解析器因此能稳定取出「标题(优惠行) / 卖点 / 价格 / 电话」。 -->
+          <div class="prompt-tips" id="promptTips">
+            <span>通用模板：</span>
+            <button class="mini-chip" data-tpl="stay">住宿优惠</button>
+            <button class="mini-chip" data-tpl="dining">餐饮套餐</button>
+            <button class="mini-chip" data-tpl="ticket">景区票务</button>
+            <button class="mini-chip" data-tpl="checkin">游客打卡</button>
+            <button class="mini-chip" data-tpl="event">活动通知</button>
+            <button class="mini-chip" data-tpl="newarrival">新品上市</button>
+          </div>
+          <p class="hint" id="promptHint">点上面的通用模板会填入占位文案，把「我的店名 / 电话 / 价格」换成你的即可；再上传图片，就会和文字一起出图。</p>
+          <!-- 广告法预检：服务端会因此拒绝出图，必须提前告诉用户，不能让他等完一轮 -->
+          <div class="adlaw" id="adLawNote" hidden></div>
+
+          <div class="drop" id="drop" tabindex="0" role="button"
+               aria-label="上传参考图片">
+            <div class="plus">＋</div>
+            <div class="t1">拖入图片，或点击选择</div>
+            <div class="t2">支持 .png .jpg .webp .gif .bmp .tiff .avif .heic · 也可 Ctrl+V 粘贴</div>
+          </div>
+          <input type="file" id="fileInput"
+                 accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff,image/avif,image/heic,image/heif,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff,.avif,.heic,.heif"
+                 multiple hidden />
+          <div id="fileList" class="chips" style="margin-top:10px;"></div>
+
+          <div class="chips" id="styleChips">
+            <button class="chip" data-kv="tone:auto" aria-pressed="true">自动风格</button>
+            <button class="chip" data-kv="tone:hotel" aria-pressed="false">酒店</button>
+            <button class="chip" data-kv="tone:restaurant" aria-pressed="false">餐饮</button>
+            <button class="chip" data-kv="tone:bureau" aria-pressed="false">政务文旅</button>
+          </div>
+
+          <!-- 版式：直接选构图，而不是让模型每次随机挑。
+               七种构图的对齐方式、图文关系、信息密度都不同（见 poster-layout.mjs
+               的 POSTER_COMPOSITIONS）。默认「自动」= 跟着套用的模板走，
+               没套模板就按图片数量回退。 -->
+          <div class="chips" id="compChips"></div>
+
+          <!-- 参考图分析：辅助生成的手段，不是独立模式。
+               用户手上常有一张"我就想要这种感觉"的参考图，它未必是要用的素材 ——
+               所以走独立上传通道，不占海报素材位。 -->
+          <div class="ana-inline" id="anaInline">
+            <button class="mini-chip" id="anaBtn"
+                    title="传一张参考图，让模型判断该用哪种版式">🔍 分析参考图</button>
+            <span class="ana-inline-tip" id="anaTip">不知道用哪种版式？传张参考图让模型帮你定</span>
+          </div>
+          <div class="ana-result" id="anaResult" hidden></div>
+
+          <div class="actions">
+            <button class="icon-btn" id="uploadBtn" title="上传图片" aria-label="上传图片">⬆</button>
+            <button class="cta" id="genBtn">生成海报</button>
+          </div>
+
+          <div class="toggles" id="toggles">
+            <label class="switch" title="没上传照片时，用本地模型（SDXL-Turbo）直接生成一张底图。不需要启动任何外部服务；首次出图要把模型加载进显存，约 20 秒，之后每张约 6 秒。">
+              <input type="checkbox" id="aiBg" />
+              <span class="track"></span>
+              <span>AI 背景</span>
+            </label>
+            <select class="sel" id="modelSel" aria-label="模型">
+              <option value="poster-forge-int8">PosterForge-1.0</option>
+              <option value="qwen-image-2.1">Qwen-Image-2.1（本地）</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- 生成结果 -->
+      <div class="result" id="result">
+        <img id="resultImg" alt="生成结果" />
+        <div class="meta" id="resultMeta"></div>
+        <!-- 模型决定的内容回显：让人看得见"它写了什么、为什么这么写" -->
+        <div class="compose-note" id="composeNote" hidden></div>
+        <div id="resultExtra"></div>
+        <pre id="resultErr" style="display:none"></pre>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- 「热门模板」整块已移除。
+       它和新加的「套用模板」选择器功能重复，而且**每次打开首页都要拉 41 张缩略图**
+       （实测 41 个请求、1.4MB、首屏解码 ~63MB 位图）—— 这是页面卡的主因。
+       模板现在只在点开「套用模板」时才加载。 -->
+
+  <!-- ============================================ 每日灵感（联网） -->
+  <section class="band" id="feed">
+    <div class="wrap">
+      <div class="band-head">
+        <div>
+          <h2>每日灵感</h2>
+          <div class="sub" id="feedSub">联网获取的实拍图 —— 做版式与配色参考，每天更新</div>
+        </div>
+        <div class="tools">
+          <span class="feed-age" id="feedAge"></span>
+          <button class="sq-btn" id="feedRefresh" title="联网刷新" aria-label="联网刷新">⟳</button>
+        </div>
+      </div>
+      <div class="grid-feed" id="feedGrid"></div>
+      <div class="feed-note" id="feedNote"></div>
+    </div>
+  </section>
+
+  <!-- ============================================ 页脚 -->
+  <footer>
+    <div class="wrap">
+      <div class="foot-in">
+        <div class="note">
+          <b style="color:var(--ink-2)">PosterForge</b> —— 宣传海报与打卡模板生成平台。<br />
+          渲染引擎基于 <code>poster-forge</code>：文字、价格、二维码走确定性合成，
+          AI 只负责背景与图像层。物料可复现、可追溯、可回滚。
+        </div>
+        <div class="note">
+          <b style="color:var(--ink-2)">本地部署</b><br />
+          零运行时依赖 · 单端口 · <code>node server.mjs</code>
+        </div>
+      </div>
+      <div class="lic">
+        <b>许可证提醒</b>：如需接入 Qwen-Image-2.1 生成背景图，请注意该模型权重采用
+        Qwen Research License（<b>仅限研究 / 非商业用途</b>）。
+        用于给客户出正式商业物料前，需先取得单独商业授权。
+        海报排版与文字合成不依赖该模型，可独立商用。
+      </div>
+    </div>
+  </footer>
+
+</div>
+
+<!-- 预览弹层：模板与案例共用 -->
+<div class="modal" id="previewModal" role="dialog" aria-modal="true" aria-label="预览" hidden>
+  <div class="modal-back" data-close="1"></div>
+  <div class="modal-body">
+    <button class="modal-x" id="pvClose" title="关闭 (Esc)" aria-label="关闭">✕</button>
+    <button class="modal-nav prev" id="pvPrev" title="上一个 (←)" aria-label="上一个">‹</button>
+    <button class="modal-nav next" id="pvNext" title="下一个 (→)" aria-label="下一个">›</button>
+
+    <div class="modal-stage">
+      <img id="pvImg" alt="预览" />
+    </div>
+
+    <div class="modal-side">
+      <div class="pv-kind" id="pvKind">模板</div>
+      <h3 id="pvTitle">—</h3>
+      <div class="pv-meta" id="pvMeta"></div>
+      <div class="pv-tags" id="pvTags"></div>
+      <div class="pv-actions" id="pvActions"></div>
+      <div class="pv-hint" id="pvHint"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 自检面板 -->
+<div class="health" id="health"></div>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

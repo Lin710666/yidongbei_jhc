@@ -1,0 +1,13 @@
+{
+  "name": "prompt-input",
+  "version": "1.0.0",
+  "entry": "SKILL.md",
+  "license": "MIT",
+  "description": "主页文字输入与确定性意图解析：把用户的话拆成品牌/标题/价格/电话/时间/卖点，与上传图片一起决定产出。",
+  "invocation": {
+    "input": "自然语言一段话（可空白）",
+    "output": "结构化 content 字段，喂给海报/打卡/手册生成"
+  },
+  "scripts": [],
+  "references": []
+}

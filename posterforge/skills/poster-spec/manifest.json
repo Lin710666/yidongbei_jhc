@@ -1,0 +1,19 @@
+{
+  "name": "poster-spec",
+  "version": "1.0.0",
+  "description": "定义 PosterSpec 结构（渲染契约）与图层命名约定。LLM 的输出必须符合本契约。",
+  "entry": "SKILL.md",
+  "license": "MIT",
+  "references": [
+    "references/poster-spec.schema.json",
+    "references/layer-naming.md",
+    "references/layouts.md"
+  ],
+  "scripts": [
+    "scripts/check-spec.py"
+  ],
+  "invocation": {
+    "input": "自然语言需求 / 客户素材清单",
+    "output": "符合 poster-spec.schema.json 的 JSON"
+  }
+}

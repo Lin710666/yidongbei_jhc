@@ -1,0 +1,238 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://poster-forge.local/schemas/poster-spec.schema.json",
+  "title": "PosterSpec",
+  "description": "海报/打卡模板的结构化描述。这是 LLM 的输出契约，也是渲染引擎的输入契约。文字永不进扩散模型：LLM 只产出本结构，像素由引擎合成。",
+  "type": "object",
+  "required": ["canvas", "layers"],
+  "additionalProperties": true,
+  "properties": {
+    "meta": {
+      "type": "object",
+      "description": "物料元数据。用于审核、归档与可追溯。",
+      "properties": {
+        "id": { "type": "string", "description": "物料唯一编号，如 hotel-2026-autumn-01" },
+        "client": { "type": "string", "description": "委托方，如 山海楼酒店" },
+        "audience": {
+          "type": "string",
+          "enum": ["bureau", "hotel", "restaurant", "tourist"],
+          "description": "服务对象群体。决定走哪套合规规则。"
+        },
+        "intent": { "type": "string", "description": "用途，如 秋季促销 / 开业宣传 / 游客打卡" },
+        "facts_source": {
+          "type": "string",
+          "description": "事实来源标注（客户口述/官网/物料）。价格、电话、地址等事实字段必须可回溯到此处，模型不得自行生成。"
+        },
+        "generated_by": { "type": "string", "description": "生成本 spec 的模型与版本，便于追溯" }
+      }
+    },
+
+    "canvas": {
+      "type": "object",
+      "description": "画布尺寸。竖版海报 1080x1440，朋友圈方图 1080x1080，横版 Banner 1200x628。",
+      "required": ["width", "height"],
+      "properties": {
+        "width": { "type": "integer", "minimum": 64, "maximum": 20000 },
+        "height": { "type": "integer", "minimum": 64, "maximum": 20000 }
+      }
+    },
+
+    "layout": {
+      "type": "string",
+      "description": "版式引用，如 @layout:poster-vertical-gold。版式提供骨架，spec 提供内容；两者分离，换版式不改内容。"
+    },
+
+    "theme": {
+      "type": "object",
+      "description": "视觉主题。色板集中在此，便于换季/换品牌一次改全局。",
+      "properties": {
+        "palette": {
+          "type": "object",
+          "description": "命名色板。图层里用调色板名引用（content.color / shape.fill / text.color 均可写色板名）。",
+          "additionalProperties": { "type": "string" }
+        },
+        "ornaments": {
+          "type": "object",
+          "description": "四角装饰线。用于政务/高端版式填充留白。",
+          "properties": {
+            "color": { "type": "string" },
+            "length": { "type": "number", "description": "占短边比例，默认 0.08" },
+            "inset": { "type": "number", "description": "距边缘比例，默认 0.035" },
+            "width": { "type": "number", "description": "线宽，默认 3" }
+          }
+        }
+      }
+    },
+
+    "background": {
+      "type": "object",
+      "description": "基底图层。type=image 时可指向 AI 生成的背景图 —— 这是 AI 图像模型的唯一合法接入点。",
+      "properties": {
+        "type": { "type": "string", "enum": ["gradient", "solid", "image"], "default": "gradient" },
+        "from": { "type": "string", "description": "渐变起始色" },
+        "to": { "type": "string", "description": "渐变结束色" },
+        "angle": { "type": "number", "description": "渐变角度，默认 135" },
+        "color": { "type": "string", "description": "type=solid 时的填充色" },
+        "image": { "type": "string", "description": "type=image 时的路径（相对 poster-forge 或绝对）" },
+        "blobs": {
+          "type": "array",
+          "description": "柔焦光斑装饰。给纯色/渐变基底体积感，避免塑料感。",
+          "items": {
+            "type": "object",
+            "properties": {
+              "x": { "type": "number", "description": "中心 x，占宽比例 0..1" },
+              "y": { "type": "number", "description": "中心 y，占高比例 0..1" },
+              "r": { "type": "number", "description": "半径，占短边比例，默认 0.3" },
+              "color": { "type": "string", "description": "含 alpha 的颜色，如 #ffffff40" },
+              "blur": { "type": "number", "description": "模糊半径，占短边比例，默认 0.12" },
+              "opacity": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+
+    "layers": {
+      "type": "array",
+      "description": "图层栈。数组顺序即绘制顺序，后者压前者。显式，无隐含规则。",
+      "items": {
+        "oneOf": [
+          { "$ref": "#/definitions/shape" },
+          { "$ref": "#/definitions/text" },
+          { "$ref": "#/definitions/image" },
+          { "$ref": "#/definitions/qr" },
+          { "$ref": "#/definitions/group" }
+        ]
+      }
+    },
+
+    "quality": {
+      "type": "object",
+      "properties": {
+        "sharpen": { "type": "boolean", "description": "输出前做一次轻锐化，抵消缩放导致的软化" }
+      }
+    }
+  },
+
+  "definitions": {
+    "box": {
+      "description": "矩形区域。两种写法：[x,y,w,h]（比例，0..1）或 {box:[x,y], size:[w,h]}。所有几何均为画布比例，与像素尺寸解耦 —— 同一份 spec 可渲任意分辨率。",
+      "oneOf": [
+        {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": { "type": "number" }
+        }
+      ]
+    },
+
+    "shape": {
+      "type": "object",
+      "required": ["type", "box"],
+      "properties": {
+        "type": { "type": "string", "enum": ["shape"] },
+        "shape": { "type": "string", "enum": ["rect", "circle", "line"], "description": "默认 rect" },
+        "box": { "$ref": "#/definitions/box" },
+        "fill": { "type": "string", "description": "填充色或调色板名" },
+        "stroke": { "type": "string", "description": "描边色或调色板名" },
+        "strokeWidth": { "type": "number" },
+        "radius": { "type": "number", "description": "圆角半径（相对基准宽度的像素值，随画布等比缩放）" },
+        "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "points": {
+          "type": "array",
+          "description": "shape=line 时的两个端点，占画布比例"
+        }
+      }
+    },
+
+    "text": {
+      "type": "object",
+      "required": ["type", "text"],
+      "properties": {
+        "type": { "type": "string", "enum": ["text"] },
+        "text": { "type": "string", "description": "文本内容。支持 \\n 硬换行。" },
+        "x": { "type": "number", "description": "锚点 x，占宽比例。align 决定锚点在左/中/右。" },
+        "y": { "type": "number", "description": "锚点 y，占高比例。valign 决定锚点在上/中/下。" },
+        "align": { "type": "string", "enum": ["left", "center", "right"], "default": "left" },
+        "valign": { "type": "string", "enum": ["top", "center", "bottom"], "default": "top" },
+        "font": {
+          "type": "string",
+          "enum": ["bold", "sans", "light", "heavy", "song", "kai", "deng", "dengb", "zhong"],
+          "default": "sans",
+          "description": "字体注册名。bold/heavy 用于标题，sans/light 用于正文。"
+        },
+        "size": { "type": "integer", "description": "字号（基准宽 1080 下的像素值）" },
+        "lineHeight": { "type": "number", "default": 1.28 },
+        "color": { "type": "string" },
+        "maxWidth": { "type": "number", "description": "最大宽（比例或像素），超出自动折行" },
+        "fit": {
+          "type": "object",
+          "description": "自动缩字号：让文案在给定框内恰好放得下。长文案不溢出、短文案不显小。",
+          "properties": {
+            "maxSize": { "type": "integer" },
+            "minSize": { "type": "integer" },
+            "maxHeight": { "type": "number" },
+            "maxLines": { "type": "integer" }
+          }
+        },
+        "shadow": {
+          "type": "object",
+          "description": "投影。文字压在照片/复杂背景上时保证可读性。",
+          "properties": {
+            "color": { "type": "string" },
+            "dx": { "type": "number" },
+            "dy": { "type": "number" },
+            "blur": { "type": "number" }
+          }
+        },
+        "stroke": {
+          "type": "object",
+          "description": "描边。比阴影更强力的可读性保障。",
+          "properties": {
+            "color": { "type": "string" },
+            "width": { "type": "integer" }
+          }
+        }
+      }
+    },
+
+    "image": {
+      "type": "object",
+      "required": ["type", "src", "box"],
+      "properties": {
+        "type": { "type": "string", "enum": ["image"] },
+        "src": { "type": "string", "description": "图片路径（相对 poster-forge 或绝对）" },
+        "box": { "$ref": "#/definitions/box" },
+        "fit": { "type": "string", "enum": ["cover", "contain"], "default": "cover" },
+        "radius": { "type": "number", "description": "圆角，占图片短边比例" },
+        "opacity": { "type": "number" },
+        "tiles": { "type": "integer", "description": "把该图切成 N 格横向排列（多房型/多菜品场景）" },
+        "gap": { "type": "number", "description": "tiles 之间的间距，占宽比例" }
+      }
+    },
+
+    "qr": {
+      "type": "object",
+      "required": ["type", "data", "box"],
+      "properties": {
+        "type": { "type": "string", "enum": ["qr"] },
+        "data": { "type": "string", "description": "二维码内容（预约链接等）" },
+        "box": { "$ref": "#/definitions/box" },
+        "fg": { "type": "string" },
+        "bg": { "type": "string" },
+        "radius": { "type": "number" }
+      }
+    },
+
+    "group": {
+      "type": "object",
+      "required": ["type", "layers"],
+      "properties": {
+        "type": { "type": "string", "enum": ["group"] },
+        "name": { "type": "string" },
+        "layers": { "type": "array" }
+      }
+    }
+  }
+}

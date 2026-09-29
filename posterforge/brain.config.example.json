@@ -1,0 +1,30 @@
+{
+  "_note": "这是模板。部署脚本 (node deploy.mjs) 会把它复制成 brain.config.json，并把探测到的 Python 路径填进去。真实配置不进版本库 —— 每台机器的路径和模型都不同。",
+
+  "_howItWorks": "先让视觉模型（vision）看一眼用户上传的照片，产出一句画面描述；再把「用户的文字要求 + 画面描述」交给文案模型（copy）产出海报上真正要印的内容与调性。渲染仍由确定性引擎负责，模型只决定「生成什么」。",
+
+  "enabled": true,
+
+  "_endpoint": "Ollama 的地址。装在别的机器上就改成那台的 IP。不存在或连不上时，项目会**自己尝试拉起本机的 ollama serve**（见 brain.mjs 的 ensureOllama），不需要你手动开。",
+  "endpoint": "http://127.0.0.1:11434",
+
+  "_models": "用 ollama list 看本机有哪些。没装模型的话：ollama pull qwen2.5:7b（约 4.7GB）和 ollama pull qwen2.5vl:3b（约 3.2GB）。",
+  "vision": "qwen2.5vl:3b",
+  "copy": "qwen2.5:7b",
+
+  "_alternatives": {
+    "更强但更慢": { "copy": "qwen3:8b", "vision": "qwen2.5vl:3b" },
+    "只要文字不要读图": { "vision": null, "copy": "qwen2.5:7b" },
+    "完全没有模型也能跑": { "vision": null, "copy": null, "_说明": "文案退回内置确定性规则，海报照样出，只是文案不是模型写的" }
+  },
+
+  "_python": "渲染引擎用的 Python。部署脚本会自动探测并改写这一行 —— 从别人机器上拷来的配置，路径多半是错的。",
+  "python": "python",
+
+  "timeoutMs": 120000,
+  "maxImageSide": 896,
+  "visionMaxTokens": 160,
+  "copyMaxTokens": 500,
+  "temperature": 0.7,
+  "keepAlive": "30m"
+}

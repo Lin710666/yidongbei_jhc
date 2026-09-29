@@ -1,0 +1,119 @@
+{
+  "id": "checkin-photo-card",
+  "name": "游客打卡卡 · 图文（1080x1350）",
+  "description": "适配：游客上传照片 + 对话文案 -> 可直接发小红书/朋友圈的打卡图。与海报共用同一套引擎，只是版式与插槽不同 —— 这就是把「海报」建模成结构化文档的回报。",
+  "audience": ["tourist"],
+
+  "canvas": { "width": 1080, "height": 1350 },
+  "quality": { "sharpen": true },
+
+  "theme": {
+    "palette": {
+      "bgFrom": "#101826",
+      "bgTo": "#26344a",
+      "ink": "#ffffff",
+      "inkSoft": "#e6edf7",
+      "inkMute": "#a7b6cb",
+      "accent": "#8fd6c2",
+      "accent2": "#ffd08a",
+      "panel": "#0a111c",
+      "divider": "#ffffff2e",
+      "tagBg": "#ffffff22"
+    }
+  },
+
+  "background": {
+    "type": "gradient",
+    "from": "bgFrom",
+    "to": "bgTo",
+    "angle": 160,
+    "blobs": [
+      { "x": 0.18, "y": 0.10, "r": 0.38, "color": "#8fd6c233", "blur": 0.16 },
+      { "x": 0.88, "y": 0.80, "r": 0.36, "color": "#ffd08a22", "blur": 0.18 }
+    ]
+  },
+
+  "layers": [
+    { "type": "text", "name": "topLabel", "text": "占位地点", "x": 0.068, "y": 0.046, "font": "bold", "size": 28, "color": "accent" },
+    { "type": "text", "name": "topDate", "text": "占位日期", "x": 0.932, "y": 0.046, "align": "right", "font": "sans", "size": 24, "color": "inkMute" },
+
+    {
+      "type": "image",
+      "name": "photo",
+      "src": "assets/sample-photo.png",
+      "box": { "box": [0.068, 0.106], "size": [0.864, 0.522] },
+      "fit": "cover",
+      "radius": 0.035
+    },
+    {
+      "type": "shape",
+      "name": "photoFrame",
+      "shape": "rect",
+      "box": { "box": [0.068, 0.106], "size": [0.864, 0.522] },
+      "fill": null,
+      "stroke": "#ffffff44",
+      "strokeWidth": 2,
+      "radius": 38
+    },
+
+    {
+      "type": "text",
+      "name": "caption",
+      "text": "占位打卡文案",
+      "x": 0.068,
+      "y": 0.672,
+      "font": "heavy",
+      "size": 58,
+      "lineHeight": 1.32,
+      "color": "ink",
+      "fit": { "maxSize": 58, "minSize": 30, "maxWidth": 0.864, "maxHeight": 0.14, "maxLines": 3 },
+      "shadow": { "color": "#00000088", "dx": 0, "dy": 3, "blur": 10 }
+    },
+
+    {
+      "type": "text",
+      "name": "body",
+      "text": "占位正文",
+      "x": 0.068,
+      "y": 0.836,
+      "font": "sans",
+      "size": 28,
+      "lineHeight": 1.55,
+      "color": "inkSoft",
+      "fit": { "maxSize": 28, "minSize": 18, "maxWidth": 0.864, "maxHeight": 0.10, "maxLines": 3 }
+    },
+
+    {
+      "type": "shape",
+      "name": "tag1Bg",
+      "shape": "rect",
+      "box": { "box": [0.068, 0.922], "size": [0.20, 0.042] },
+      "fill": "tagBg",
+      "radius": 24
+    },
+    { "type": "text", "name": "tag1", "text": "#占位标签", "x": 0.168, "y": 0.943, "align": "center", "valign": "center", "font": "sans", "size": 22, "color": "accent" },
+
+    {
+      "type": "shape",
+      "name": "tag2Bg",
+      "shape": "rect",
+      "box": { "box": [0.284, 0.922], "size": [0.20, 0.042] },
+      "fill": "tagBg",
+      "radius": 24
+    },
+    { "type": "text", "name": "tag2", "text": "#占位标签", "x": 0.384, "y": 0.943, "align": "center", "valign": "center", "font": "sans", "size": 22, "color": "accent2" },
+
+    {
+      "type": "text",
+      "name": "watermark",
+      "text": "poster-forge",
+      "x": 0.932,
+      "y": 0.943,
+      "align": "right",
+      "valign": "center",
+      "font": "sans",
+      "size": 18,
+      "color": "inkMute"
+    }
+  ]
+}

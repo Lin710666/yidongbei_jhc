@@ -1,0 +1,15 @@
+{
+  "name": "copybook-render",
+  "version": "1.0.0",
+  "entry": "SKILL.md",
+  "license": "MIT",
+  "description": "多页 PDF 文案手册渲染：封面/正文/卖点/表格/价格/联系六类版块，A4 300DPI。",
+  "invocation": {
+    "input": "CopybookSpec JSON（sections 序列）",
+    "output": "多页 PDF + 每页 PNG 预览"
+  },
+  "scripts": [
+    "scripts/render-copybook.ps1"
+  ],
+  "references": []
+}

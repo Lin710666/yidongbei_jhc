@@ -1,0 +1,15 @@
+{
+  "name": "bureau-poster",
+  "version": "1.0.0",
+  "entry": "SKILL.md",
+  "license": "MIT",
+  "references": [
+    "references/bureau-template.md"
+  ],
+  "scripts": [],
+  "description": "文旅局场景：活动预告、票务、非遗宣传。口径必须与官方发布逐字一致。",
+  "invocation": {
+    "input": "官方活动信息 + 素材图",
+    "output": "PosterSpec（政务风格）"
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "_comment": "示例：饭馆午市套餐横版 Banner。同一套引擎、不同版式 —— 内容层完全换了，契约没变。",
+
+  "meta": {
+    "id": "restaurant-2026-lunch-01",
+    "client": "灶王爷私房菜",
+    "audience": "restaurant",
+    "intent": "工作日午市套餐引流",
+    "facts_source": "客户提供的纸质菜单照片（OCR 核对）。价格 ￥68 经老板确认。",
+    "generated_by": "手工起草（用于验证横版版式）"
+  },
+
+  "layout": "@layout:banner-horizontal-warm",
+
+  "theme": {
+    "palette": {
+      "bgFrom": "#33110d",
+      "bgTo": "#7a2d17",
+      "amber": "#ffb347",
+      "price": "#ffd48a"
+    }
+  },
+
+  "layers": [
+    {
+      "type": "text", "name": "brand", "text": "灶王爷 · 私房菜",
+      "x": 0.058, "y": 0.090, "font": "bold", "size": 30, "color": "amber",
+      "shadow": { "color": "#00000077", "dx": 0, "dy": 2, "blur": 5 }
+    },
+    {
+      "type": "text", "name": "eyebrow", "text": "工作日午市 · 11:00–14:00",
+      "x": 0.058, "y": 0.212, "font": "sans", "size": 24, "color": "inkSoft"
+    },
+    {
+      "type": "text", "name": "title", "text": "四菜一汤\n两人吃",
+      "x": 0.058, "y": 0.278, "font": "heavy", "size": 86, "lineHeight": 1.18,
+      "color": "ink",
+      "fit": { "maxSize": 86, "minSize": 40, "maxWidth": 0.56, "maxHeight": 0.30, "maxLines": 2 },
+      "shadow": { "color": "#00000099", "dx": 0, "dy": 4, "blur": 12 }
+    },
+    {
+      "type": "text", "name": "subtitle", "text": "当日现炒 · 米饭例汤无限续",
+      "x": 0.058, "y": 0.628, "font": "sans", "size": 26, "lineHeight": 1.5,
+      "color": "inkSoft",
+      "fit": { "maxSize": 26, "minSize": 18, "maxWidth": 0.54, "maxHeight": 0.18, "maxLines": 2 }
+    },
+
+    {
+      "type": "shape", "name": "pricePanel", "shape": "rect",
+      "box": [0.660, 0.250, 0.942, 0.700],
+      "fill": "panel", "radius": 24, "opacity": 0.66
+    },
+    {
+      "type": "text", "name": "priceNote", "text": "套餐价",
+      "x": 0.801, "y": 0.360, "align": "center", "font": "sans", "size": 22, "color": "inkMute"
+    },
+    {
+      "type": "text", "name": "price", "text": "￥68",
+      "x": 0.801, "y": 0.480, "align": "center", "font": "heavy", "size": 84,
+      "color": "price",
+      "shadow": { "color": "#00000088", "dx": 0, "dy": 3, "blur": 10 }
+    },
+    {
+      "type": "text", "name": "priceUnit", "text": "起 / 两位",
+      "x": 0.801, "y": 0.612, "align": "center", "font": "sans", "size": 22, "color": "inkMute"
+    },
+
+    {
+      "type": "shape", "name": "divider", "shape": "rect",
+      "box": { "box": [0.058, 0.855], "size": [0.560, 0.0016] },
+      "fill": "divider", "radius": 2
+    },
+    {
+      "type": "text", "name": "contact", "text": "订座 138-0000-1234 · 城西老街 12 号",
+      "x": 0.058, "y": 0.895, "font": "sans", "size": 22, "color": "inkMute",
+      "fit": { "maxSize": 22, "minSize": 15, "maxWidth": 0.58, "maxLines": 1 }
+    }
+  ]
+}

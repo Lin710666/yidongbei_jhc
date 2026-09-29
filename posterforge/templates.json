@@ -1,0 +1,895 @@
+{
+  "version": 2,
+  "updated": "2026-09-29",
+  "_why": [
+    "模板库。v1 只有 8 套，而且全是『促销 + 价格』一个模子 —— 用户反馈『太少、高度同质化』。",
+    "v2 按真实业务场景铺开：住宿 / 餐饮 / 文旅景区 / 活动会展 / 节日节气 / 商业运营 六大类。",
+    "",
+    "多样性的三个维度（这是 v1 缺的）：",
+    "  · 版式：poster_text（纯文字）/ poster_photo_bg（单图铺底）/ poster_photo_strip（多图拼带）",
+    "  · 结构：有的有价格、有的**没有价格**（通知/招募/公告类，本来就不该出现钱）",
+    "  · 调性 tone 0~1：冷调（雪季/文博/剧场）到暖调（夜市/火锅/年货）全铺开，不挤在中间",
+    "",
+    "品类口径参考了公开的年度营销节点梳理（元旦/腊八/春节/元宵/清明/五一/端午/中秋/国庆等），",
+    "但**文案全部自己写**：不抄任何模板站的成品设计（那有版权，抓取也违反其条款）。",
+    "",
+    "内容规矩（与全站一致）：",
+    "  · 不出现编造的价格、电话、地址、销量 —— 一律 ○○ 占位符，让用户替换。",
+    "  · 不出现真实品牌名或具体地名。"
+  ],
+  "templates": [
+    {
+      "id": "tpl-hotel-autumn",
+      "title": "酒店秋季促销",
+      "audience": "hotel",
+      "tags": [
+        "酒店",
+        "促销",
+        "秋季",
+        "连住"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.62,
+      "likes": 2686,
+      "comments": 143,
+      "featured": true,
+      "brief": "连住两晚立减 ○○○ 元，含双早，周末不加价\n房型：全海景露台房 · 免费停车 · 赠双人温泉 1 次\n我的店名（改成你的酒店名）· 预订 ○○○-○○○○-○○○○",
+      "composition": "fullbleed",
+      "variant": "b",
+      "tuning": {
+        "y": 0,
+        "s": 1.14
+      }
+    },
+    {
+      "id": "tpl-hotel-snow",
+      "title": "雪季温泉预售",
+      "audience": "hotel",
+      "tags": [
+        "酒店",
+        "雪季",
+        "温泉",
+        "预售"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.28,
+      "likes": 1812,
+      "comments": 76,
+      "brief": "雪季预售 · 雪山景观房，私汤入户\n两晚套餐含双早，赠双人滑雪票 + 雪具租赁\n我的店名（改成你的酒店名）· 预订 ○○○-○○○○-○○○○",
+      "composition": "fullbleed",
+      "variant": "c",
+      "tuning": {
+        "y": 0.22,
+        "s": 0.9
+      }
+    },
+    {
+      "id": "tpl-inn-seaside",
+      "title": "海岛观日出民宿",
+      "audience": "hotel",
+      "tags": [
+        "民宿",
+        "海岛",
+        "日出"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.55,
+      "likes": 1136,
+      "comments": 87,
+      "brief": "海岛民宿 · 含往返船票，日出观景台接送 + 海鲜早餐\n两天一夜 · 双人\n我的店名（改成你的民宿名）· 预订 ○○○-○○○○-○○○○",
+      "composition": "fullbleed",
+      "variant": "b",
+      "tuning": {
+        "y": 0.22,
+        "s": 1.02
+      }
+    },
+    {
+      "id": "tpl-hotel-opening",
+      "title": "新店开业酬宾",
+      "audience": "hotel",
+      "tags": [
+        "酒店",
+        "开业",
+        "酬宾"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.68,
+      "likes": 986,
+      "comments": 54,
+      "brief": "开业酬宾 · 首月入住享 ○○ 折，赠欢迎茶点\n限量 ○○ 间/天，需提前预约\n我的店名（改成你的酒店名）· 预订 ○○○-○○○○-○○○○",
+      "composition": "split",
+      "variant": "b",
+      "tuning": {
+        "y": 0,
+        "s": 1.14
+      }
+    },
+    {
+      "id": "tpl-hotel-member",
+      "title": "会员专享日",
+      "audience": "hotel",
+      "tags": [
+        "酒店",
+        "会员",
+        "权益"
+      ],
+      "layout": "poster_text",
+      "tone": 0.4,
+      "likes": 742,
+      "comments": 31,
+      "brief": "会员专享 · 每月 ○○ 日开放免费升房\n积分可抵房费，生日当月双倍累积\n我的店名（改成你的酒店名）· 会员咨询 ○○○-○○○○-○○○○",
+      "composition": "typeled",
+      "variant": "b",
+      "tuning": {
+        "y": 0,
+        "s": 1.14
+      }
+    },
+    {
+      "id": "tpl-inn-camp",
+      "title": "山野露营营地",
+      "audience": "hotel",
+      "tags": [
+        "露营",
+        "户外",
+        "亲子"
+      ],
+      "layout": "poster_photo_strip",
+      "tone": 0.46,
+      "likes": 668,
+      "comments": 42,
+      "brief": "山野露营 · 拎包入住，含帐篷 + 睡袋 + 天幕\n每晚赠篝火与星空讲解，可带宠物\n我的营地名（改成你的营地名）· 预约 ○○○-○○○○-○○○○",
+      "composition": "fullbleed",
+      "variant": "a",
+      "tuning": {
+        "y": 0.22,
+        "s": 0.96
+      }
+    },
+    {
+      "id": "tpl-rest-lunch",
+      "title": "餐厅午市套餐",
+      "audience": "restaurant",
+      "tags": [
+        "餐饮",
+        "套餐",
+        "午市"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.78,
+      "likes": 2204,
+      "comments": 98,
+      "brief": "午市双人套餐 4 菜 1 汤，现点现做\n工作日 11:00-14:00 供应，节假日通用\n我的店名（改成你的餐厅名）· 订座 ○○○-○○○○-○○○○",
+      "composition": "split",
+      "variant": "b",
+      "tuning": {
+        "y": 0.22,
+        "s": 1.02
+      }
+    },
+    {
+      "id": "tpl-night-market",
+      "title": "夜市开街引流",
+      "audience": "bureau",
+      "tags": [
+        "夜市",
+        "市集",
+        "引流"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.82,
+      "likes": 1620,
+      "comments": 188,
+      "featured": true,
+      "brief": "夜市开街 · ○○ 家小吃 + 非遗手作 + 江景灯光秀\n每晚 18:00-24:00，连开 ○○ 天\n○○ 市集主办方 · 咨询 ○○○-○○○○-○○○○",
+      "picked": 4,
+      "lastPickedAt": "2026-09-29T15:41:01.232Z",
+      "composition": "fullbleed",
+      "variant": "c",
+      "tuning": {
+        "y": 0.22,
+        "s": 1.08
+      }
+    },
+    {
+      "id": "tpl-tea",
+      "title": "春茶上新体验",
+      "audience": "restaurant",
+      "tags": [
+        "茶饮",
+        "上新",
+        "体验"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.48,
+      "likes": 1445,
+      "comments": 64,
+      "brief": "春茶上新 · 明前采摘，手工炒制\n茶山体验 + 茶点一份，双人茶席\n我的店名（改成你的茶室名）· 预约 ○○○-○○○○-○○○○",
+      "composition": "splitv",
+      "variant": "b",
+      "tuning": {
+        "y": 0,
+        "s": 0.96
+      }
+    },
+    {
+      "id": "tpl-hotpot",
+      "title": "火锅店冬季暖场",
+      "audience": "restaurant",
+      "tags": [
+        "餐饮",
+        "火锅",
+        "冬季"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.86,
+      "likes": 1298,
+      "comments": 143,
+      "brief": "冬日暖锅 · 现切鲜肉，每日现熬汤底\n四人同行赠时令蔬菜拼盘\n我的店名（改成你的店名）· 订座 ○○○-○○○○-○○○○",
+      "composition": "split",
+      "variant": "c",
+      "tuning": {
+        "y": 0.22,
+        "s": 0.9
+      }
+    },
+    {
+      "id": "tpl-bbq",
+      "title": "烧烤摊夜宵档",
+      "audience": "restaurant",
+      "tags": [
+        "烧烤",
+        "夜宵",
+        "档口"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.88,
+      "likes": 1104,
+      "comments": 97,
+      "brief": "夜宵档 · 炭火现烤，每日 20:00 后开档\n十串起送，堂食赠冰镇饮品\n我的摊位名（改成你的店名）· 订餐 ○○○-○○○○-○○○○",
+      "picked": 13,
+      "lastPickedAt": "2026-09-29T12:59:07.168Z",
+      "composition": "split",
+      "variant": "a",
+      "tuning": {
+        "y": 0,
+        "s": 0.9
+      }
+    },
+    {
+      "id": "tpl-rest-group",
+      "title": "团餐宴会接待",
+      "audience": "restaurant",
+      "tags": [
+        "餐饮",
+        "团餐",
+        "宴会"
+      ],
+      "layout": "poster_text",
+      "tone": 0.52,
+      "likes": 623,
+      "comments": 28,
+      "brief": "承接婚宴 / 寿宴 / 团建聚餐，○○ 桌起订\n可定制菜单，独立包间需提前 ○○ 天预定\n我的店名（改成你的店名）· 宴会咨询 ○○○-○○○○-○○○○",
+      "composition": "split",
+      "variant": "a",
+      "tuning": {
+        "y": 0.22,
+        "s": 0.96
+      }
+    },
+    {
+      "id": "tpl-rest-seasonal",
+      "title": "节气时令菜",
+      "audience": "restaurant",
+      "tags": [
+        "餐饮",
+        "节气",
+        "时令"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.44,
+      "likes": 587,
+      "comments": 22,
+      "brief": "应季而食 · 本季时令菜单上新\n当日菜场直采，售完即止\n我的店名（改成你的店名）· 订座 ○○○-○○○○-○○○○",
+      "composition": "splitv",
+      "variant": "a",
+      "tuning": {
+        "y": 0,
+        "s": 0.9
+      }
+    },
+    {
+      "id": "tpl-scenic",
+      "title": "景区踏青票务",
+      "audience": "bureau",
+      "tags": [
+        "景区",
+        "票务",
+        "踏青"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.42,
+      "likes": 1957,
+      "comments": 211,
+      "brief": "踏青季 · 索道往返 + 讲解器全含\n开放时间 08:30-17:30，请提前一天预约\n○○ 景区管理处 · 咨询 ○○○-○○○○-○○○○",
+      "composition": "grid",
+      "variant": "a",
+      "tuning": {
+        "y": 0,
+        "s": 0.9
+      }
+    },
+    {
+      "id": "tpl-scenic-flower",
+      "title": "赏花季节活动",
+      "audience": "bureau",
+      "tags": [
+        "景区",
+        "赏花",
+        "春季"
+      ],
+      "layout": "poster_photo_strip",
+      "tone": 0.72,
+      "likes": 1732,
+      "comments": 166,
+      "brief": "赏花季 · 花期约 ○○ 天，最佳观赏期见园区公告\n园内设 ○○ 处打卡点，可租借讲解设备\n○○ 景区管理处 · 咨询 ○○○-○○○○-○○○○",
+      "composition": "fullbleed",
+      "variant": "b",
+      "tuning": {
+        "y": 0.44,
+        "s": 0.9
+      }
+    },
+    {
+      "id": "tpl-scenic-autumn",
+      "title": "红叶季观景",
+      "audience": "bureau",
+      "tags": [
+        "景区",
+        "红叶",
+        "秋季"
+      ],
+      "layout": "poster_photo_strip",
+      "tone": 0.6,
+      "likes": 1544,
+      "comments": 121,
+      "brief": "红叶季 · 观景索道 + 山顶平台\n建议上午前往，午后光线更适合拍照\n○○ 景区管理处 · 咨询 ○○○-○○○○-○○○○",
+      "composition": "fullbleed",
+      "variant": "a",
+      "tuning": {
+        "y": 0.22,
+        "s": 1.14
+      }
+    },
+    {
+      "id": "tpl-scenic-ice",
+      "title": "冰雪节活动",
+      "audience": "bureau",
+      "tags": [
+        "景区",
+        "冰雪",
+        "冬季"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.22,
+      "likes": 1408,
+      "comments": 95,
+      "brief": "冰雪节 · 冰雕展 + 雪圈滑道 + 夜场灯光\n开放至 21:00，请穿防滑鞋\n○○ 景区管理处 · 咨询 ○○○-○○○○-○○○○",
+      "composition": "fullbleed",
+      "variant": "c",
+      "tuning": {
+        "y": 0.44,
+        "s": 0.96
+      }
+    },
+    {
+      "id": "tpl-scenic-night",
+      "title": "夜游项目开放",
+      "audience": "bureau",
+      "tags": [
+        "景区",
+        "夜游",
+        "灯光"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.34,
+      "likes": 1310,
+      "comments": 108,
+      "brief": "夜游开放 · 灯光秀每晚上演 ○○ 场\n末班入园 20:30，请留意返程交通\n○○ 景区管理处 · 咨询 ○○○-○○○○-○○○○",
+      "composition": "fullbleed",
+      "variant": "a",
+      "tuning": {
+        "y": 0.44,
+        "s": 1.02
+      }
+    },
+    {
+      "id": "tpl-scenic-study",
+      "title": "研学旅行招募",
+      "audience": "bureau",
+      "tags": [
+        "研学",
+        "亲子",
+        "招募"
+      ],
+      "layout": "poster_text",
+      "tone": 0.38,
+      "likes": 902,
+      "comments": 74,
+      "brief": "研学营招募 · 适合 ○○-○○ 岁，每期限 ○○ 人\n含课程材料 + 保险 + 午餐，需家长陪同\n○○ 承办方 · 报名咨询 ○○○-○○○○-○○○○",
+      "composition": "typeled",
+      "variant": "b",
+      "tuning": {
+        "y": 0.22,
+        "s": 1.02
+      }
+    },
+    {
+      "id": "tpl-scenic-heritage",
+      "title": "非遗手作体验",
+      "audience": "bureau",
+      "tags": [
+        "非遗",
+        "手作",
+        "体验"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.32,
+      "likes": 866,
+      "comments": 69,
+      "brief": "非遗体验 · 手作课程每场 ○○ 人，需提前预约\n由传承人现场指导，成品可带走\n○○ 文化馆 · 咨询 ○○○-○○○○-○○○○",
+      "composition": "focal",
+      "variant": "b",
+      "tuning": {
+        "y": 0,
+        "s": 0.96
+      }
+    },
+    {
+      "id": "tpl-scenic-closed",
+      "title": "闭园维护公告",
+      "audience": "bureau",
+      "tags": [
+        "公告",
+        "通知",
+        "维护"
+      ],
+      "layout": "poster_text",
+      "tone": 0.3,
+      "likes": 412,
+      "comments": 12,
+      "brief": "闭园公告 · 因设施维护，○○ 月 ○○ 日暂停开放\n已购票游客可全额退款或改期\n○○ 景区管理处 · 咨询 ○○○-○○○○-○○○○",
+      "picked": 3,
+      "lastPickedAt": "2026-09-29T13:41:25.401Z",
+      "composition": "typeled",
+      "variant": "a",
+      "tuning": {
+        "y": 0.22,
+        "s": 0.96
+      }
+    },
+    {
+      "id": "tpl-museum",
+      "title": "博物馆汉服企划",
+      "audience": "bureau",
+      "tags": [
+        "文博",
+        "活动",
+        "汉服"
+      ],
+      "layout": "poster_text",
+      "tone": 0.35,
+      "likes": 1298,
+      "comments": 155,
+      "brief": "汉服免费穿 · 凭门票免费租借，专业妆造\n每日 9:00-17:00，周一闭馆\n○○ 博物馆 · 咨询 ○○○-○○○○-○○○○",
+      "composition": "axial",
+      "variant": "b",
+      "tuning": {
+        "y": 0,
+        "s": 1.14
+      }
+    },
+    {
+      "id": "tpl-expo",
+      "title": "展览开展预告",
+      "audience": "bureau",
+      "tags": [
+        "展览",
+        "预告",
+        "文化"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.36,
+      "likes": 1043,
+      "comments": 88,
+      "brief": "特展开展 · ○○ 件展品首次公开展出\n展期 ○○ 月 ○○ 日 至 ○○ 月 ○○ 日\n○○ 美术馆 · 咨询 ○○○-○○○○-○○○○",
+      "composition": "axial",
+      "variant": "a",
+      "tuning": {
+        "y": 0,
+        "s": 0.9
+      }
+    },
+    {
+      "id": "tpl-show",
+      "title": "剧场演出售票",
+      "audience": "bureau",
+      "tags": [
+        "演出",
+        "售票",
+        "剧场"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.26,
+      "likes": 987,
+      "comments": 102,
+      "brief": "演出预告 · ○○ 月 ○○ 日 ○○:○○ 开演，全长约 ○○ 分钟\n一人一票，1.2 米以下儿童谢绝入场\n○○ 剧院 · 票务咨询 ○○○-○○○○-○○○○",
+      "composition": "axial",
+      "variant": "c",
+      "tuning": {
+        "y": 0.22,
+        "s": 0.9
+      }
+    },
+    {
+      "id": "tpl-fair",
+      "title": "文创市集招募摊主",
+      "audience": "bureau",
+      "tags": [
+        "市集",
+        "招募",
+        "文创"
+      ],
+      "layout": "poster_text",
+      "tone": 0.64,
+      "likes": 876,
+      "comments": 133,
+      "brief": "市集招募 · 招募手作 / 文创 / 独立出版摊主 ○○ 席\n摊位费与报名方式详见公众号\n○○ 主办方 · 报名 ○○○-○○○○-○○○○",
+      "composition": "typeled",
+      "variant": "a",
+      "tuning": {
+        "y": 0,
+        "s": 1.08
+      }
+    },
+    {
+      "id": "tpl-sports",
+      "title": "城市马拉松赛事",
+      "audience": "bureau",
+      "tags": [
+        "赛事",
+        "运动",
+        "报名"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.58,
+      "likes": 823,
+      "comments": 91,
+      "brief": "城市马拉松 · ○○ 月 ○○ 日鸣枪，设全程 / 半程 / 欢乐跑\n报名截止 ○○ 月 ○○ 日，需提交体检证明\n○○ 组委会 · 咨询 ○○○-○○○○-○○○○",
+      "composition": "grid",
+      "variant": "b",
+      "tuning": {
+        "y": 0,
+        "s": 0.96
+      }
+    },
+    {
+      "id": "tpl-lecture",
+      "title": "公益讲座报名",
+      "audience": "bureau",
+      "tags": [
+        "讲座",
+        "公益",
+        "报名"
+      ],
+      "layout": "poster_text",
+      "tone": 0.33,
+      "likes": 534,
+      "comments": 27,
+      "brief": "公益讲座 · 主题与主讲人见正文\n免费入场，座位 ○○ 席，先到先得\n○○ 主办方 · 咨询 ○○○-○○○○-○○○○",
+      "composition": "typeled",
+      "variant": "c",
+      "tuning": {
+        "y": 0.22,
+        "s": 0.9
+      }
+    },
+    {
+      "id": "tpl-holiday-newyear",
+      "title": "元旦跨年活动",
+      "audience": "bureau",
+      "tags": [
+        "元旦",
+        "跨年",
+        "节日"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.7,
+      "likes": 1521,
+      "comments": 134,
+      "brief": "跨年活动 · ○○ 月 ○○ 日 ○○:○○ 起，倒计时灯光秀\n现场设心愿墙与热饮区\n○○ 主办方 · 咨询 ○○○-○○○○-○○○○",
+      "composition": "axial",
+      "variant": "a",
+      "tuning": {
+        "y": 0,
+        "s": 1.08
+      }
+    },
+    {
+      "id": "tpl-holiday-spring",
+      "title": "春节年货市集",
+      "audience": "bureau",
+      "tags": [
+        "春节",
+        "年货",
+        "市集"
+      ],
+      "layout": "poster_photo_strip",
+      "tone": 0.84,
+      "likes": 1893,
+      "comments": 201,
+      "brief": "年货市集 · ○○ 家商户，春联 / 干货 / 手作糕点\n腊月 ○○ 至除夕，每日 9:00-21:00\n○○ 主办方 · 咨询 ○○○-○○○○-○○○○",
+      "composition": "fullbleed",
+      "variant": "a",
+      "tuning": {
+        "y": 0,
+        "s": 1.08
+      }
+    },
+    {
+      "id": "tpl-holiday-lantern",
+      "title": "元宵灯会",
+      "audience": "bureau",
+      "tags": [
+        "元宵",
+        "灯会",
+        "民俗"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.76,
+      "likes": 1467,
+      "comments": 158,
+      "brief": "元宵灯会 · 猜灯谜 + 手作汤圆 + 民俗巡游\n正月十五 18:00-22:00\n○○ 主办方 · 咨询 ○○○-○○○○-○○○○",
+      "composition": "axial",
+      "variant": "c",
+      "tuning": {
+        "y": 0,
+        "s": 1.02
+      }
+    },
+    {
+      "id": "tpl-holiday-qingming",
+      "title": "清明踏青线路",
+      "audience": "bureau",
+      "tags": [
+        "清明",
+        "踏青",
+        "线路"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.46,
+      "likes": 768,
+      "comments": 45,
+      "brief": "清明踏青 · 半日 / 一日线路可选，含往返交通\n发团日期 ○○ 月 ○○ 日 至 ○○ 日\n○○ 旅行社 · 报名 ○○○-○○○○-○○○○",
+      "composition": "fullbleed",
+      "variant": "c",
+      "tuning": {
+        "y": 0,
+        "s": 1.02
+      }
+    },
+    {
+      "id": "tpl-holiday-mayday",
+      "title": "五一假期活动",
+      "audience": "bureau",
+      "tags": [
+        "五一",
+        "假期",
+        "活动"
+      ],
+      "layout": "poster_photo_strip",
+      "tone": 0.66,
+      "likes": 1385,
+      "comments": 119,
+      "brief": "五一假期 · 连续 ○○ 天，每天不同主题活动\n开放时间延长至 21:00\n○○ 主办方 · 咨询 ○○○-○○○○-○○○○",
+      "composition": "fullbleed",
+      "variant": "a",
+      "tuning": {
+        "y": 0,
+        "s": 0.9
+      }
+    },
+    {
+      "id": "tpl-holiday-dragonboat",
+      "title": "端午民俗体验",
+      "audience": "bureau",
+      "tags": [
+        "端午",
+        "民俗",
+        "体验"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.54,
+      "likes": 934,
+      "comments": 62,
+      "brief": "端午民俗 · 包粽子体验 + 龙舟观赛\n五月初五 9:00-16:00，体验需提前报名\n○○ 主办方 · 咨询 ○○○-○○○○-○○○○",
+      "composition": "axial",
+      "variant": "b",
+      "tuning": {
+        "y": 0,
+        "s": 0.96
+      }
+    },
+    {
+      "id": "tpl-holiday-midautumn",
+      "title": "中秋赏月活动",
+      "audience": "bureau",
+      "tags": [
+        "中秋",
+        "赏月",
+        "团圆"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.5,
+      "likes": 1122,
+      "comments": 87,
+      "brief": "中秋赏月 · 湖畔茶席 + 民乐演奏，每场限 ○○ 席\n八月十五 19:00-21:30\n○○ 主办方 · 咨询 ○○○-○○○○-○○○○",
+      "composition": "focal",
+      "variant": "a",
+      "tuning": {
+        "y": 0,
+        "s": 0.9
+      }
+    },
+    {
+      "id": "tpl-holiday-national",
+      "title": "国庆黄金周",
+      "audience": "bureau",
+      "tags": [
+        "国庆",
+        "黄金周",
+        "活动"
+      ],
+      "layout": "poster_photo_strip",
+      "tone": 0.74,
+      "likes": 1611,
+      "comments": 145,
+      "brief": "国庆黄金周 · ○○ 项主题活动，全天候开放\n建议错峰出行，园区提供免费接驳\n○○ 主办方 · 咨询 ○○○-○○○○-○○○○",
+      "composition": "fullbleed",
+      "variant": "b",
+      "tuning": {
+        "y": 0,
+        "s": 0.96
+      }
+    },
+    {
+      "id": "tpl-biz-opening",
+      "title": "门店开业预告",
+      "audience": "restaurant",
+      "tags": [
+        "开业",
+        "门店",
+        "预告"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.8,
+      "likes": 1204,
+      "comments": 96,
+      "brief": "新店开业 · ○○ 月 ○○ 日 ○○:○○ 正式营业\n开业当天到店赠伴手礼，送完为止\n我的店名（改成你的店名）· 地址见文末",
+      "composition": "split",
+      "variant": "c",
+      "tuning": {
+        "y": 0,
+        "s": 1.02
+      }
+    },
+    {
+      "id": "tpl-biz-anniversary",
+      "title": "周年庆感恩回馈",
+      "audience": "restaurant",
+      "tags": [
+        "周年庆",
+        "回馈",
+        "会员"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.72,
+      "likes": 1088,
+      "comments": 78,
+      "brief": "周年庆 · 连续 ○○ 天，老客凭记录领专属礼\n会员积分双倍累积\n我的店名（改成你的店名）· 咨询 ○○○-○○○○-○○○○",
+      "composition": "typeled",
+      "variant": "a",
+      "tuning": {
+        "y": 0,
+        "s": 0.9
+      },
+      "picked": 1,
+      "lastPickedAt": "2026-09-29T15:41:08.448Z"
+    },
+    {
+      "id": "tpl-biz-join",
+      "title": "招商合作招募",
+      "audience": "bureau",
+      "tags": [
+        "招商",
+        "合作",
+        "招募"
+      ],
+      "layout": "poster_text",
+      "tone": 0.34,
+      "likes": 645,
+      "comments": 41,
+      "brief": "招商合作 · 招商业态：零售 / 餐饮 / 体验\n面积 ○○-○○ 平米，可整租可分租\n○○ 招商中心 · 联系 ○○○-○○○○-○○○○",
+      "composition": "typeled",
+      "variant": "c",
+      "tuning": {
+        "y": 0,
+        "s": 1.02
+      }
+    },
+    {
+      "id": "tpl-biz-hiring",
+      "title": "门店招聘启事",
+      "audience": "restaurant",
+      "tags": [
+        "招聘",
+        "岗位",
+        "门店"
+      ],
+      "layout": "poster_text",
+      "tone": 0.56,
+      "likes": 588,
+      "comments": 63,
+      "brief": "招聘 · 岗位：前厅 / 后厨 / 店长，招 ○○ 人\n包吃住，可接受轮班，有无经验均可\n我的店名（改成你的店名）· 面试 ○○○-○○○○-○○○○",
+      "composition": "typeled",
+      "variant": "b",
+      "tuning": {
+        "y": 0,
+        "s": 0.96
+      }
+    },
+    {
+      "id": "tpl-biz-live",
+      "title": "直播预告",
+      "audience": "restaurant",
+      "tags": [
+        "直播",
+        "预告",
+        "线上"
+      ],
+      "layout": "poster_text",
+      "tone": 0.69,
+      "likes": 1055,
+      "comments": 112,
+      "brief": "直播预告 · ○○ 月 ○○ 日 ○○:○○ 开播\n直播间下单享专属价，限量 ○○ 份\n我的店名（改成你的店名）· 关注直播间",
+      "composition": "split",
+      "variant": "b",
+      "tuning": {
+        "y": 0,
+        "s": 0.96
+      }
+    },
+    {
+      "id": "tpl-biz-presale",
+      "title": "预售券限时购",
+      "audience": "restaurant",
+      "tags": [
+        "预售",
+        "券",
+        "限时"
+      ],
+      "layout": "poster_photo_bg",
+      "tone": 0.75,
+      "likes": 1320,
+      "comments": 154,
+      "brief": "预售券 · ○○ 月 ○○ 日 ○○:○○ 开抢，售完即止\n有效期至 ○○ 月 ○○ 日，过期可退\n我的店名（改成你的店名）· 购买见文末",
+      "composition": "split",
+      "variant": "a",
+      "tuning": {
+        "y": 0,
+        "s": 1.08
+      }
+    }
+  ]
+}

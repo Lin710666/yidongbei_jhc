@@ -1,0 +1,13 @@
+{
+  "name": "site-feed",
+  "version": "1.0.0",
+  "entry": "SKILL.md",
+  "license": "MIT",
+  "description": "主页联网素材：Bing 每日壁纸（免 key，每天更新，带署名）+ 可配 Pexels/Unsplash key 获取可商用素材；含图片代理与磁盘缓存，断网可用。",
+  "invocation": {
+    "input": "site/feed.config.json 中的 sources 与可选 API key",
+    "output": "带来源状态与版权署名的条目列表"
+  },
+  "scripts": [],
+  "references": []
+}

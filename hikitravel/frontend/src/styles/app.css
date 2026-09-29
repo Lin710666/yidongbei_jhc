@@ -1,0 +1,1716 @@
+/* ============================================================
+   设计系统
+   浅色：画布灰 + 白卡 + 发丝线 + 单一强调色
+   深色：近黑冷调阶梯（参考 GitHub Primer 的 0d1117 / 151b23），
+        不用纯黑打底——纯黑配灰卡会在中间形成断层，看着像黑虚空里飘着灰板。
+   字号为工具尺度：标题 22 / 区块 15 / 正文 14 / 次要 12
+   ============================================================ */
+:root {
+  color-scheme: light;
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display',
+    'Helvetica Neue', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+
+  --canvas: #f5f5f7;
+  --surface: #ffffff;
+  --surface-2: #f5f5f7;
+  --text: #1d1d1f;
+  --text-2: #6e6e73;
+  --text-3: #86868b;
+  --hairline: #d2d2d7;
+  --accent: #0071e3;
+  --accent-hover: #0077ed;
+  --accent-soft: rgba(0, 113, 227, 0.1);
+  --seg-bg: rgba(120, 120, 128, 0.12);
+  --seg-on: #ffffff;
+  --ok: #34c759;
+  --warn: #ff9500;
+  --danger: #ff3b30;
+
+  --map-bg: #eaecf0;
+  --map-road: #ffffff;
+  --map-water: #cfe4f7;
+  --map-park: #e4f1e5;
+
+  --shadow-pop: 0 8px 24px -12px rgba(0, 0, 0, 0.28);
+  --bar-h: 56px;
+  --gutter: 16px;
+  /* 应用外壳尺寸：左输入栏固定宽，右地图栏按视口比例伸缩（上限 680） */
+  --rail-w: 300px;
+  --map-w: clamp(360px, 41vw, 680px);
+  --content-w: 600px;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  /* GitHub Primer 深色令牌：0d1117 / 151b23 / 3d444d，
+     这里在两级之间再插一档 1c232d，让卡片内的次级填充也有落点 */
+  --canvas: #0d1117;
+  --surface: #151b23;
+  --surface-2: #1c232d;
+  --text: #e6edf3;
+  --text-2: #9198a1;
+  --text-3: #6e7681;
+  --hairline: #2b3440;
+  --accent: #0a84ff;
+  --accent-hover: #409cff;
+  --accent-soft: rgba(10, 132, 255, 0.16);
+  --seg-bg: rgba(110, 118, 129, 0.22);
+  --seg-on: #30363d;
+
+  --map-bg: #161b22;
+  --map-road: #2b3440;
+  --map-water: #123049;
+  --map-park: #14291c;
+
+  --shadow-pop: 0 10px 28px -14px rgba(0, 0, 0, 0.85);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 仿 Wanderlog 的应用外壳：视口固定高度、页面本身不滚，
+   左输入栏 / 中行程 / 右地图三栏各自独立滚动——地图才能常驻不动。 */
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  overflow: hidden;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+/* ---------------- 顶栏 ---------------- */
+.topbar {
+  position: relative;
+  z-index: 50;
+  height: var(--bar-h);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  background: color-mix(in srgb, var(--canvas) 80%, transparent);
+  border-bottom: 1px solid var(--hairline);
+}
+.topbar__in {
+  max-width: 1600px;
+  margin: 0 auto;
+  height: 100%;
+  padding: 0 var(--gutter);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.brand {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  flex: none;
+}
+.topbar__trip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-left: 16px;
+  border-left: 1px solid var(--hairline);
+  font-size: 13px;
+  color: var(--text-2);
+}
+.topbar__trip b {
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.topbar__acts {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.topbar__build {
+  white-space: nowrap;
+  opacity: 0.75;
+}
+@media (max-width: 1279px) {
+  .topbar__build {
+    display: none;
+  }
+}
+
+/* ---------------- 通用零件 ---------------- */
+.card {
+  background: var(--surface);
+  border-radius: 14px;
+  padding: 16px;
+}
+.card + .card {
+  margin-top: var(--gutter);
+}
+.card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.card__title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.muted {
+  color: var(--text-2);
+}
+.faint {
+  color: var(--text-3);
+}
+.meta {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  cursor: pointer;
+  border-radius: 980px;
+  font-size: 14px;
+  padding: 9px 16px;
+  letter-spacing: -0.01em;
+  transition: background 0.18s ease, color 0.18s ease, opacity 0.18s ease;
+  white-space: nowrap;
+}
+.btn--primary {
+  background: var(--accent);
+  color: #fff;
+}
+.btn--primary:hover {
+  background: var(--accent-hover);
+}
+.btn--ghost {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.btn--ghost:hover {
+  background: color-mix(in srgb, var(--text) 10%, var(--surface-2));
+}
+.btn--sm {
+  font-size: 12px;
+  padding: 6px 12px;
+}
+.btn--link {
+  background: none;
+  padding: 0;
+  font-size: 13px;
+  color: var(--accent);
+}
+.btn--link:hover {
+  text-decoration: underline;
+}
+.btn--muted {
+  background: none;
+  padding: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.btn--muted:hover {
+  color: var(--text);
+}
+.btn--block {
+  width: 100%;
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.iconbtn {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 980px;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: var(--text);
+}
+.iconbtn:hover {
+  background: var(--surface-2);
+}
+
+/* 分段控件 */
+.segmented {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--seg-bg);
+}
+.segmented button {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  border-radius: 7px;
+  padding: 7px 8px;
+  font-size: 13px;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.18s ease;
+}
+.segmented button.is-on {
+  background: var(--seg-on);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+  font-weight: 600;
+}
+.segmented--sm button {
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+/* 表单行 */
+.field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  border-top: 1px solid var(--hairline);
+}
+.fields > :first-child,
+.opts > :first-child,
+.issues > :first-child,
+.history-list > :first-child,
+.legend > :first-child {
+  border-top: 0;
+}
+.field--stack {
+  display: block;
+  padding: 12px 0;
+}
+.field__label {
+  font-size: 13px;
+  color: var(--text-2);
+  flex: none;
+}
+.field--stack .field__label {
+  display: block;
+  margin-bottom: 10px;
+}
+.mini {
+  border: 0;
+  background: transparent;
+  outline: none;
+  text-align: right;
+  font-size: 13px;
+  min-width: 0;
+  max-width: 140px;
+}
+.mini::-webkit-calendar-picker-indicator {
+  opacity: 0.4;
+  cursor: pointer;
+}
+[data-theme='dark'] .mini::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--seg-bg);
+}
+.stepper button {
+  width: 26px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  border-radius: 7px;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--accent);
+}
+.stepper button:hover {
+  background: var(--seg-on);
+}
+.stepper__n {
+  min-width: 22px;
+  text-align: center;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.group-label {
+  font-size: 12px;
+  color: var(--text-3);
+  margin: 16px 0 4px;
+}
+.group-label:first-child {
+  margin-top: 0;
+}
+
+/* 目的地选择器。候选菜单 portal 到 body，所以定位一律用 fixed */
+.picker {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+.picker__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  text-align: right;
+  font-size: 13px;
+}
+.picker__input::placeholder {
+  color: var(--text-3);
+}
+.picker__code {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.picker__menu {
+  position: fixed;
+  z-index: 80;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--shadow-pop);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.picker__item {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.picker__item.is-active {
+  background: var(--surface-2);
+}
+.picker__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+.picker__name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.picker__kind {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.picker__path {
+  font-size: 11px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.picker__hint {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* ---------------- 必去景点选择器 ---------------- */
+.mv {
+  display: grid;
+  gap: 7px;
+  width: 100%;
+}
+.mv__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.mv__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 980px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+/* 下拉选定 = 坐标已锁定，后端不会再按名字猜（手输的条目不点亮） */
+.mv__chip.is-pinned {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.mv__pin {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.mv__x {
+  border: 0;
+  background: none;
+  padding: 0 2px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.mv__x:hover:not(:disabled) {
+  color: var(--danger);
+}
+.mv__x:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  border: 1px solid var(--hairline);
+  background: transparent;
+  border-radius: 980px;
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+.chip:hover {
+  border-color: var(--text-2);
+}
+.chip.is-on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* ---------------- 骨架：应用外壳 ---------------- */
+.app {
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: var(--bar-h) minmax(0, 1fr);
+}
+.shell {
+  display: grid;
+  grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--map-w);
+  min-height: 0;
+  background: var(--canvas);
+}
+.pane {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.pane::-webkit-scrollbar {
+  width: 8px;
+}
+.pane::-webkit-scrollbar-thumb {
+  background: var(--hairline);
+  border-radius: 999px;
+}
+.pane--left {
+  padding: var(--gutter);
+  border-right: 1px solid var(--hairline);
+}
+.pane--center {
+  /* 中栏本身不滚：内层 .work-scroll 滚，底部的调整栏做成停靠栏，
+     这样滚动过程中它永远不会浮在行程内容上面把它挡住。 */
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.work-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  /* 左右留白收窄，让内容列接近 Wanderlog 的 580px */
+  padding: var(--gutter) clamp(14px, 1.8vw, 28px) 24px;
+}
+.work-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.work-scroll::-webkit-scrollbar-thumb {
+  background: var(--hairline);
+  border-radius: 999px;
+}
+/* 内容列限宽居中：对应 Wanderlog 里 580px 的行程列 */
+.work-scroll > * {
+  max-width: var(--content-w);
+  margin-left: auto;
+  margin-right: auto;
+}
+.pane--right {
+  position: relative;
+  overflow: hidden;
+  border-left: 1px solid var(--hairline);
+  /* 把地图整块关在这一栏里，内部 z-index 不外泄 */
+  isolation: isolate;
+}
+
+/* ---------------- 左栏 ---------------- */
+.compose textarea {
+  width: 100%;
+  min-height: 84px;
+  max-height: 200px;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: var(--surface-2);
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.compose textarea::placeholder {
+  color: var(--text-3);
+}
+.examples {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 12px 0;
+}
+.example {
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+  line-height: 1.4;
+}
+.example:hover {
+  color: var(--accent);
+}
+.history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 0;
+  border-top: 1px solid var(--hairline);
+}
+.history-item b {
+  font-size: 13px;
+  font-weight: 600;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.history-item.is-on b {
+  color: var(--accent);
+}
+
+/* ---------------- 中栏：概览 ---------------- */
+.overview__title {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  margin: 0;
+}
+.overview__meta {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.kpis {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 32px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+}
+.kpi__k {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.kpi__v {
+  margin-top: 2px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.kpi__v small {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-2);
+  margin-left: 3px;
+}
+.kpi__v.is-good {
+  color: var(--ok);
+}
+.kpi__v.is-over {
+  color: var(--danger);
+}
+.bar {
+  display: flex;
+  height: 6px;
+  border-radius: 980px;
+  overflow: hidden;
+  background: var(--surface-2);
+  margin-top: 16px;
+}
+.bar__seg {
+  height: 100%;
+  transition: width 0.5s cubic-bezier(0.28, 0.11, 0.32, 1);
+}
+.bar__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-top: 12px;
+}
+.bar__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.bar__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.bar__item b {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------- 中栏：日期与时间轴 ---------------- */
+.days {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+.days::-webkit-scrollbar {
+  display: none;
+}
+.day {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: var(--surface-2);
+  border-radius: 980px;
+  padding: 7px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-2);
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.day:hover {
+  background: color-mix(in srgb, var(--text) 10%, var(--surface-2));
+}
+.day.is-on {
+  background: var(--text);
+  color: var(--canvas);
+}
+.day__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+.day b {
+  font-weight: 600;
+  color: var(--text);
+}
+.day.is-on b {
+  color: var(--canvas);
+}
+
+.day-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.day-head h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tl {
+  display: grid;
+  /* 第三列放实拍图：auto 宽，没有图（或图挂了返回 null）时自动收成 0 宽，
+     不会在卡片右侧留下一块空白 */
+  grid-template-columns: 86px minmax(0, 1fr) auto;
+  gap: 16px;
+  padding: 16px 0;
+  border-top: 1px solid var(--hairline);
+}
+.tl__thumb {
+  flex: none;
+  width: 104px;
+  align-self: start;
+}
+.tl__thumb img {
+  display: block;
+  width: 104px;
+  height: 78px;
+  object-fit: cover;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.tl:first-child {
+  border-top: 0;
+  padding-top: 8px;
+}
+.tl__time {
+  font-size: 12px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  padding-top: 2px;
+}
+.tl__name {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tl__desc {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-2);
+  margin: 6px 0 0;
+  max-width: 66ch;
+}
+.tl__tips {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+  margin: 10px 0 0;
+  padding: 8px 11px;
+  border-radius: 9px;
+  background: var(--surface-2);
+  max-width: 66ch;
+}
+.tl__meta {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-3);
+  margin: 6px 0 0;
+  max-width: 66ch;
+}
+.tl__foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.tl__hop {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.tl__acts {
+  display: flex;
+  gap: 14px;
+  margin-left: auto;
+}
+.note {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-2);
+  margin: 0;
+}
+.note b {
+  color: var(--text);
+  font-weight: 600;
+}
+.notes {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+}
+
+.revise-wrap {
+  flex: none;
+  padding: 10px clamp(14px, 1.8vw, 28px) 14px;
+  border-top: 1px solid var(--hairline);
+  background: var(--canvas);
+}
+.revise {
+  max-width: var(--content-w);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 16px;
+  border-radius: 980px;
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+.revise input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+}
+.revise input::placeholder {
+  color: var(--text-3);
+}
+
+/* ---------------- 右栏 ---------------- */
+.map-canvas {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-2);
+  aspect-ratio: 4 / 3;
+  /* 关键：给地图建立独立层叠上下文。
+     高德内部元素的 z-index 很高（amap-marker 是 120），如果这里不隔离，
+     它们会跑到外层跟悬停卡片的 z-index 直接比较，结果是卡片被整个地图盖住——
+     DOM 里有、位置也对，但就是看不见。 */
+  isolation: isolate;
+}
+.map-canvas img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.map-canvas svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.map-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--text-3);
+  text-align: center;
+  padding: 16px;
+}
+
+/* 右栏地图铺满整栏（交互地图与静态图共用） */
+.map-canvas--fill {
+  aspect-ratio: auto;
+  height: 100%;
+  border-radius: 0;
+}
+
+/* 图例浮在地图左下角：地图要占满整栏，图例不能把它挤矮 */
+.map-legend {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: min(272px, calc(100% - 30%));
+  max-height: 34%;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+}
+/* 收起时缩成一个小胶囊，尽量少遮挡地图——展开的那一大块会挡住标记的鼠标事件 */
+.map-legend--collapsed {
+  width: auto;
+  max-height: none;
+  border-radius: 980px;
+}
+.map-legend--collapsed .map-legend__head {
+  padding: 8px 14px;
+  gap: 10px;
+  font-weight: 500;
+}
+.map-legend__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  flex: none;
+}
+.map-legend__body {
+  overflow-y: auto;
+  padding: 0 12px 6px;
+  scrollbar-width: thin;
+}
+.map-legend .legend {
+  max-height: none;
+  margin-top: 0;
+  overflow: visible;
+}
+.map-legend .legend__item {
+  padding: 7px 0;
+  font-size: 12px;
+}
+
+/* 交互地图（高德 JS API）把标记挂在我们自己的 DOM 上，样式可以完全定制 */
+.amap-pin {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 22px;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  transition: transform 0.18s ease;
+  cursor: pointer;
+}
+.amap-pin:hover {
+  transform: scale(1.14);
+}
+
+/* 酒店标记：圆角方块 + 「住」字，和行程点的圆形编号一眼区分 */
+.amap-hotel {
+  border-radius: 8px;
+  background: #5856d6;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  transition: transform 0.18s ease;
+  cursor: pointer;
+}
+.amap-hotel:hover {
+  transform: scale(1.14);
+}
+
+/* ---------------- 每晚住宿卡片 ---------------- */
+.hotel {
+  margin-top: 14px;
+  padding: 13px 14px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  display: grid;
+  gap: 10px;
+}
+.hotel__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.hotel__badge {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: #5856d6;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 24px;
+  text-align: center;
+}
+.hotel__head b {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hotel__photos {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+.hotel__photos img {
+  width: 100%;
+  height: 92px;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
+}
+.hotel__foot {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.hotel__acts {
+  display: flex;
+  gap: 14px;
+  margin-left: auto;
+}
+.amap-tip {
+  display: grid;
+  gap: 3px;
+  padding: 8px 11px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.amap-tip b {
+  font-weight: 600;
+}
+.amap-tip span {
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+/* 悬停在地图标记上弹出的小卡片（portal 到 body，用 fixed 定位） */
+.poi-card {
+  position: fixed;
+  z-index: 300;
+  transform: translate(-50%, -100%);
+  width: 238px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--shadow-pop);
+  /* 纯展示卡片：鼠标移到它上面不会触发标记的 mouseout，避免闪烁 */
+  pointer-events: none;
+  animation: poiRise 0.16s ease-out;
+}
+@keyframes poiRise {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -94%);
+  }
+}
+.poi-card__photos {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 1px;
+  background: var(--hairline);
+}
+.poi-card__photos img {
+  width: 100%;
+  height: 106px;
+  object-fit: cover;
+  display: block;
+}
+.poi-card__body {
+  display: grid;
+  gap: 3px;
+  padding: 9px 11px;
+}
+.poi-card__body b {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------- 弹窗（替换候选） ---------------- */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: color-mix(in srgb, #000 45%, transparent);
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.16s ease-out;
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+}
+.modal__box {
+  width: min(560px, 100%);
+  max-height: min(78dvh, 720px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+}
+.modal__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+.modal__head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.modal__head p {
+  margin: 5px 0 0;
+}
+.modal__body {
+  overflow-y: auto;
+  padding: 8px;
+  scrollbar-width: thin;
+}
+.cand {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.cand:hover {
+  background: var(--surface-2);
+}
+.cand:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.cand img,
+.cand__ph {
+  width: 62px;
+  height: 62px;
+  border-radius: 9px;
+  object-fit: cover;
+  flex: none;
+  background: var(--surface-2);
+}
+.cand__body {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.cand__body b {
+  font-size: 14px;
+  font-weight: 600;
+}
+.cand__desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 行程项与地图联动：被选中的那条用底色 + 左侧竖条标记出来 */
+.tl.is-focused {
+  background: var(--accent-soft);
+  border-radius: 12px;
+  box-shadow: inset 3px 0 0 var(--accent);
+  padding-left: 12px;
+  padding-right: 10px;
+}
+.tl.is-focused .tl__name {
+  color: var(--accent);
+}
+/* 酒店卡片选中时用同一套视觉语言（底色 + 左侧竖条） */
+.hotel.is-focused {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.hotel.is-focused .hotel__head b {
+  color: var(--accent);
+}
+.poi--clickable {
+  cursor: pointer;
+}
+.legend {
+  max-height: 210px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  margin-top: 12px;
+  padding-right: 2px;
+}
+.legend__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--hairline);
+  font-size: 13px;
+}
+.legend__idx {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  flex: none;
+}
+/* 酒店用圆角方块，和行程点的圆形编号区分 */
+.legend__idx--hotel {
+  border-radius: 6px;
+}
+.legend__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.legend__day {
+  font-size: 11px;
+  color: var(--text-3);
+  flex: none;
+}
+
+.opt {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--hairline);
+}
+.opt__name {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.opt__desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+  margin: 3px 0 0;
+}
+.opt__side {
+  text-align: right;
+  flex: none;
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+}
+
+.issue {
+  display: flex;
+  gap: 10px;
+  padding: 12px 0;
+  border-top: 1px solid var(--hairline);
+}
+.issue__sev {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-top: 6px;
+  flex: none;
+}
+.sev-high {
+  background: var(--danger);
+}
+.sev-medium {
+  background: var(--warn);
+}
+.sev-low {
+  background: var(--ok);
+}
+.issue__body {
+  min-width: 0;
+}
+.issue__cat {
+  font-size: 13px;
+  font-weight: 600;
+}
+.issue__msg {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+  margin: 4px 0 0;
+}
+.issue__acts {
+  display: flex;
+  gap: 14px;
+  margin-top: 8px;
+}
+.issue__hint {
+  align-self: center;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* ---------------- 进度 / 空状态 / 提示 ---------------- */
+.progress__steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.pstep {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-3);
+  background: var(--surface-2);
+  border-radius: 980px;
+  padding: 5px 11px;
+}
+.pstep__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+.pstep.is-run {
+  color: var(--text);
+  background: var(--accent-soft);
+}
+.pstep.is-run .pstep__dot {
+  background: var(--accent);
+  animation: pulse 1.1s ease-in-out infinite;
+}
+.pstep.is-done .pstep__dot {
+  background: var(--ok);
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: var(--gutter);
+  background: var(--surface);
+}
+.alert__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 6px;
+  flex: none;
+  background: var(--warn);
+}
+.alert--error .alert__dot {
+  background: var(--danger);
+}
+.alert__acts {
+  display: flex;
+  gap: 14px;
+  margin-top: 8px;
+}
+
+.empty {
+  text-align: center;
+  padding: 56px 20px;
+}
+.empty h2 {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0;
+}
+.empty p {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.skeleton {
+  border-radius: 10px;
+  background: linear-gradient(
+    90deg,
+    var(--surface-2),
+    color-mix(in srgb, var(--text) 6%, var(--surface-2)),
+    var(--surface-2)
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* ---------------- Toast ---------------- */
+.toasts {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 90;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  pointer-events: none;
+}
+.toast {
+  padding: 10px 18px;
+  border-radius: 980px;
+  background: color-mix(in srgb, var(--text) 88%, transparent);
+  backdrop-filter: blur(12px);
+  color: var(--canvas);
+  font-size: 13px;
+  animation: rise 0.26s cubic-bezier(0.28, 0.11, 0.32, 1);
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+/* ============================================================
+   响应式
+   ≥1360 三栏；1120~1359 收窄；<1120 右栏移到中栏下方两列；
+   <768 单列、输入栏置顶
+   ============================================================ */
+@media (max-width: 1359px) {
+  :root {
+    --rail-w: 284px;
+    --map-w: clamp(340px, 38vw, 560px);
+    --content-w: 580px;
+  }
+}
+
+/* 窄屏回到文档流：地图不再固定通栏，页面整体滚动。
+   强行保留"固定地图"会让手机上的行程区只剩一条缝。 */
+@media (max-width: 1023px) {
+  html,
+  body,
+  #root {
+    height: auto;
+  }
+  body {
+    overflow: auto;
+  }
+  .app {
+    height: auto;
+    display: block;
+  }
+  .topbar {
+    position: sticky;
+    top: 0;
+  }
+  .shell {
+    display: block;
+    padding-bottom: 88px;
+  }
+  .pane {
+    overflow: visible;
+  }
+  .pane--left {
+    border-right: 0;
+    padding-bottom: 0;
+  }
+  .pane--center {
+    display: block;
+    overflow: visible;
+    padding: 0;
+  }
+  .work-scroll {
+    overflow: visible;
+    padding: 12px 12px 20px;
+  }
+  .pane--right {
+    border-left: 0;
+    height: 440px;
+    padding: 0 var(--gutter) var(--gutter);
+  }
+  .map-legend {
+    max-height: 58%;
+  }
+  /* 中栏不再独立滚动，调整栏改回视口底部常驻 */
+  .revise-wrap {
+    position: fixed;
+    left: 50%;
+    bottom: var(--gutter);
+    transform: translateX(-50%);
+    width: min(720px, calc(100% - var(--gutter) * 2));
+    padding: 0;
+    border-top: 0;
+    background: none;
+    z-index: 40;
+  }
+  .revise {
+    max-width: none;
+  }
+}
+
+@media (max-width: 767px) {
+  .shell {
+    padding: 12px;
+    padding-bottom: 80px;
+  }
+  .pane--left {
+    padding: 12px 12px 0;
+  }
+  .pane--center {
+    padding: 0;
+  }
+  .work-scroll {
+    padding: 12px 12px 20px;
+  }
+  .pane--right {
+    height: 340px;
+    padding: 0 12px 12px;
+  }
+  .topbar__trip {
+    display: none;
+  }
+  .overview__title {
+    font-size: 19px;
+  }
+  .tl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+  .tl__acts {
+    margin-left: 0;
+  }
+  .kpis {
+    gap: 12px 20px;
+  }
+  .revise-wrap {
+    bottom: 12px;
+    width: calc(100% - 24px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================================
+   顶层兜底页（ErrorBoundary）
+   渲染期抛错时整棵树会被卸载，普通界面样式都用不上，
+   所以这里只用最基本的居中卡片，颜色仍然走主题变量。
+   ============================================================ */
+.crash {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--canvas);
+  color: var(--text);
+}
+.crash__card {
+  width: min(560px, 100%);
+  padding: 28px 30px;
+  border: 1px solid var(--hairline);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+.crash__title {
+  margin: 0 0 10px;
+  font-size: 20px;
+  font-weight: 700;
+}
+.crash__msg {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--danger);
+  word-break: break-word;
+}
+.crash__hint {
+  margin: 0 0 18px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.crash__acts {
+  display: flex;
+  gap: 10px;
+}
+

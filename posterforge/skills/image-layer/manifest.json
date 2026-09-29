@@ -1,0 +1,15 @@
+{
+  "name": "image-layer",
+  "version": "1.0.0",
+  "entry": "SKILL.md",
+  "license": "MIT",
+  "references": [
+    "references/comfyui-setup.md"
+  ],
+  "scripts": [],
+  "description": "图像层：背景生成与抠图。AI 出图的唯一合法接入点，不出整张海报。",
+  "invocation": {
+    "input": "背景需求描述 / 待去背实拍图",
+    "output": "背景 PNG / 带 alpha 的 PNG"
+  }
+}

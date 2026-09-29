@@ -1,0 +1,15 @@
+{
+  "name": "restaurant-promo",
+  "version": "1.0.0",
+  "entry": "SKILL.md",
+  "license": "MIT",
+  "references": [
+    "references/food-claims.md"
+  ],
+  "scripts": [],
+  "description": "饭馆场景：套餐海报、外卖头图、团购主图。食品宣传受特别监管。",
+  "invocation": {
+    "input": "菜品/价格/营业时段 + 实拍图",
+    "output": "PosterSpec（暖色系）"
+  }
+}

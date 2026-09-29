@@ -1,0 +1,13 @@
+{
+  "name": "photo-upload",
+  "version": "1.0.0",
+  "entry": "SKILL.md",
+  "license": "MIT",
+  "description": "照片上传与按字节校验：打通「游客照片 → 打卡卡」的真实链路。",
+  "invocation": {
+    "input": "dataURL 图片（最多 6 张，单张 ≤12MB）",
+    "output": "{ url, bytes, mime } 列表，路径可直接写进 spec"
+  },
+  "scripts": [],
+  "references": []
+}

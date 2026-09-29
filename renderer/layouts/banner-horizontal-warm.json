@@ -1,0 +1,135 @@
+{
+  "id": "banner-horizontal-warm",
+  "name": "横版 Banner · 暖色餐饮（1200x628）",
+  "description": "适配：公众号头图 / 美团饿了么横图 / 朋友圈链接预览。左文右价，横向留白利用率高。",
+  "audience": ["restaurant", "hotel"],
+
+  "canvas": { "width": 1200, "height": 628 },
+  "quality": { "sharpen": true },
+
+  "theme": "@layout:theme-sunset-warm",
+
+  "background": {
+    "type": "gradient",
+    "from": "bgFrom",
+    "to": "bgTo",
+    "angle": 110,
+    "blobs": [
+      { "x": 0.86, "y": 0.22, "r": 0.46, "color": "#ffb34733", "blur": 0.14 },
+      { "x": 0.12, "y": 0.88, "r": 0.40, "color": "#00000044", "blur": 0.18 }
+    ]
+  },
+
+  "layers": [
+    {
+      "type": "text",
+      "name": "brand",
+      "text": "占位品牌",
+      "x": 0.058,
+      "y": 0.090,
+      "font": "bold",
+      "size": 30,
+      "color": "amber",
+      "shadow": { "color": "#00000077", "dx": 0, "dy": 2, "blur": 5 }
+    },
+    {
+      "type": "text",
+      "name": "eyebrow",
+      "text": "占位副标题",
+      "x": 0.058,
+      "y": 0.212,
+      "font": "sans",
+      "size": 24,
+      "color": "inkSoft"
+    },
+    {
+      "type": "text",
+      "name": "title",
+      "text": "占位主标题",
+      "x": 0.058,
+      "y": 0.278,
+      "font": "heavy",
+      "size": 86,
+      "lineHeight": 1.18,
+      "color": "ink",
+      "fit": { "maxSize": 86, "minSize": 40, "maxWidth": 0.56, "maxHeight": 0.30, "maxLines": 2 },
+      "shadow": { "color": "#00000099", "dx": 0, "dy": 4, "blur": 12 }
+    },
+    {
+      "type": "text",
+      "name": "subtitle",
+      "text": "占位简介",
+      "x": 0.058,
+      "y": 0.628,
+      "font": "sans",
+      "size": 26,
+      "lineHeight": 1.5,
+      "color": "inkSoft",
+      "fit": { "maxSize": 26, "minSize": 18, "maxWidth": 0.54, "maxHeight": 0.18, "maxLines": 2 }
+    },
+
+    {
+      "type": "shape",
+      "name": "pricePanel",
+      "shape": "rect",
+      "box": [0.660, 0.250, 0.942, 0.700],
+      "fill": "panel",
+      "radius": 24,
+      "opacity": 0.66
+    },
+    {
+      "type": "text",
+      "name": "priceNote",
+      "text": "占位说明",
+      "x": 0.801,
+      "y": 0.360,
+      "align": "center",
+      "font": "sans",
+      "size": 22,
+      "color": "inkMute"
+    },
+    {
+      "type": "text",
+      "name": "price",
+      "text": "￥0",
+      "x": 0.801,
+      "y": 0.480,
+      "align": "center",
+      "font": "heavy",
+      "size": 84,
+      "color": "price",
+      "shadow": { "color": "#00000088", "dx": 0, "dy": 3, "blur": 10 }
+    },
+    {
+      "type": "text",
+      "name": "priceUnit",
+      "text": "起 / 位",
+      "x": 0.801,
+      "y": 0.612,
+      "align": "center",
+      "font": "sans",
+      "size": 22,
+      "color": "inkMute"
+    },
+
+    {
+      "type": "shape",
+      "name": "divider",
+      "shape": "rect",
+      "box": { "box": [0.058, 0.855], "size": [0.560, 0.0016] },
+      "fill": "divider",
+      "radius": 2
+    },
+    {
+      "type": "text",
+      "name": "contact",
+      "text": "占位电话 · 占位地址",
+      "x": 0.058,
+      "y": 0.895,
+      "font": "sans",
+      "size": 22,
+      "color": "inkMute",
+      "fit": { "maxSize": 22, "minSize": 15, "maxWidth": 0.58, "maxLines": 1 }
+    }
+  ]
+}

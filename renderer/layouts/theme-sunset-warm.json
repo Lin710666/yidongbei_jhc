@@ -1,0 +1,20 @@
+{
+  "id": "theme-sunset-warm",
+  "name": "暖橙 · 餐饮烟火气",
+  "palette": {
+    "bgFrom": "#3a1410",
+    "bgTo": "#7d2f18",
+    "ink": "#fff6ef",
+    "inkSoft": "#ffe3d0",
+    "inkMute": "#e0a98c",
+    "amber": "#ffb347",
+    "amberDeep": "#e07b28",
+    "badgeFrom": "#f0a02a",
+    "badgeTo": "#c96b12",
+    "panel": "#2a0f0a",
+    "panelSoft": "#ffffff14",
+    "divider": "#ffffff30",
+    "price": "#ffcf7a"
+  },
+  "ornaments": null
+}

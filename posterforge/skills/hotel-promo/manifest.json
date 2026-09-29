@@ -1,0 +1,15 @@
+{
+  "name": "hotel-promo",
+  "version": "1.0.0",
+  "entry": "SKILL.md",
+  "license": "MIT",
+  "references": [
+    "references/ota-sizes.md"
+  ],
+  "scripts": [],
+  "description": "酒店场景：房型促销、套餐预售、OTA 头图。价格为核心，需明确含不含。",
+  "invocation": {
+    "input": "房型/套餐/价格/有效期 + 实拍图",
+    "output": "PosterSpec + 多尺寸成品"
+  }
+}

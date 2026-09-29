@@ -1,0 +1,25 @@
+{
+  "id": "theme-deep-teal-gold",
+  "name": "深青金 · 高端度假",
+  "palette": {
+    "bgFrom": "#0d2b33",
+    "bgTo": "#1c5b63",
+    "ink": "#ffffff",
+    "inkSoft": "#d6ecec",
+    "inkMute": "#9fc4c6",
+    "gold": "#e8c37a",
+    "goldDeep": "#c9a05a",
+    "badgeFrom": "#c9452f",
+    "badgeTo": "#8e2418",
+    "panel": "#06202a",
+    "panelSoft": "#ffffff14",
+    "divider": "#ffffff2e",
+    "price": "#ffd98a"
+  },
+  "ornaments": {
+    "color": "#e8c37a",
+    "length": 0.085,
+    "inset": 0.032,
+    "width": 3
+  }
+}

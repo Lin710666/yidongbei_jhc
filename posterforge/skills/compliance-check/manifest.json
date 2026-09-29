@@ -1,0 +1,17 @@
+{
+  "name": "compliance-check",
+  "version": "1.0.0",
+  "entry": "SKILL.md",
+  "license": "MIT",
+  "references": [
+    "references/ad-law-words.md"
+  ],
+  "scripts": [
+    "scripts/run-validate.ps1"
+  ],
+  "description": "物料出图前的强制校验：结构、颜色令牌、广告法禁用词、事实来源。",
+  "invocation": {
+    "input": "PosterSpec JSON 或 spec 文件路径",
+    "output": "error/warning 报告 + 退出码（0 通过 / 1 失败）"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "render-pipeline",
+  "version": "1.0.0",
+  "entry": "SKILL.md",
+  "license": "MIT",
+  "references": [],
+  "scripts": [
+    "scripts/render-batch.ps1"
+  ],
+  "description": "把 spec 确定性渲染成成品 PNG，支持多尺寸分发与批量出图。",
+  "invocation": {
+    "input": "PosterSpec JSON",
+    "output": "PNG + 同名 .spec.json 存档"
+  }
+}

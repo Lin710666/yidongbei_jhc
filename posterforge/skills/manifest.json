@@ -1,0 +1,43 @@
+{
+  "name": "posterforge-workflow",
+  "version": "1.1.0",
+  "description": "宣传海报、打卡模板与多页文案手册的生成工作流。服务文旅局、酒店、饭馆、游客四类对象。",
+  "entry": "README.md",
+  "license": "MIT",
+  "order": [
+    "poster-spec",
+    "compliance-check",
+    "render-pipeline",
+    "copybook-render",
+    "photo-upload",
+    "bureau-poster",
+    "hotel-promo",
+    "restaurant-promo",
+    "tourist-checkin",
+    "image-layer",
+    "site-feed",
+    "prompt-input"
+  ],
+  "pipeline": [
+    "需求录入",
+    "契约生成",
+    "校验把关",
+    "合成出图"
+  ],
+  "implemented": {
+    "photo-upload": "POST /api/upload（base64 + 魔数校验）",
+    "copybook-render": "copybook.py + POST /api/copybook",
+    "image-layer": "comfy.mjs + POST /api/comfy/background（Qwen-Image-2.1，已实测）",
+    "site-feed": "GET /api/feed、POST /api/feed/refresh、GET /api/img（代理+缓存）",
+    "prompt-input": "主页文字输入框 + parsePrompt 确定性解析"
+  },
+  "notImplemented": [
+    "手册专用校验器（validate-copybook.py）",
+    "中文竖排",
+    "手册图文混排与自动分页",
+    "多图九宫格打卡版式",
+    "提示词增强（PE 模型）",
+    "上传目录自动清理",
+    "书签/批量 SEO 类扩展"
+  ]
+}

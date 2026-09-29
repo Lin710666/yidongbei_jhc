@@ -1,0 +1,102 @@
+{
+  "_comment": "示例：酒店秋季促销海报。这是 LLM 该产出的东西 —— 纯结构化内容，无像素、无排版细节。事实字段（价格/电话/地址）标注来源，模型不得自行生成。",
+
+  "meta": {
+    "id": "hotel-2026-autumn-01",
+    "client": "山海楼·海景度假酒店",
+    "audience": "hotel",
+    "intent": "秋季错峰促销 · 三晚连住",
+    "facts_source": "客户 2026-09-23 微信口述 + 官网房价页截图。价格与电话经客户确认。",
+    "generated_by": "手工起草（用于验证版式契约与渲染引擎）"
+  },
+
+  "layout": "@layout:poster-vertical-gold",
+
+  "theme": {
+    "palette": {
+      "bgFrom": "#0b2a30",
+      "bgTo": "#1d5f66",
+      "gold": "#e8c37a",
+      "price": "#ffdb8f",
+      "badgeFrom": "#c9452f",
+      "badgeTo": "#8e2418"
+    }
+  },
+
+  "layers": [
+    {
+      "type": "text", "name": "brand", "text": "山海楼 · 海景度假酒店",
+      "x": 0.074, "y": 0.054, "font": "bold", "size": 36, "color": "gold",
+      "shadow": { "color": "#00000066", "dx": 0, "dy": 2, "blur": 6 }
+    },
+    {
+      "type": "text", "name": "brandEn", "text": "SHANHAI BAY RESORT",
+      "x": 0.074, "y": 0.094, "font": "sans", "size": 20, "color": "inkMute"
+    },
+
+    {
+      "type": "text", "name": "eyebrow", "text": "错峰特惠 · 限量 200 间",
+      "x": 0.074, "y": 0.192, "font": "sans", "size": 30, "color": "inkSoft"
+    },
+    {
+      "type": "text", "name": "title", "text": "住三晚\n送一晚",
+      "x": 0.074, "y": 0.234, "font": "heavy", "size": 108, "lineHeight": 1.16,
+      "color": "ink",
+      "fit": { "maxSize": 108, "minSize": 54, "maxWidth": 0.85, "maxHeight": 0.20, "maxLines": 2 },
+      "shadow": { "color": "#00000099", "dx": 0, "dy": 4, "blur": 14 }
+    },
+    {
+      "type": "shape", "name": "titleRule", "shape": "rect",
+      "box": { "box": [0.074, 0.463], "size": [0.11, 0.005] },
+      "fill": "gold", "radius": 3
+    },
+    {
+      "type": "text", "name": "subtitle",
+      "text": "全海景露台房 · 含双早 · 免费停车\n赠双人温泉 1 次 · 延迟退房至 14:00",
+      "x": 0.074, "y": 0.508, "font": "sans", "size": 32, "lineHeight": 1.55,
+      "color": "inkSoft",
+      "fit": { "maxSize": 32, "minSize": 22, "maxWidth": 0.78, "maxHeight": 0.14, "maxLines": 3 }
+    },
+
+    {
+      "type": "shape", "name": "pricePanel", "shape": "rect",
+      "box": [0.074, 0.688, 0.926, 0.778],
+      "fill": "panel", "radius": 22, "opacity": 0.72
+    },
+    {
+      "type": "shape", "name": "pricePanelEdge", "shape": "rect",
+      "box": { "box": [0.074, 0.688], "size": [0.010, 0.090] },
+      "fill": "gold", "radius": 6
+    },
+    {
+      "type": "text", "name": "priceNote", "text": "三晚连住 · 每晚均价",
+      "x": 0.112, "y": 0.733, "font": "sans", "size": 26, "color": "inkMute",
+      "valign": "center"
+    },
+    {
+      "type": "text", "name": "price", "text": "￥688",
+      "x": 0.902, "y": 0.733, "align": "right", "font": "heavy", "size": 74,
+      "color": "price", "valign": "center",
+      "shadow": { "color": "#00000088", "dx": 0, "dy": 3, "blur": 10 }
+    },
+
+    {
+      "type": "shape", "name": "divider", "shape": "rect",
+      "box": { "box": [0.074, 0.842], "size": [0.852, 0.0014] },
+      "fill": "divider", "radius": 2
+    },
+    {
+      "type": "text", "name": "phone", "text": "预订 0592-8888-6666",
+      "x": 0.074, "y": 0.870, "font": "bold", "size": 30, "color": "ink"
+    },
+    {
+      "type": "text", "name": "address", "text": "福建省厦门市思明区环岛南路 1288 号 · 山海楼度假区",
+      "x": 0.074, "y": 0.912, "font": "sans", "size": 22, "color": "inkMute",
+      "fit": { "maxSize": 22, "minSize": 16, "maxWidth": 0.62, "maxLines": 2 }
+    },
+    {
+      "type": "text", "name": "footerNote", "text": "有效期至 2026-11-30 · 详情以门店公告为准",
+      "x": 0.902, "y": 0.952, "align": "right", "font": "sans", "size": 15, "color": "inkMute"
+    }
+  ]
+}

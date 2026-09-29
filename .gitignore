@@ -1,0 +1,59 @@
+# ---------------------------------------------------------------- 运行时数据
+# 用户上传的照片、渲染出的海报、生成的手册 PDF —— 这些是"用出来的"，
+# 不是项目的一部分。克隆下来的人不该收到别人的素材和历史产物。
+posterforge/public/uploads/*
+!posterforge/public/uploads/.gitkeep
+posterforge/public/generated/*
+!posterforge/public/generated/.gitkeep
+posterforge/public/copybooks/*
+!posterforge/public/copybooks/.gitkeep
+posterforge/out/
+
+# 渲染器跑出来的示例图 —— 是"跑出来的"，不是源码。
+# 想留作对照就自己跑一遍 render.py，不用把 1.5MB 的 PNG 塞进仓库。
+renderer/out/
+
+# 用户个人数据：助手设置、出图历史、自存模板
+# 它们记录的是"这台机器上谁用过什么"，不该进版本库
+posterforge/assistant.json
+posterforge/history.json
+posterforge/templates-user.json
+
+# 联网素材缓存与当天的轮换结果
+posterforge/.cache/
+posterforge/.work/
+
+# ---------------------------------------------------------------- 依赖
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# ---------------------------------------------------------------- 本机配置
+# brain.config.json 里写着本机的 python 路径和模型名，每台机器不同，
+# 所以只提交 brain.config.example.json，真实配置由部署脚本生成
+posterforge/brain.config.json
+hikitravel/backend/.env
+hikitravel/frontend/.env*
+*.local
+
+# 日志与进程文件
+*.log
+*.pid
+
+# ---------------------------------------------------------------- 系统
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# ---------------------------------------------------------------- 模型权重
+# 几 GB 的模型不进仓库，由部署脚本按需下载
+models/
+*.safetensors
+*.ckpt
+*.pth
+*.onnx

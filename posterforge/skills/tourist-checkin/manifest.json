@@ -1,0 +1,15 @@
+{
+  "name": "tourist-checkin",
+  "version": "1.0.0",
+  "entry": "SKILL.md",
+  "license": "MIT",
+  "references": [
+    "references/xhs-style.md"
+  ],
+  "scripts": [],
+  "description": "游客场景：对话 + 照片 → 可发小红书的打卡卡（唯一的 C 端 skill）。",
+  "invocation": {
+    "input": "游客对话 + 照片",
+    "output": "PosterSpec（打卡版式 1080x1350）"
+  }
+}

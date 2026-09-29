@@ -1,0 +1,175 @@
+{
+  "id": "poster-vertical-gold",
+  "name": "竖版海报 · 深色高档（1080x1440）",
+  "description": "适配：酒店/景区/文旅局活动宣传。顶部品牌条 + 中部主标题 + 价格横幅 + 底部联系区。所有配色走 theme.palette 变量名，换主题即换整张海报气质。",
+  "audience": ["hotel", "bureau", "restaurant"],
+
+  "canvas": { "width": 1080, "height": 1440 },
+  "quality": { "sharpen": true },
+
+  "theme": "@layout:theme-deep-teal-gold",
+
+  "background": {
+    "type": "gradient",
+    "from": "bgFrom",
+    "to": "bgTo",
+    "angle": 130,
+    "blobs": [
+      { "x": 0.14, "y": 0.16, "r": 0.40, "color": "#7fe3d840", "blur": 0.16 },
+      { "x": 0.92, "y": 0.44, "r": 0.34, "color": "#e8c37a30", "blur": 0.18 },
+      { "x": 0.30, "y": 0.94, "r": 0.42, "color": "#0a1f2a66", "blur": 0.20 }
+    ]
+  },
+
+  "layers": [
+    {
+      "type": "text",
+      "name": "brand",
+      "text": "占位品牌",
+      "x": 0.074,
+      "y": 0.054,
+      "font": "bold",
+      "size": 36,
+      "color": "gold",
+      "shadow": { "color": "#00000066", "dx": 0, "dy": 2, "blur": 6 }
+    },
+    {
+      "type": "text",
+      "name": "brandEn",
+      "text": "PLACEHOLDER",
+      "x": 0.074,
+      "y": 0.094,
+      "font": "sans",
+      "size": 20,
+      "color": "inkMute"
+    },
+
+    {
+      "type": "text",
+      "name": "eyebrow",
+      "text": "占位副标题",
+      "x": 0.074,
+      "y": 0.192,
+      "font": "sans",
+      "size": 30,
+      "color": "inkSoft"
+    },
+    {
+      "type": "text",
+      "name": "title",
+      "text": "占位主标题",
+      "x": 0.074,
+      "y": 0.234,
+      "font": "heavy",
+      "size": 108,
+      "lineHeight": 1.16,
+      "color": "ink",
+      "fit": { "maxSize": 108, "minSize": 54, "maxWidth": 0.85, "maxHeight": 0.20, "maxLines": 2 },
+      "shadow": { "color": "#00000099", "dx": 0, "dy": 4, "blur": 14 }
+    },
+    {
+      "type": "shape",
+      "name": "titleRule",
+      "shape": "rect",
+      "box": { "box": [0.074, 0.463], "size": [0.11, 0.005] },
+      "fill": "gold",
+      "radius": 3
+    },
+    {
+      "type": "text",
+      "name": "subtitle",
+      "text": "占位简介",
+      "x": 0.074,
+      "y": 0.508,
+      "font": "sans",
+      "size": 34,
+      "lineHeight": 1.55,
+      "color": "inkSoft",
+      "fit": { "maxSize": 34, "minSize": 24, "maxWidth": 0.76, "maxHeight": 0.14, "maxLines": 3 }
+    },
+
+    {
+      "type": "shape",
+      "name": "pricePanel",
+      "shape": "rect",
+      "box": [0.074, 0.688, 0.926, 0.778],
+      "fill": "panel",
+      "radius": 22,
+      "opacity": 0.72
+    },
+    {
+      "type": "shape",
+      "name": "pricePanelEdge",
+      "shape": "rect",
+      "box": { "box": [0.074, 0.688], "size": [0.010, 0.090] },
+      "fill": "gold",
+      "radius": 6
+    },
+    {
+      "type": "text",
+      "name": "priceNote",
+      "text": "占位说明",
+      "x": 0.112,
+      "y": 0.733,
+      "font": "sans",
+      "size": 26,
+      "color": "inkMute",
+      "valign": "center"
+    },
+    {
+      "type": "text",
+      "name": "price",
+      "text": "￥0",
+      "x": 0.902,
+      "y": 0.733,
+      "align": "right",
+      "font": "heavy",
+      "size": 74,
+      "color": "price",
+      "valign": "center",
+      "shadow": { "color": "#00000088", "dx": 0, "dy": 3, "blur": 10 }
+    },
+
+    {
+      "type": "shape",
+      "name": "divider",
+      "shape": "rect",
+      "box": { "box": [0.074, 0.842], "size": [0.852, 0.0014] },
+      "fill": "divider",
+      "radius": 2
+    },
+
+    {
+      "type": "text",
+      "name": "phone",
+      "text": "占位电话",
+      "x": 0.074,
+      "y": 0.866,
+      "font": "bold",
+      "size": 30,
+      "color": "ink"
+    },
+    {
+      "type": "text",
+      "name": "address",
+      "text": "占位地址",
+      "x": 0.074,
+      "y": 0.906,
+      "font": "sans",
+      "size": 22,
+      "color": "inkMute",
+      "fit": { "maxSize": 22, "minSize": 16, "maxWidth": 0.62, "maxLines": 2 }
+    },
+    {
+      "type": "text",
+      "name": "footerNote",
+      "text": "本图由 poster-forge 合成",
+      "x": 0.902,
+      "y": 0.946,
+      "align": "right",
+      "font": "sans",
+      "size": 15,
+      "color": "inkMute"
+    }
+  ]
+}

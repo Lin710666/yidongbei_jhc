@@ -1,0 +1,12 @@
+# 批处理脚本必须用 CRLF 换行。
+#
+# 原因：cmd 对 LF 换行的 .bat 解析不可靠 —— if 块、goto 会出问题，
+# 表现就是「双击没反应」或者报一些莫名其妙的外部命令错误。
+#
+# Windows 上很多人开了 core.autocrlf=true，本地工作区被自动转成 CRLF，
+# 所以自己测没问题；但 Mac/Linux 用户、或者没开 autocrlf 的 Windows
+# 用户，clone 下来拿到的会是 LF 的 .bat，于是「别人一跑就坏」。
+#
+# 下面这两条让任何平台 checkout 出来的批处理都是 CRLF。
+*.bat text eol=crlf
+*.cmd text eol=crlf

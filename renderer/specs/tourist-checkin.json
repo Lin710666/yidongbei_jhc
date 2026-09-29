@@ -1,0 +1,81 @@
+{
+  "_comment": "示例：游客打卡卡。输入是「游客的对话 + 上传的照片」，产出是可直接发小红书的打卡图。注意它跟酒店海报用的是同一个引擎、同一份 schema —— 只是 layout 与插槽不同。",
+
+  "meta": {
+    "id": "checkin-2026-dapeng-01",
+    "client": "游客（自由行）",
+    "audience": "tourist",
+    "intent": "海边日出打卡 · 社交平台发布",
+    "facts_source": "游客对话中自述：地点大鹏所城海滨、日期 2026-09-23、同行 2 人。地点名经高德核对存在。",
+    "generated_by": "手工起草（用于验证打卡版式与图片插槽）"
+  },
+
+  "layout": "@layout:checkin-photo-card",
+
+  "layers": [
+    {
+      "type": "text", "name": "topLabel", "text": "深圳 · 大鹏所城海滨",
+      "x": 0.068, "y": 0.046, "font": "bold", "size": 28, "color": "accent"
+    },
+    {
+      "type": "text", "name": "topDate", "text": "2026.09.23",
+      "x": 0.932, "y": 0.046, "align": "right", "font": "sans", "size": 24, "color": "inkMute"
+    },
+
+    {
+      "type": "image", "name": "photo",
+      "src": "assets/sample-photo.png",
+      "box": { "box": [0.068, 0.106], "size": [0.864, 0.522] },
+      "fit": "cover", "radius": 0.035
+    },
+    {
+      "type": "shape", "name": "photoFrame", "shape": "rect",
+      "box": { "box": [0.068, 0.106], "size": [0.864, 0.522] },
+      "fill": null, "stroke": "#ffffff44", "strokeWidth": 2, "radius": 38
+    },
+
+    {
+      "type": "text", "name": "caption", "text": "五点半的海，\n值得早起一次",
+      "x": 0.068, "y": 0.672, "font": "heavy", "size": 58, "lineHeight": 1.32,
+      "color": "ink",
+      "fit": { "maxSize": 58, "minSize": 30, "maxWidth": 0.864, "maxHeight": 0.14, "maxLines": 3 },
+      "shadow": { "color": "#00000088", "dx": 0, "dy": 3, "blur": 10 }
+    },
+
+    {
+      "type": "text", "name": "body",
+      "text": "从民宿走过去 8 分钟。风大，记得带件外套。\n停车场旁那家肠粉六点就开了。",
+      "x": 0.068, "y": 0.836, "font": "sans", "size": 28, "lineHeight": 1.55,
+      "color": "inkSoft",
+      "fit": { "maxSize": 28, "minSize": 18, "maxWidth": 0.864, "maxHeight": 0.10, "maxLines": 3 }
+    },
+
+    {
+      "type": "shape", "name": "tag1Bg", "shape": "rect",
+      "box": { "box": [0.068, 0.922], "size": [0.20, 0.042] },
+      "fill": "tagBg", "radius": 24
+    },
+    {
+      "type": "text", "name": "tag1", "text": "#大鹏所城",
+      "x": 0.168, "y": 0.943, "align": "center", "valign": "center",
+      "font": "sans", "size": 22, "color": "accent"
+    },
+
+    {
+      "type": "shape", "name": "tag2Bg", "shape": "rect",
+      "box": { "box": [0.284, 0.922], "size": [0.20, 0.042] },
+      "fill": "tagBg", "radius": 24
+    },
+    {
+      "type": "text", "name": "tag2", "text": "#海边日出",
+      "x": 0.384, "y": 0.943, "align": "center", "valign": "center",
+      "font": "sans", "size": 22, "color": "accent2"
+    },
+
+    {
+      "type": "text", "name": "watermark", "text": "poster-forge",
+      "x": 0.932, "y": 0.943, "align": "right", "valign": "center",
+      "font": "sans", "size": 18, "color": "inkMute"
+    }
+  ]
+}

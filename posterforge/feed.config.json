@@ -1,0 +1,36 @@
+{
+  "_comment": [
+    "联网素材配置。改了之后重启站点生效。",
+    "",
+    "sources 里列出的数据源会被依次尝试，单个失败不影响其它源。",
+    "key 只存在这个文件（或环境变量）里，不会进前端、不会进仓库。",
+    "",
+    "实测可用性（2026-09 本机网络）：",
+    "  bing     无需 key，每天更新，实拍 + 中文标题 + 版权署名  ← 推荐保留",
+    "  picsum   无需 key，随机摄影图",
+    "  pexels   需要 key（免费申请：https://www.pexels.com/api/）素材可商用",
+    "  unsplash 需要 key（免费申请：https://unsplash.com/developers）素材可商用",
+    "",
+    "注意：bing / picsum 的图片都有版权或来源约束，",
+    "在本站里只作『灵感参考』展示，带署名，不能当作可商用素材直接交付。",
+    "要能商用的素材，请配置 pexels 或 unsplash 的 key。"
+  ],
+
+  "_comment2": [
+    "默认只启用 bing：题材是风景/人文/时令，与文旅对口，且每天更新。",
+    "picsum 是通用摄影图（大量办公/静物），放在文旅站点里会显得不搭，",
+    "所以默认关闭；想要更多图量时把它加回 sources 即可。"
+  ],
+
+  "sources": ["bing"],
+
+  "count": 8,
+  "query": "travel",
+
+  "autoRefreshHours": 12,
+
+  "keys": {
+    "PEXELS_API_KEY": "",
+    "UNSPLASH_ACCESS_KEY": ""
+  }
+}
