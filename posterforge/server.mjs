@@ -633,9 +633,18 @@ async function generate(spec, { timeoutMs = 180000 } = {}) {
   }
 
   // 2) 渲染
+  //
+  // **必须把 public 目录登记成图片根目录。**
+  // 踩过的坑：渲染器是以 cwd=FORGE_ROOT 起的，而 spec 里的图片路径是
+  // 相对**站点 public** 的（uploads/xxx.jpg、uploads/.bgcache/bg-x.png）。
+  // 不登记就解析成 renderer/uploads/... → 找不到文件 → 渲染失败。
+  // 更坑的是它**不带任何错误信息**（服务端拿到 422 但 error/message 都是 null），
+  // 表现成"某些构图莫名失败"，查了很久才定位到。
+  // 受影响的不只是 AI 底图 —— 用户上传的照片走同一条路。
   const r = await run(
     PYTHON,
-    [path.join(FORGE_ROOT, "render.py"), "--spec", specPath, "--out", outPath],
+    [path.join(FORGE_ROOT, "render.py"), "--spec", specPath, "--out", outPath,
+     "--image-root", PUBLIC_DIR],
     { cwd: FORGE_ROOT }
   );
   const renderLog = (r.out + r.err).trim();
@@ -1992,6 +2001,14 @@ async function ensureBackground({ imagePrompt, cacheKeySeed, size = 768, height 
       autoBg,
       validation: result.validation || null,
       error: result.error || null,
+      // generate() 失败时返回的是 {stage, message, code}，不是 {error} ——
+      // 原来只映射了 error，导致失败原因（渲染器 stderr）**直接被丢掉**：
+      // 前端只看到 422 + error:null，完全不知道为什么失败。
+      // 表现就是"某些构图莫名失败"，查了很久。
+      stage: result.stage || null,
+      message: result.message || null,
+      renderErrors: result.errors || null,
+      code: typeof result.code === "number" ? result.code : null,
       ms: out.ms,
       model: out.model,
       attempts: out.attempts,

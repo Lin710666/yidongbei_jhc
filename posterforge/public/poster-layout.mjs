@@ -514,7 +514,7 @@ export function buildPosterSpecFrom(content, opts = {}) {
     // 文字区底面：实色，保证图与字彻底分离
     bg = { type: "gradient", from: "bgFrom", to: "bgTo", angle: 130 };
     bandLayers = [
-      { type: "image", name: "bandPhoto", image: photo || autoBg,
+      { type: "image", name: "bandPhoto", src: photo || autoBg,
         box: { box: [0, 0], size: [1, bh] }, fit: "cover" },
       // 图带下缘压一道细金线，把两块明确切开（分割型的关键视觉线索）
       { type: "shape", name: "bandEdge", shape: "rect",
@@ -525,7 +525,7 @@ export function buildPosterSpecFrom(content, opts = {}) {
     const ix = L.imgRight || 0.46;
     bg = { type: "gradient", from: "bgFrom", to: "bgTo", angle: 130 };
     bandLayers = [
-      { type: "image", name: "sidePhoto", image: photo || autoBg,
+      { type: "image", name: "sidePhoto", src: photo || autoBg,
         box: { box: [ix, 0], size: [1 - ix, 1] }, fit: "cover" },
       // 图与文之间压一道竖金线 —— 分割型的视觉分隔
       { type: "shape", name: "sideEdge", shape: "rect",
@@ -540,7 +540,7 @@ export function buildPosterSpecFrom(content, opts = {}) {
       { type: "shape", name: "cardShadow", shape: "rect",
         box: [0.5 - cw / 2 + 0.012, ct + 0.014, 0.5 + cw / 2 + 0.012, ct + ch + 0.014],
         fill: "#000000", opacity: 0.34, radius: 26 },
-      { type: "image", name: "cardPhoto", image: photo || autoBg,
+      { type: "image", name: "cardPhoto", src: photo || autoBg,
         box: { box: [0.5 - cw / 2, ct], size: [cw, ch] }, fit: "cover", radius: 24 },
       // 不加描边：渲染器的圆角描边要求 shape 有非透明 fill，
       // 而这里只需要"框住"卡片 —— 透明 fill 会退化成**方角矩形**，

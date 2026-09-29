@@ -189,6 +189,9 @@ node drive-audit.mjs             # 前端全流程
 
 **v8.0** —— 见 [`CHANGELOG.md`](CHANGELOG.md)
 
+v8.0 是**独立的一版**：把 PosterForge（海报）和 HikiTravel-main-repair（行程）
+合并成一个可独立部署的项目。它就是它自己，不依赖、也不包含仓库里其他分支的内容。
+
 ## 许可
 
 本仓库为演示项目。第三方素材（Live2D 模型、联网图片）版权归各自所有者，

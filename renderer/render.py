@@ -831,7 +831,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--spec", required=True, help="spec JSON 路径")
     ap.add_argument("--out", help="输出 PNG 路径（默认 out/<spec名>.png）")
     ap.add_argument("--overrides", help="JSON 字符串，覆盖 spec 字段")
+    # 图片根目录：spec 里的图片路径（uploads/xxx.jpg、uploads/.bgcache/bg-x.png）
+    # 是**相对站点 public 目录**的，而渲染器默认只认自己所在目录 ——
+    # 不登记这个根目录，凡是引用图片的规格都会解析失败。
+    # 可重复传，先传的优先。
+    ap.add_argument("--image-root", action="append", default=[],
+                    help="spec 中相对图片路径的查找根目录（可重复）")
     args = ap.parse_args(argv)
+
+    # 先登记的优先于默认的 HERE
+    for _root in reversed([r for r in args.image_root if r]):
+        if os.path.isdir(_root):
+            register_image_root(os.path.abspath(_root))
 
     spec_path = args.spec if os.path.isabs(args.spec) else os.path.join(HERE, args.spec)
     if not os.path.isfile(spec_path):
