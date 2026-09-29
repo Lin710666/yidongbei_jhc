@@ -176,6 +176,12 @@
     '.st-row input[type=text]:focus{border-color:#ffc9bd}',
     '.st-row input[type=checkbox]{width:17px;height:17px;accent-color:#ff5a3c;cursor:pointer}',
     '.st-col{flex-direction:column;align-items:stretch}',
+    // 形象选择片
+    '.st-models{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}',
+    '.st-model{border:1px solid #e2e6ee;background:#fff;color:#3d434f;font-size:12.5px;',
+    '  padding:6px 12px;border-radius:999px;cursor:pointer;font-family:inherit;transition:.15s}',
+    '.st-model:hover{border-color:#ffc9bd}',
+    '.st-model[aria-pressed=true]{background:#ff5a3c;border-color:#ff5a3c;color:#fff}',
     '.st-col textarea{border:1px solid #e9ebef;border-radius:9px;padding:8px 10px;font-size:13px;',
     '  font-family:inherit;resize:vertical;outline:none;margin-top:7px}',
     '.st-col textarea:focus{border-color:#ffc9bd}',
@@ -446,7 +452,20 @@
       var host = avatarHost();
       if (!host || !window.PIXI || !window.PIXI.live2d) return;
       var name = String(model || 'hiyori').replace(/[^a-z0-9_-]/gi, '');
-      var file = { hiyori: 'Hiyori', mao: 'Mao', hanfu: 'Hanfu', mudan: 'Modan', cangyixiu: 'Cangyixiu' }[name] || 'Hiyori';
+      // 入口文件名**逐个人工核对过**，不能靠猜。
+      // 踩过的坑：第一版按"目录名首字母大写"猜，四个里错了三个 ——
+      //   hanfu     → 猜 'Hanfu'，实际 'hanfu'（小写）
+      //   mudan     → 猜 'Modan'，实际 'tu tuan yuan'（跟目录名无关，还带空格）
+      //   cangyixiu → 猜 'Cangyixiu'，实际 'jingying'
+      // 三个都 404，表现就是"切过去加载失败"。
+      var ENTRY = {
+        hiyori: 'Hiyori', mao: 'Mao', hanfu: 'hanfu',
+        mudan: 'tu tuan yuan', cangyixiu: 'jingying',
+      };
+      var file = ENTRY[name] || ENTRY.hiyori;
+      // 文件名里有空格 → URL 必须编码，否则请求会被截断
+      var entryUrl = '/avatar/models/' + encodeURIComponent(name) + '/' +
+                     encodeURIComponent(file) + '.model3.json';
       try {
         if (avatarState.app) { avatarState.app.destroy(true); avatarState.app = null; }
         host.innerHTML = '';
@@ -456,7 +475,7 @@
         });
         host.appendChild(app.view);
         avatarState.app = app;
-        window.PIXI.live2d.Live2DModel.from('/avatar/models/' + name + '/' + file + '.model3.json')
+        window.PIXI.live2d.Live2DModel.from(entryUrl)
           .then(function (m) {
             app.stage.addChild(m);
             var s = Math.min(app.renderer.width / m.width, app.renderer.height / m.height) * 1.35;
@@ -558,6 +577,15 @@
       '<label class="st-row"><span>虚拟形象</span>' +
         '<input type="checkbox" id="stAvatar"' + (p.avatar ? ' checked' : '') + ' /></label>' +
       '<div class="st-note">默认关闭。打开后会在面板上方加载 Live2D 形象（占内存，首次约 2 秒）。</div>' +
+      // 形象选择。五个模型的入口文件名各不相同（有个还带空格），
+      // 见 _mount 里的 ENTRY —— 那是逐个人工核对过的，不是猜的。
+      '<div class="st-row st-col"><span>选形象</span>' +
+        '<div class="st-models" id="stModels">' +
+        [['hiyori', '日和'], ['mao', '猫'], ['hanfu', '汉服'],
+         ['mudan', '牡丹'], ['cangyixiu', '藏衣绣']].map(([k, cn]) =>
+          `<button type="button" class="st-model" data-m="${k}" aria-pressed="${(p.avatarModel || 'hiyori') === k}">${cn}</button>`
+        ).join('') +
+        '</div></div>' +
       '<label class="st-row"><span>名字</span>' +
         '<input type="text" id="stName" maxlength="20" value="' + esc(p.nickname || '') + '" placeholder="小旅" /></label>' +
       '<label class="st-row"><span>说话风格</span>' +
@@ -568,10 +596,23 @@
       '<div class="st-foot"><span class="st-ok" id="stOk"></span>' +
         '<button class="st-save" id="stSave">保存</button></div>';
 
+    // 选形象：立刻预览 —— 用户点了要马上看到，不能等"保存"之后
+    var pick = p.avatarModel || 'hiyori';
+    box.querySelectorAll('.st-model').forEach(function (b) {
+      b.onclick = function () {
+        pick = b.dataset.m;
+        box.querySelectorAll('.st-model').forEach(function (x) {
+          x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
+        });
+        if (window.__pfAvatar) window.__pfAvatar.enable(pick);   // 即时预览
+      };
+    });
+
     $('stClose').onclick = function () { box.hidden = true; };
     $('stSave').onclick = function () {
       var patch = {
         avatar: $('stAvatar').checked,
+        avatarModel: pick,
         nickname: $('stName').value.trim(),
         style: $('stStyle').value.trim(),
         persona: $('stPersona').value.trim(),

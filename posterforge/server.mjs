@@ -119,7 +119,13 @@ function saveAssistantPrefs(patch) {
   next.nickname = String(next.nickname || "").slice(0, 20);
   next.style = String(next.style || "").slice(0, 40);
   next.persona = String(next.persona || "").slice(0, 400);
-  next.avatarModel = ["hiyori", "haru", "mao"].includes(next.avatarModel) ? next.avatarModel : "hiyori";
+  // 可选的虚拟形象。**必须和 public/avatar/models/ 下的目录一一对应。**
+  // 踩过的坑：原来写的是 ["hiyori","haru","mao"] —— haru 根本不存在，
+  // 而 hanfu / mudan / cangyixiu 会被这里**静默拒绝**、退回 hiyori：
+  // 用户选了"汉服"、保存、再看变成"日和"，且没有任何报错。
+  // 白名单和实际资源不一致时，静默回退比报错更难查。
+  next.avatarModel = ["hiyori", "mao", "hanfu", "mudan", "cangyixiu"].includes(next.avatarModel)
+    ? next.avatarModel : "hiyori";
   try { writeFileSync(ASSISTANT_FILE, JSON.stringify(next, null, 2), "utf8"); } catch { /* 写不进去就用内存里的 */ }
   return next;
 }
